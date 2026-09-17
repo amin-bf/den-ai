@@ -175,14 +175,18 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
 | `z-image-turbo` (default) | fast general images, legible text | a few short concrete sentences |
 | `flux2-klein-4b` | the fastest drafts and simple assets; **edits** an input image (`--image`) | a plain description, or an edit instruction |
 | `chroma1-hd` | slow, highest-quality photorealism (cfg 6, 35 steps) | a long detailed caption, plus a negative prompt |
+| `klein9b-realism` | fast photorealistic people and scenes; **edits** | a detailed description, with the pose spelled out |
+| `klein9b-anime` | anime and illustration (klein 9B + AniEdit LoRA); **edits**, e.g. photo to anime | a description of scene and style |
 | `wai-illustrious` | anime and illustration, with a hires-fix pass | Danbooru tags, positive and negative |
+| `realvisxl` | photorealistic people and portraits, natural skin (SDXL) | a photo description with camera terms, plus a negative |
+| `juggernaut-xl` | versatile cinematic photorealism: people, landscapes, products (SDXL) | natural language with photographic terms |
 
 Each is `workflows/<name>.json` (a graph in API format) plus `[image.workflows.<name>]` in
 `config.toml`, which says where the prompt, negative prompt, seed and size go. To add one, build
 it in the web UI, export it with Workflow → Export (API), save it under `workflows/` and add
 its mapping. If the model can edit, add the editing graph as `workflows/<name>-edit.json` with
 its mapping under `[image.workflows.<name>.edit]` (including the LoadImage input); requests with
-an input image use it. Of the four, only klein edits; the others generate from text only.
+an input image use it. Only the klein workflows edit; the others generate from text only.
 A workflow can run once the model files its graphs name are in `~/ComfyUI/models`
 (`COMFYUI_DIR` overrides the location).
 
@@ -201,6 +205,8 @@ never clamped. The recommended ranges are starting points, not tested limits.
 | `klein9b-anime` | 4 · 4–6 · 2–12 | 1 (edits 2) · 1–2.5 · 1–5 | euler | fixed | references |
 | `chroma1-hd` | 35 · 26–40 · 10–60 | 6 · 4–6 · 1–10 | euler, res_multistep | beta, simple | |
 | `wai-illustrious` | 28 · 24–30 · 10–50 | 6 · 5–7 · 1–12 | euler_ancestral, dpmpp_2m | normal, karras | control |
+| `realvisxl` | 30 · 25–40 · 10–60 | 5 · 4–6 · 1–12 | dpmpp_2m, dpmpp_sde, dpmpp_2m_sde | karras | control |
+| `juggernaut-xl` | 35 · 30–40 · 10–60 | 4.5 · 3–6 · 1–12 | dpmpp_2m, dpmpp_2m_sde | karras | control |
 
 - **Available samplers and schedulers:** any name ComfyUI knows; others are refused: 45 samplers such as `euler`, `euler_ancestral`,
   `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m_sde`, `res_multistep`, `uni_pc`, `lcm`, and the
@@ -219,7 +225,8 @@ never clamped. The recommended ranges are starting points, not tested limits.
   editing. Klein needs no
   IP-Adapter for this.
 - **Control (ControlNet)** locks composition, pose or outlines to a guide image.
-  `wai-illustrious` uses the SDXL union ControlNet (xinsir promax, `models/controlnet`) with the
+  The SDXL workflows (`wai-illustrious`, `realvisxl`, `juggernaut-xl`) use the SDXL union
+  ControlNet (xinsir promax, `models/controlnet`) with the
   types `canny`, `lineart`, `scribble`, `pose`, `depth`, `normal`, `segment` and `tile`.
   `z-image-turbo` uses the Z-Image Fun ControlNet Union 2.1 lite (`models/model_patches`) with
   `canny`, `hed`, `depth`, `pose` and `mlsd`. For `canny`, pass a photo and den draws the edges
@@ -234,7 +241,8 @@ never clamped. The recommended ranges are starting points, not tested limits.
   `[image.upscalers.<name>]` entries.
 - **Prompt syntax:** ComfyUI just encodes the prompt as text. Midjourney flags (`--ar 9:16`,
   `--v 2`) set nothing; use `--size` and the settings. Weights like `(word:1.3)` are parsed, but
-  only the SDXL workflow (`wai-illustrious`) responds to them reliably.
+  only the SDXL workflows (`wai-illustrious`, `realvisxl`, `juggernaut-xl`) respond to them
+  reliably.
 - **Not included, since there are no custom nodes:** IP-Adapter (ComfyUI has no built-in node for
   it; klein's references do that job) and preprocessors that make pose or depth maps from a photo.
 
@@ -254,6 +262,8 @@ Models tested on a 12 GB card (warm, ~1024² per image):
 | Z-Image-Turbo | 7.5 s | Short sentences; renders text well |
 | WAI-Illustrious SDXL | 10 s (29 s with hires fix) | Tags, anime and illustration |
 | Chroma1-HD (fp8) | 40–50 s | Long, detailed captions; realistic |
+| RealVisXL V5.0 (SDXL, fp16) | 8 s (30 steps, 896x1152) | Photo descriptions; portraits, natural skin |
+| Juggernaut XI (SDXL) | 11 s (35 steps, 832x1216) | Photographic terms; cinematic realism |
 
 Each one fills the card, so only one model runs at a time.
 
@@ -340,7 +350,7 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 | `--sampler NAME` / `--scheduler NAME` | Any ComfyUI sampler or scheduler the workflow has a setting for |
 | `--lora NAME[:STRENGTH]` | Add a LoRA the workflow offers; repeatable |
 | `--reference <file>` | A reference image (person, style, object) for klein workflows; repeatable |
-| `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo, wai-illustrious): `canny` for a photo, or a ready-made `pose`, `depth`, … map |
+| `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo and the SDXL workflows): `canny` for a photo, or a ready-made `pose`, `depth`, … map |
 | `--upscale NAME[:FACTOR]` | Enlarge the result with an upscale model (default factor 2), any workflow |
 
 Ctrl+C cancels the request, in ComfyUI too.

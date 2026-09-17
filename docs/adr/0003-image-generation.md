@@ -62,6 +62,8 @@ nothing.
 | `z-image-turbo` (bf16) | general, legible text | 7.5 |
 | `wai-illustrious` (SDXL, hires fix) | anime and illustration, tag prompts | 29 |
 | `chroma1-hd` (fp8, cfg 6, 35 steps) | photorealistic, long captions, negative prompt | ~50 |
+| `realvisxl` (SDXL fp16, 30 steps, 896x1152) | photorealistic people, natural skin | 8 |
+| `juggernaut-xl` (SDXL, 35 steps, 832x1216) | cinematic photorealism | 11 |
 
 ## Request settings, LoRAs and references
 

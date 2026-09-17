@@ -17,6 +17,17 @@ base_url = "http://127.0.0.1:11435"
 batch_seconds = 120
 batch_requests = 4
 
+# When the machine is too busy for den to load a model. A local model doesn't only hold the GPU:
+# an MoE split across GPU and RAM keeps several GB of RAM and generates on the CPU too, so
+# loading one while a test run or a build is going eats the resources that work needs. A side
+# that is already loaded keeps serving; only loading one that isn't is refused, with the reason
+# (ADR 0004). Set either to 0 to turn that limit off.
+[limits]
+# Refuse to load while the 1-minute load average per CPU is above this.
+max_load_per_cpu = 0.8
+# Refuse to load while less than this much RAM is available (MemAvailable), in GB.
+min_free_ram_gb = 4.0
+
 [llm]
 backend = "ollama"
 # Ollama itself; only the broker talks to it.

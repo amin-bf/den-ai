@@ -76,6 +76,8 @@ type BrokerStatus = {
   loaded: string | null;
   swapping: string | null;
   pending_mode: string | null;
+  releasing?: string[] | null;
+  busy?: string | null;
   ollama?: { error?: string };
   inflight: { id: number; side: string; caller: string; model: string | null }[];
   waiting: { id: number; side: string; caller: string; model: string | null }[];
@@ -223,12 +225,14 @@ function statusText(s: BrokerStatus): string | null {
   // Nobody else is watching the broker's journal: say it here so it gets started.
   if (s.ollama?.error) return `den: ollama is down — sudo systemctl start ollama`;
   if (s.pending_mode) return `den: turning den ${s.pending_mode}`;
+  if (s.releasing?.length) return `den: releasing the ${s.releasing.join(" and ")} side (den unload)`;
   if (s.swapping === "llm" || s.swapping === "image") return `den: swapping the GPU to the ${s.swapping} side`;
   if (s.swapping === "idle") return "den: stopping the idle image side";
   if (s.swapping === "mode") return "den: unloading to turn den off";
   if (s.swapping === "unload") return "den: unloading the GPU (den unload)";
   const w = s.waiting[0];
-  if (!w) return null;
+  // Only worth saying while nothing waits on it: it's the reason the next request would be refused.
+  if (!w) return s.busy && !s.loaded ? `den: too busy to load a model — ${s.busy}` : null;
   const others = s.inflight.filter((r) => r.side !== w.side).map((r) => `${r.caller} ${r.side}`);
   const more = s.waiting.length > 1 ? ` (+${s.waiting.length - 1})` : "";
   return others.length

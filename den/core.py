@@ -131,6 +131,73 @@ def broker_url(config):
     return config.get("broker", {}).get("base_url", "http://127.0.0.1:11435")
 
 
+# A local model doesn't only hold the GPU: an MoE split across GPU and RAM keeps several GB of
+# RAM and generates on the CPU too. So den refuses to *load* a side while the machine is
+# already busy with other work; a side that is loaded keeps serving ([limits], ADR 0004).
+DEFAULT_MAX_LOAD_PER_CPU = 0.8
+DEFAULT_MIN_FREE_RAM_GB = 4.0
+MEMINFO_PATH = Path("/proc/meminfo")
+
+
+def cpus():
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # not Linux
+        return os.cpu_count() or 1
+
+
+def free_ram_gb():
+    """MemAvailable in GB — what a new model could take without swapping; None if unreadable."""
+    try:
+        for line in MEMINFO_PATH.read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) * 1024 / 1e9
+    except (OSError, IndexError, ValueError):
+        return None
+    return None
+
+
+def pressure():
+    """What the machine is doing: 1-minute load average per CPU, and RAM still available.
+
+    The 1-minute average, not the current CPU use: it ignores a short spike but catches a test
+    suite or a build that has been running for a while.
+    """
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        load = None
+    count = cpus()
+    return {
+        "load": load,
+        "cpus": count,
+        "load_per_cpu": round(load / count, 2) if load is not None else None,
+        "free_ram_gb": round(ram, 1) if (ram := free_ram_gb()) is not None else None,
+    }
+
+
+def limits(config):
+    """(max load per cpu, min free RAM in GB) from [limits]; 0 or missing turns a limit off."""
+    section = config.get("limits", {})
+    return (
+        float(section.get("max_load_per_cpu", DEFAULT_MAX_LOAD_PER_CPU) or 0),
+        float(section.get("min_free_ram_gb", DEFAULT_MIN_FREE_RAM_GB) or 0),
+    )
+
+
+def too_busy(config, now=None):
+    """Why the machine is too busy for den to load a model, or None ([limits] in config.toml)."""
+    max_load, min_ram = limits(config)
+    now = now or pressure()
+    reasons = []
+    if max_load and now["load_per_cpu"] is not None and now["load_per_cpu"] > max_load:
+        reasons.append(
+            f"the load average is {now['load']:.1f} on {now['cpus']} cpus "
+            f"({now['load_per_cpu']:.2f} per cpu, limit {max_load})"
+        )
+    if min_ram and now["free_ram_gb"] is not None and now["free_ram_gb"] < min_ram:
+        reasons.append(f"only {now['free_ram_gb']:.1f} GB RAM is available (limit {min_ram} GB)")
+    return " and ".join(reasons) or None
 
 
 def duration_s(value):

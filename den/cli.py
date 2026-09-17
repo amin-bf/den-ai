@@ -42,6 +42,7 @@ def cmd_status(args):
     except DenError as e:
         print(f"broker   DOWN: {e}")
         print(f"llm      {model}")
+        _print_pressure(config, {})
         _print_tasks(config, state)
         return 1
 
@@ -49,6 +50,9 @@ def cmd_status(args):
     print(f"broker   up at {client.base_url}, pid {status['pid']}; GPU side: {loaded}")
     if status["pending_mode"]:
         print(f"         turning den {status['pending_mode']}")
+    if status.get("releasing"):
+        sides = " and ".join(status["releasing"])
+        print(f"         releasing the {sides} side (den unload); its requests are refused meanwhile")
     if status["swapping"]:
         print(f"         swapping ({status['swapping']})")
     for r in status["inflight"]:
@@ -82,9 +86,23 @@ def cmd_status(args):
         if comfy["idle_s"] is not None:
             where += f", idle {comfy['idle_s'] // 60} min"
         print(f"image    comfyui {where} at {comfy['url']}; workflows: {', '.join(runnable) or 'none can run (den image)'}")
+    _print_pressure(config, status)
     _print_tasks(config, state)
     # Non-zero while Ollama is down, so a shell check or a notifier can watch this.
     return 1 if down else 0
+
+
+def _print_pressure(config, status):
+    """What the machine is doing, and whether that holds off loading a side (`[limits]`)."""
+    now = status.get("pressure") or core.pressure()
+    max_load, min_ram = core.limits(config)
+    load = f"load {now['load']:.1f} on {now['cpus']} cpus ({now['load_per_cpu']:.2f}/cpu)" if now["load"] is not None else "load unknown"
+    ram = f"{now['free_ram_gb']:.1f} GB RAM free" if now["free_ram_gb"] is not None else "free RAM unknown"
+    limits = ", ".join([f"{max_load}/cpu" if max_load else "no load limit", f"{min_ram} GB" if min_ram else "no RAM limit"])
+    print(f"machine  {load}, {ram}  (limits: {limits})")
+    busy = core.too_busy(config, now)
+    if busy:
+        print(f"         too busy to load a side that isn't loaded: {busy}")
 
 
 def _print_tasks(config, state):
@@ -125,17 +143,18 @@ def cmd_mode(args):
 def cmd_unload(args):
     config, _ = _load()
     # Unlike `den mode off` this leaves the mode alone: both sides stay available, so the tools
-    # stay listed and the next request loads its side again.
+    # stay listed and the next request loads its side again. New requests are only refused while
+    # the release runs, since whoever asked for the machine back is about to use it.
     try:
         for msg in core.broker(config, "cli").unload_sides([args.side] if args.side else [], args.now):
             if "waiting" in msg or "cancelling" in msg:
                 running = msg.get("waiting") or msg["cancelling"]
                 requests = f"{len(running)} running request{'s' if len(running) > 1 else ''}"
                 print(
-                    f"cancelling {requests} before unloading:"
+                    f"cancelling {requests} before releasing:"
                     if "cancelling" in msg
-                    else f"waiting for {requests} to finish before unloading "
-                    "(--now cancels them); new ones wait and then load again:",
+                    else f"waiting for {requests} to finish before releasing "
+                    "(--now cancels them); new ones are refused meanwhile:",
                     flush=True,
                 )
                 for r in running:
@@ -143,9 +162,9 @@ def cmd_unload(args):
             elif _print_swap_step(msg):
                 pass
             elif "unloaded" in msg:
-                print(f"unloaded: {', '.join(msg['unloaded']) or 'nothing was loaded'}")
+                print(f"released: {', '.join(msg['unloaded']) or 'nothing was loaded'}")
     except KeyboardInterrupt:
-        print("\nunload dropped, unless it was already unloading (check: den status)", file=sys.stderr)
+        print("\nrelease dropped, unless it was already unloading (check: den status)", file=sys.stderr)
         return 130
 
 
@@ -404,7 +423,11 @@ def main(argv=None):
     p.add_argument("--now", action="store_true", help="cancel running requests instead of waiting for them")
     p.set_defaults(func=cmd_mode)
 
-    p = sub.add_parser("unload", help="unload the GPU now without changing the mode (the next request reloads)")
+    p = sub.add_parser(
+        "unload",
+        help="release the GPU, RAM and CPU the local models hold, without changing the mode "
+        "(requests are refused while it runs; the next one loads its side again)",
+    )
     p.add_argument("side", nargs="?", choices=["llm", "image"], help="default: both sides")
     p.add_argument("--now", action="store_true", help="cancel running requests instead of waiting for them")
     p.set_defaults(func=cmd_unload)

@@ -11,12 +11,14 @@ loaded side starts new requests only until a cap (time or count) is reached, so 
 together without starving either side. ComfyUI stays up after an image until the next LLM
 request, a `switch_back`, or `[image] keep_alive` of idle time.
 
-A request runs when its side can: an LLM model is selected, or a workflow can run. Otherwise
-the broker says why, and nothing else gates it. The mode is only the kill switch
-`den mode off`, which refuses new requests, waits for the running ones (or cancels them with
-`now`) and unloads both sides. POST /unload does that unloading alone, leaving the mode on, so
-the GPU is empty and the next request loads its side again. The broker re-reads config.toml
-and state.json on every request; only the listen address needs a restart.
+A request runs when its side can: an LLM model is selected, a workflow can run, and — for a side
+that isn't loaded yet — the machine isn't already busy with other work ([limits], ADR 0004).
+Otherwise the broker says why. The mode is only the kill switch `den mode off`, which refuses
+new requests, waits for the running ones (or cancels them with `now`) and unloads both sides.
+POST /unload releases the sides alone, leaving the mode on: it refuses new requests while it
+runs, because whoever asked for the machine back is about to use it, and afterwards the next
+request loads its side again. The broker re-reads config.toml and state.json on every request;
+only the listen address needs a restart.
 
 Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"} and
 POST /image (all but /status stream NDJSON progress lines).
@@ -112,6 +114,7 @@ class Broker:
         self.loaded_since = time.time()
         self.swapping = None  # "llm"/"image" while swapping to that side; "mode", "unload" or "idle" while unloading
         self.pending_mode = None
+        self.releasing = ()  # the sides a release (POST /unload) is freeing: refused meanwhile
         self.last_image = time.time()
         self.ids = itertools.count(1)
         self.started = time.time()
@@ -136,6 +139,20 @@ class Broker:
             raise DenError(unavailable)
         if self.pending_mode == "off":
             raise DenError("den is being turned off; no new requests until: den mode on")
+        if side in self.releasing:
+            # Someone asked for the CPU, RAM and GPU back and is about to use them: waiting here
+            # would load the side again right behind the release, which is what they asked to avoid.
+            raise DenError(
+                f"den is releasing the CPU, RAM and GPU the {side} side holds (den unload); "
+                "retry once it's done"
+            )
+        # Serving from a loaded side is cheap; loading one on a machine that is already busy is
+        # not, and it's the caller's own test run or build that's usually busy (ADR 0004).
+        if self.loaded != side and (busy := core.too_busy(config)):
+            raise DenError(
+                f"the machine is busy: {busy}. The {side} side isn't loaded and den won't load it "
+                "now — retry when the machine settles, or raise the limits in [limits] of config.toml"
+            )
 
     def _batch_open(self, side, config, now):
         """Whether the loaded side may start another request while the other side waits.
@@ -430,11 +447,16 @@ class Broker:
             upstream = {"url": ollama.base_url, "version": ollama.version(), "loaded": ollama.loaded()}
         except DenError as e:
             upstream = {"url": ollama.base_url, "error": str(e)}
+        pressure = core.pressure()
         result = {
             "pid": os.getpid(),
             "uptime_s": round(time.time() - self.started),
             "mode": state["mode"],
             "pending_mode": self.pending_mode,
+            "releasing": list(self.releasing) or None,
+            "pressure": pressure,
+            # Set while a side that isn't loaded would have to wait for the machine to settle.
+            "busy": core.too_busy(config, pressure),
             "unavailable": {side: _unavailable(side, config, state) for side in SIDES},
             "loaded": self.loaded,
             "loaded_s": round(time.time() - self.loaded_since),
@@ -492,29 +514,41 @@ class Broker:
                 self.cond.notify_all()
 
     def unload_sides(self, sides, now, emit, caller_gone):
-        """Unload the sides without changing the mode, reporting progress through emit(dict).
+        """Release the sides — GPU, and the RAM and CPU their models hold — without changing the mode.
 
-        Nothing is refused: a request that arrives while this runs waits for the unload and then
-        loads its side again, which is the difference from switching to mode off.
+        Progress is reported through emit(dict). A release is an explicit "I need this machine
+        now", so new requests are refused while it runs; the mode stays on, so once it's done the
+        next request loads its side again. That's the difference from switching to mode off, which
+        keeps refusing until `den mode on`.
         """
         config = core.load_config()
         unknown = [side for side in sides if side not in SIDES]
         if unknown:
             raise DenError(f"unknown side {unknown[0]!r}; use one of: {', '.join(SIDES)}")
-        self._drain(sides, now, emit, caller_gone, command="unload")
-        unloaded = []
+        with self.cond:
+            if self.releasing:
+                raise DenError(f"a release of the {' and '.join(self.releasing)} side is already running")
+            self.releasing = tuple(sides)
+            self.cond.notify_all()  # queued requests give up instead of loading behind the release
         try:
-            if "llm" in sides:
-                unloaded += self._unload(Ollama(config["llm"]["base_url"]), emit)
-            if "image" in sides and image.settings(config) and ComfyUI(image.settings(config)["base_url"]).up():
-                self._stop_comfyui(config, emit)
-                unloaded.append("comfyui")
-            with self.cond:
-                if self.loaded in sides:
-                    self.loaded = None
+            self._drain(sides, now, emit, caller_gone, command="unload")
+            unloaded = []
+            try:
+                if "llm" in sides:
+                    unloaded += self._unload(Ollama(config["llm"]["base_url"]), emit)
+                if "image" in sides and image.settings(config) and ComfyUI(image.settings(config)["base_url"]).up():
+                    self._stop_comfyui(config, emit)
+                    unloaded.append("comfyui")
+                with self.cond:
+                    if self.loaded in sides:
+                        self.loaded = None
+            finally:
+                with self.cond:
+                    self.swapping = None
+                    self.cond.notify_all()
         finally:
             with self.cond:
-                self.swapping = None
+                self.releasing = ()
                 self.cond.notify_all()
         emit({"unloaded": unloaded})
 
@@ -522,7 +556,8 @@ class Broker:
         """Wait until no request for the sides runs and no swap is going on, then hold off swaps.
 
         With now, cancel the running requests first. command is the `den` command doing it:
-        "mode" refuses new requests meanwhile (pending_mode), "unload" only makes them wait.
+        both refuse new requests meanwhile, "mode" until it's turned back on (pending_mode),
+        "unload" only until the release is done (releasing).
         """
         if now:
             for r in self.snapshot():
@@ -662,7 +697,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"0\r\n\r\n")
 
     def _unload(self, body):
-        """POST /unload {"sides": ["llm", "image"], "now": false}: unload sides, keep the mode."""
+        """POST /unload {"sides": ["llm", "image"], "now": false}: release the sides' GPU, RAM and
+        CPU, refusing new requests while it runs, and keep the mode on."""
         emit, started = self._ndjson()
         sides = body.get("sides") or list(SIDES)
         log(f"unload of the {' and '.join(sides)} side requested{' --now' if body.get('now') else ''}")

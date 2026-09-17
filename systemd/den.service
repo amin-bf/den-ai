@@ -1,0 +1,11 @@
+[Unit]
+Description=den GPU broker (localhost)
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/den serve
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

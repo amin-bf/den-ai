@@ -1,0 +1,11 @@
+# runtime switches written by `den` (mode, active profile, task toggles)
+state.json
+state.tmp
+__pycache__/
+
+# Per-branch working artifacts (handoffs, diff viewers, agent notes); see AGENTS.md
+/.branch-artifacts/
+
+# Claude Code session files and the vendored agent skills stay local (third-party, not ours to publish)
+.claude/
+.agents/

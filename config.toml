@@ -1,0 +1,63 @@
+# Local AI toolchain configuration — edit by hand.
+# Runtime switches (mode, active model, task on/off) live in state.json and are
+# changed with the `den` CLI; the values here are only their defaults.
+
+# llm | image | both | off
+default_mode = "llm"
+
+# The GPU broker (`den serve`, a user systemd service). Everything that uses the GPU
+# goes through it: the CLI, Claude's MCP server and pi. Nothing else talks to Ollama.
+# Changing the address needs: systemctl --user restart den
+[broker]
+base_url = "http://127.0.0.1:11435"
+
+[llm]
+backend = "ollama"
+# Ollama itself; only the broker talks to it.
+base_url = "http://127.0.0.1:11434"
+# How long Ollama keeps a model in memory after the last request. The broker applies it to
+# every caller (pi sends none, and Ollama's default is 5 m).
+keep_alive = "30m"
+# Settings for whichever model is active. The model itself is not named here: pick one of
+# the models Ollama has downloaded with `den model`.
+# 32k fits a ~23 GB 35B MoE split across the 12 GB GPU and RAM. Keep it equal to
+# OLLAMA_CONTEXT_LENGTH in the Ollama service, so that other clients (pi, Claude Code)
+# share the loaded model instead of reloading it with a different context.
+num_ctx = 32768
+# Thinking was ~3.5x slower, used ~6K of the context and added small errors, without better
+# summaries (ADR 0001).
+think = false
+
+[image]
+backend = "comfyui"
+base_url = "http://127.0.0.1:8188"
+# No profiles yet: image generation is not set up. Adding [image.profiles.<name>]
+# (and its backend in den/) is what enables `den mode image|both`.
+
+# Tasks Claude may delegate. Each becomes an allowed value of the MCP tool's `task`
+# argument; disabled tasks disappear from the tool. Toggle with: den task <name> on|off
+[tasks.summarize]
+enabled = true
+description = "Condense long text, logs or files into the key points."
+system = """You summarize accurately and concisely. Keep concrete facts: names, numbers, \
+error messages, file paths. Never invent details that are not in the input. If the input \
+does not contain what was asked for, say so."""
+
+[tasks.extract]
+enabled = true
+description = "Pull specific facts or structured data (e.g. JSON) out of text or files."
+system = """You extract exactly the requested information from the input. Output only the \
+result in the requested format, with no commentary. Use null or an empty list for anything \
+that is not present — never guess."""
+
+[tasks.classify]
+enabled = true
+description = "Label or sort items into given categories."
+system = """You classify items into the categories you are given. Output only the labels \
+in the requested format. If an item fits no category, label it "unknown"."""
+
+[tasks.draft]
+enabled = true
+description = "First drafts of commit messages, PR descriptions, docs or notes, for Claude to review."
+system = """You write clear, plain first drafts in the requested style and format. Be \
+concise and specific; no filler, no marketing tone."""

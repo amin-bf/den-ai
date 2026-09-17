@@ -338,6 +338,43 @@ def upscalers(config):
     }
 
 
+def _add_blend(name, wf, graph, strength, edit):
+    """Blend the edit back over the image it started from: strength is how much of it to keep.
+
+    A klein edit re-renders the whole frame conditioned on the input rather than changing part
+    of it, so nothing is preserved by construction — an instruction meant to be small still
+    repaints colours it was never about. Blending restores the untouched pixels exactly and
+    scales the change down, which is what "a little warmer" asks for. It ghosts when the edit
+    moves something, so it suits light, colour and grade.
+    """
+    if not edit:
+        raise DenError("strength applies to an edit: pass image, or leave strength out")
+    source = wf.get("blend")
+    if not source:
+        raise DenError(f"workflow {name} takes no strength")
+    try:
+        strength = float(strength)
+    except (TypeError, ValueError):
+        raise DenError(f"strength must be a number, got {strength!r}") from None
+    if not 0 < strength <= 1:
+        raise DenError(f"strength must be above 0 and at most 1, got {strength:g}")
+    # The blend goes in before any upscale, which rewires the same SaveImage inputs after it.
+    if strength < 1:
+        for i, spec in enumerate([s for s in graph.values() if s["class_type"] == "SaveImage"]):
+            node = str(970 + i)
+            graph[node] = {
+                "class_type": "ImageBlend",
+                "inputs": {
+                    "image1": [source, 0],  # the input, already scaled to the result's size
+                    "image2": spec["inputs"]["images"],
+                    "blend_factor": strength,
+                    "blend_mode": "normal",
+                },
+            }
+            spec["inputs"]["images"] = [node, 0]
+    return strength
+
+
 def _add_upscale(config, graph, request):
     """Run the decoded image through an upscale model before it's saved; factor scales the result."""
     offered = upscalers(config)
@@ -444,6 +481,8 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False,
     if options.get("control"):
         params["control"], control_uploads = _add_control(config, name, base, graph, options["control"])
         uploads += control_uploads
+    if options.get("strength") is not None:
+        params["strength"] = _add_blend(name, wf, graph, options["strength"], edit)
     if options.get("upscale"):
         params["upscale"] = _add_upscale(config, graph, options["upscale"])
     return graph, params, uploads
@@ -468,6 +507,8 @@ def summary_parts(params):
         parts.append(f"{params['width']}x{params['height']}")
     parts += [f"{key} {params[key]}" for key in SETTINGS if key in params]
     parts += [f"lora {lora['name']} {lora['strength']}" for lora in params.get("loras", [])]
+    if params.get("strength") is not None:
+        parts.append(f"strength {params['strength']:g}")
     if params.get("references"):
         parts.append(f"{params['references']} reference(s)")
     if params.get("control"):
@@ -526,6 +567,11 @@ def describe_options(config, name, wf):
         )
         desc = describe(lora)
         lines.append(f"lora {lora_name}: {desc} (strength default {strength.get('default', 1.0)}{rng})")
+    if (edit or {}).get("blend"):
+        lines.append(
+            "strength: 0–1 with an input image, default 1 (how much of the edit to keep, blended "
+            "back over the input; for light, colour and grade — it ghosts if the edit moves things)"
+        )
     refs, edit_refs = wf.get("references"), (edit or {}).get("references")
     if refs or edit_refs:
         counts = [f"up to {refs.get('max', 1)}" if refs else "none"]
@@ -581,6 +627,7 @@ def request_spec(config, flows, default):
         if control:
             control_types.update(control.get("types", CONTROL_TYPES[control["kind"]]))
     has_references = any("references" in wf or "references" in (wf.get("edit") or {}) for wf in flows.values())
+    has_strength = any((wf.get("edit") or {}).get("blend") for wf in flows.values())
     workflow_lines = "\n".join(lines)
     ups = describe_upscalers(config)
     description = (
@@ -602,7 +649,9 @@ def request_spec(config, flows, default):
         "and contrast, and costs about twice the time.\n"
         "A workflow marked [edits] also edits an input image: pass `image` and make the prompt the "
         "instruction. Combine what a workflow lists — an edit with references, control with a "
-        "LoRA, any of them with an upscale — in one call.\n"
+        "LoRA, any of them with an upscale — in one call. An edit re-renders the whole frame, so "
+        "it can repaint colours the instruction was not about; `strength` on a workflow that "
+        "lists it scales the change back down.\n"
         "The image is saved in a dated folder on this machine; the result gives its path, seed, "
         "workflow and every setting used. Pass `out` to also copy it somewhere, e.g. into a "
         "project."
@@ -689,6 +738,22 @@ def request_spec(config, flows, default):
                     }
                 }
                 if has_references
+                else {}
+            ),
+            **(
+                {
+                    "strength": {
+                        "type": "number",
+                        "description": (
+                            "How much of the edit to keep, 0–1 (default 1), on a workflow that lists "
+                            "it. An edit re-renders the whole frame, so a small instruction can still "
+                            "repaint colours it was not about; blending it back over the input at, "
+                            "say, 0.3 restores the untouched pixels exactly and scales the change "
+                            "down. For light, colour and grade — it ghosts if the edit moves things."
+                        ),
+                    }
+                }
+                if has_strength
                 else {}
             ),
             **(

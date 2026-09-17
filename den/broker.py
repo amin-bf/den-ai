@@ -755,7 +755,7 @@ class Handler(BaseHTTPRequestHandler):
             if not Path(path).is_file():
                 raise DenError(f"input image not found: {path}")
         prompt = body.get("prompt") or ""
-        options = {key: body.get(key) for key in (*image.SETTINGS, "loras", "references", "control", "upscale")}
+        options = {key: body.get(key) for key in (*image.SETTINGS, "loras", "references", "control", "upscale", "strength")}
         graph, params, uploads = image.build(
             config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"),
             edit=bool(body.get("image")), options=options,

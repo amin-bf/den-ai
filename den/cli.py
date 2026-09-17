@@ -270,6 +270,7 @@ def cmd_image(args):
         "references": [str(path.expanduser().resolve()) for path in args.reference] or None,
         "control": _control_arg(args),
         "upscale": _upscale_arg(args.upscale),
+        "strength": args.strength,
     }
     try:
         for msg in core.broker(config, "cli").generate_image(**{k: v for k, v in request.items() if v is not None}):
@@ -474,6 +475,7 @@ def main(argv=None):
     p.add_argument("--control-start", type=float, help="fraction of the sampling where the guide starts acting (default 0)")
     p.add_argument("--control-end", type=float, help="fraction where it stops; end early to fix only the composition (default 1)")
     p.add_argument("--upscale", metavar="NAME[:FACTOR]", help="upscale the result with this model (default factor 2)")
+    p.add_argument("--strength", type=float, metavar="0-1", help="with --image: how much of the edit to keep, blended back over the input")
     p.set_defaults(func=cmd_image)
 
     p = sub.add_parser("log", help="review delegations by Claude: per-task stats, verdicts and problem notes")

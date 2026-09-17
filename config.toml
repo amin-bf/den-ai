@@ -85,6 +85,8 @@ upscale_factor = 2
 # A workflow whose model can edit also gets [image.workflows.<name>.edit]: the same keys for
 # workflows/<name>-edit.json, plus
 #   image        "node.input" of the LoadImage node that receives the input image
+#   blend        node whose image output has the result's size (the scaled input), which a
+#                request's `strength` blends the edit back over (optional)
 # That variant runs instead when a request brings an input image.
 [image.workflows.z-image-turbo]
 description = """Z-Image-Turbo: fast general-purpose images, photorealistic or illustrated, and \
@@ -129,6 +131,7 @@ sampler = { input = "61.sampler_name", recommended = ["euler"] }
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+blend = "80"
 negative = "77.text"
 with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 2 }
@@ -157,6 +160,7 @@ sampler = { input = "61.sampler_name", recommended = ["euler"] }
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+blend = "80"
 negative = "77.text"
 with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 2 }
@@ -185,6 +189,7 @@ sampler = { input = "61.sampler_name", recommended = ["euler"] }
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+blend = "80"
 negative = "77.text"
 with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 2 }

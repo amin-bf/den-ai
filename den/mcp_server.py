@@ -221,7 +221,7 @@ def release_resources(args, progress_token):
 
 def generate_image(args, progress_token):
     config = core.load_config()
-    keys = ("prompt", "workflow", "negative", "seed", "size", "image", "out", "switch_back", *image.SETTINGS, "loras", "references", "control", "upscale")
+    keys = ("prompt", "workflow", "negative", "seed", "size", "image", "out", "switch_back", *image.SETTINGS, "loras", "references", "control", "upscale", "strength")
     # Ask for a small copy of the image: a text path can't be judged, and the next call's
     # prompt, seed or settings depend on what came out (the saved file stays a full-size PNG).
     request = {k: args[k] for k in keys if args.get(k) is not None} | {"preview": True}

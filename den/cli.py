@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from den import core
+from den import core, image
 from den.core import DenError
 
 
@@ -39,11 +39,16 @@ def cmd_status(args):
         _print_tasks(config, state)
         return 1
 
-    print(f"broker   up at {client.base_url}, pid {status['pid']}")
+    loaded = status["loaded"] or "nothing"
+    print(f"broker   up at {client.base_url}, pid {status['pid']}; GPU side: {loaded}")
     if status["pending_mode"]:
         print(f"         switching to mode {status['pending_mode']}")
+    if status["swapping"]:
+        print(f"         swapping ({status['swapping']})")
     for r in status["inflight"]:
         print(f"         running {_describe(r)}")
+    for r in status["waiting"]:
+        print(f"         waiting {_describe(r)}")
     upstream = status["ollama"]
     if "error" in upstream:
         print(f"llm      {model}")
@@ -61,7 +66,15 @@ def cmd_status(args):
         others = [n for n in loaded if n != core.model_tag(model)]
         print(f"ollama   {version} at {upstream['url']}" + (f"; also loaded: {', '.join(others)}" if others else ""))
 
-    print(f"image    {'configured' if core.image_available(config) else 'not set up'}")
+    comfy = status.get("comfyui")
+    runnable = image.available(config)
+    if comfy is None:
+        print("image    not configured")
+    else:
+        where = "up" if comfy["up"] else "stopped"
+        if comfy["idle_s"] is not None:
+            where += f", idle {comfy['idle_s'] // 60} min"
+        print(f"image    comfyui {where} at {comfy['url']}; workflows: {', '.join(runnable) or 'none can run (den image)'}")
     _print_tasks(config, state)
     return 1 if "error" in upstream else 0
 
@@ -82,22 +95,82 @@ def cmd_mode(args):
         for msg in core.broker(config, "cli").switch_mode(args.mode, args.now):
             if "waiting" in msg or "cancelling" in msg:
                 running = msg.get("waiting") or msg["cancelling"]
-                requests = f"{len(running)} running LLM request{'s' if len(running) > 1 else ''}"
+                requests = f"{len(running)} running request{'s' if len(running) > 1 else ''}"
                 print(
-                    f"cancelling {requests} before unloading the LLM:"
+                    f"cancelling {requests} for the side being turned off:"
                     if "cancelling" in msg
-                    else f"waiting for {requests} to finish before unloading the LLM "
+                    else f"waiting for {requests} to finish before turning their side off "
                     "(--now cancels them); new ones are refused meanwhile:",
                     flush=True,
                 )
                 for r in running:
                     print(f"  {_describe(r)}", flush=True)
-            elif "unloading" in msg:
-                print(f"unloading {', '.join(msg['unloading'])} ...", flush=True)
+            elif _print_swap_step(msg):
+                pass
             elif "mode" in msg:
                 print(f"mode: {msg['mode']}")
     except KeyboardInterrupt:
         print("\nmode switch dropped, unless it was already unloading (check: den status)", file=sys.stderr)
+        return 130
+
+
+def _print_swap_step(msg):
+    """Print an unloading / starting / stopping progress line; False for other messages."""
+    if "unloading" in msg:
+        print(f"unloading the LLM ({', '.join(msg['unloading'])}) ...", flush=True)
+    elif "starting" in msg:
+        print(f"starting {msg['starting']} (ComfyUI) ...", flush=True)
+    elif "stopping" in msg:
+        print(f"stopping {msg['stopping']} (ComfyUI) ...", flush=True)
+    else:
+        return False
+    return True
+
+
+def cmd_image(args):
+    config, state = _load()
+    if args.prompt is None:
+        default = image.settings(config).get("default_workflow")
+        flows = image.check_workflows(config)
+        if not flows:
+            print("no workflows configured ([image.workflows.<name>] in config.toml)")
+        for name, (wf, problem) in flows.items():
+            marker = "*" if name == default else " "
+            print(f"{marker} {name:<16} {wf.get('description', '')}")
+            if problem:
+                print(f"  {'':<16} CAN'T RUN: {problem}")
+        return
+    request = {
+        "prompt": args.prompt,
+        "workflow": args.workflow,
+        "negative": args.negative,
+        "seed": args.seed,
+        "size": args.size,
+        "image": str(args.image.expanduser().resolve()) if args.image else None,
+        "out": str(args.out.expanduser().resolve()) + ("/" if str(args.out).endswith("/") else "") if args.out else None,
+        "switch_back": args.switch_back,
+    }
+    try:
+        for msg in core.broker(config, "cli").generate_image(**{k: v for k, v in request.items() if v is not None}):
+            if "waiting" in msg:
+                print(f"waiting: {msg['waiting']['reason']}", flush=True)
+                for r in msg["waiting"].get("running", []):
+                    print(f"  {_describe(r)}", flush=True)
+            elif _print_swap_step(msg):
+                pass
+            elif "generating" in msg:
+                g = msg["generating"]
+                size = f", {g['width']}x{g['height']}" if g["width"] else ""
+                print(f"generating with {g['workflow']} (seed {g['seed']}{size}) ...", flush=True)
+            elif "result" in msg:
+                r = msg["result"]
+                for path in r["paths"] + r["copies"]:
+                    print(path, flush=True)
+                waited = f", waited {r['waited_s']:.0f}s" if r["waited_s"] >= 1 else ""
+                back = "; ComfyUI stopped" if r.get("switched_back") else ""
+                print(f"[{r['workflow']} · seed {r['seed']} · {r['seconds']}s{waited}{back}]", file=sys.stderr)
+    except KeyboardInterrupt:
+        print("\nimage request cancelled", file=sys.stderr)
         return 130
 
 
@@ -246,6 +319,17 @@ def main(argv=None):
     p.add_argument("instructions")
     p.add_argument("--file", action="append", default=[], type=Path)
     p.set_defaults(func=cmd_ask)
+
+    p = sub.add_parser("image", help="generate an image through the broker, or list workflows (no prompt)")
+    p.add_argument("prompt", nargs="?")
+    p.add_argument("-w", "--workflow", help="workflow name (default: [image] default_workflow)")
+    p.add_argument("-n", "--negative", help="negative prompt, for workflows that take one")
+    p.add_argument("--seed", type=int, help="default: random")
+    p.add_argument("--size", help="WIDTHxHEIGHT, e.g. 1024x1024 (default: the workflow's)")
+    p.add_argument("--image", type=Path, help="input image, for workflows that take one")
+    p.add_argument("-o", "--out", type=Path, help="also copy the result here (a file, or a directory ending in /)")
+    p.add_argument("--switch-back", action="store_true", help="stop ComfyUI afterwards so the LLM can load")
+    p.set_defaults(func=cmd_image)
 
     p = sub.add_parser("log", help="review delegations by Claude: per-task stats, verdicts and problem notes")
     p.add_argument("--notes", type=int, default=10, help="how many recent problem notes to show")

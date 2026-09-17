@@ -10,6 +10,11 @@ default_mode = "llm"
 # Changing the address needs: systemctl --user restart den
 [broker]
 base_url = "http://127.0.0.1:11435"
+# Batching when both sides are wanted (mode both): while one side waits, the loaded side starts
+# new requests only until either cap is reached, counted from when the other side started
+# waiting. Running requests always finish before the swap (ADR 0002, ADR 0003).
+batch_seconds = 120
+batch_requests = 4
 
 [llm]
 backend = "ollama"
@@ -30,9 +35,57 @@ think = false
 
 [image]
 backend = "comfyui"
+# ComfyUI itself; only the broker talks to it. It finds model files in $COMFYUI_DIR/models
+# (default ~/ComfyUI/models).
 base_url = "http://127.0.0.1:8188"
-# No profiles yet: image generation is not set up. Adding [image.profiles.<name>]
-# (and its backend in den/) is what enables `den mode image|both`.
+# The systemd user unit the broker starts on a swap to images and stops on a swap back.
+service = "comfyui"
+# How long ComfyUI stays up after the last image request.
+keep_alive = "30m"
+# Used when a request names no workflow.
+default_workflow = "z-image-turbo"
+
+# Workflows: workflows/<name>.json is the ComfyUI graph in API format (web UI: Export (API)).
+# A workflow can run when the model files its graph names are downloaded.
+#   description  what it's good at and how to write its prompt, for whoever picks the workflow
+#   prompt       "node.input" that receives the prompt
+#   negative     "node.input" for the negative prompt (optional)
+#   seed         "node.input", or a list when several nodes take the seed
+#   size         node ids whose width and height inputs receive the size (optional)
+#   image        "node.input" of a LoadImage node for an input image (optional)
+[image.workflows.z-image-turbo]
+description = """Z-Image-Turbo: fast general-purpose images, photorealistic or illustrated, and \
+renders short text legibly. Prompt: a few short, concrete English sentences. The negative \
+prompt only takes effect at cfg above 1 (the workflow uses 1)."""
+prompt = "4.text"
+negative = "5.text"
+seed = "8.seed"
+size = ["7"]
+
+[image.workflows.flux2-klein-4b]
+description = """FLUX.2 klein 4B: the fastest, for quick drafts, icons and simple assets; \
+details and anatomy slip more often. Prompt: a plain English description."""
+prompt = "74.text"
+seed = "73.noise_seed"
+size = ["66", "62"]
+
+[image.workflows.chroma1-hd]
+description = """Chroma1-HD: slow, highest-quality photorealistic images, with a real negative \
+prompt (cfg 6, 35 steps). Prompt: a long, detailed natural-language caption; the negative \
+lists what to avoid."""
+prompt = "5.text"
+negative = "6.text"
+seed = "9.noise_seed"
+size = ["8"]
+
+[image.workflows.wai-illustrious]
+description = """WAI-illustrious (SDXL): anime and illustration, with a hires-fix pass that \
+upscales 1.5x (default 1024x1344). Prompt: comma-separated Danbooru tags, starting with \
+"masterpiece, best quality, amazing quality"; the negative is tags too."""
+prompt = "2.text"
+negative = "3.text"
+seed = ["5.seed", "10.seed"]
+size = ["4"]
 
 # Tasks Claude may delegate. Each becomes an allowed value of the MCP tool's `task`
 # argument; disabled tasks disappear from the tool. Toggle with: den task <name> on|off

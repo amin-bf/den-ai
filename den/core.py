@@ -9,6 +9,7 @@ Clients reach Ollama only through the broker (`den serve`, see broker.py).
 import fcntl
 import json
 import os
+import re
 import time
 import tomllib
 import urllib.error
@@ -95,8 +96,18 @@ def broker_url(config):
     return config.get("broker", {}).get("base_url", "http://127.0.0.1:11435")
 
 
-def image_available(config):
-    return bool(config.get("image", {}).get("profiles"))
+def image_on(state):
+    return "image" in MODES[state["mode"]]
+
+
+def duration_s(value):
+    """Seconds from a number or a duration like "90s", "30m" or "1h"."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([smh]?)\s*", str(value))
+    if not match:
+        raise DenError(f"cannot read duration {value!r}; use e.g. 90s, 30m or 1h")
+    return float(match[1]) * {"": 1, "s": 1, "m": 60, "h": 3600}[match[2]]
 
 
 def model_tag(model):
@@ -198,14 +209,21 @@ class BrokerClient(Ollama):
     def status(self):
         return self._request("GET", "/status")
 
-    def switch_mode(self, mode, now=False):
-        """Yield the broker's progress lines until the switch is done; errors raise DenError."""
-        with self._open("POST", "/mode", {"mode": mode, "now": now}, timeout=None) as resp:
+    def _stream(self, path, body):
+        """Yield the broker's NDJSON progress lines until it's done; errors raise DenError."""
+        with self._open("POST", path, body, timeout=None) as resp:
             for line in resp:
                 msg = json.loads(line)
                 if "error" in msg:
                     raise DenError(msg["error"])
                 yield msg
+
+    def switch_mode(self, mode, now=False):
+        return self._stream("/mode", {"mode": mode, "now": now})
+
+    def generate_image(self, **request):
+        """Progress lines of one image request; the last one carries "result"."""
+        return self._stream("/image", request)
 
 
 def broker(config, caller):

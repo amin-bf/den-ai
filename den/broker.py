@@ -1,12 +1,23 @@
 """`den serve`: the GPU broker. Everything that uses the GPU goes through it.
 
-LLM requests (Ollama's native /api/… and OpenAI-style /v1/…) are passed through to Ollama,
-streamed as they arrive. The broker counts the requests in progress and owns mode switches:
-a switch that turns the LLM off refuses new LLM work, waits for the running requests (or
-cancels them with `now`), unloads the models and only then saves the new mode. It re-reads
-config.toml and state.json on every request; only the listen address needs a restart.
+Two sides share the GPU, one loaded at a time: the LLM (Ollama) and image generation
+(ComfyUI, a systemd user service the broker starts and stops). LLM requests (Ollama's native
+/api/… and OpenAI-style /v1/…) are passed through to Ollama, streamed as they arrive. Image
+requests (POST /image) fill in a workflow, run it on ComfyUI and save the result.
 
-Own endpoints: GET /status, POST /mode {"mode", "now"} (NDJSON progress lines).
+A request for the side that isn't loaded waits for a swap: the loaded side finishes its running
+requests, then the broker unloads it and loads the other. While the other side waits, the
+loaded side starts new requests only until a cap (time or count) is reached, so batches go
+together without starving either side. ComfyUI stays up after an image until the next LLM
+request, a `switch_back`, or `[image] keep_alive` of idle time.
+
+The broker owns mode switches too: a switch that turns a side off refuses its new requests,
+waits for the running ones (or cancels them with `now`), unloads that side and only then saves
+the new mode. It re-reads config.toml and state.json on every request; only the listen address
+needs a restart.
+
+Own endpoints: GET /status, POST /mode {"mode", "now"} and POST /image (both stream NDJSON
+progress lines).
 """
 
 import http.client
@@ -15,14 +26,17 @@ import json
 import os
 import select
 import socket
+import subprocess
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from den import core
+from den import core, image
 from den.core import DenError, Ollama
+from den.image import ComfyUI
 
 # Requests that don't put work on the GPU: always allowed, whatever the mode, and not tracked.
 CONTROL_PATHS = {
@@ -38,7 +52,18 @@ UPSTREAM_TIMEOUT_S = 900  # per read: covers loading a model and reading a 32k p
 # Native endpoints that load a model and accept keep_alive in the body.
 KEEP_ALIVE_PATHS = {"/api/generate", "/api/chat", "/api/embed", "/api/embeddings"}
 PROGRESS_INTERVAL_S = 5
+WAIT_REPORT_INTERVAL_S = 30
 UNLOAD_TIMEOUT_S = 60
+COMFYUI_START_TIMEOUT_S = 180
+COMFYUI_STOP_TIMEOUT_S = 30
+IDLE_CHECK_S = 10
+SIDES = ("llm", "image")
+DEFAULT_BATCH_SECONDS = 120
+DEFAULT_BATCH_REQUESTS = 4
+
+
+def log(text):
+    print(f"{time.strftime('%H:%M:%S')} {text}", file=sys.stderr, flush=True)
 
 
 def _is_unload(body):
@@ -51,36 +76,190 @@ def _is_unload(body):
     )
 
 
+def _off_message(side, mode):
+    if side == "llm":
+        return f"the local LLM is off (mode: {mode}); turn it on with: den mode llm"
+    return f"image generation is off (mode: {mode}); turn it on with: den mode image (or both)"
+
+
+def _no_emit(msg):
+    pass
+
+
+def _systemctl(action, service):
+    try:
+        result = subprocess.run(
+            ["systemctl", "--user", action, service], capture_output=True, text=True, timeout=COMFYUI_STOP_TIMEOUT_S
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise DenError(f"systemctl --user {action} {service} failed: {e}") from e
+    if result.returncode != 0:
+        raise DenError(f"systemctl --user {action} {service} failed: {result.stderr.strip()}")
+
+
 class Broker:
-    """In-flight requests and the pending mode switch, shared by all handler threads."""
+    """Which side holds the GPU, and the requests running or waiting, shared by all handler threads."""
 
     def __init__(self):
         self.cond = threading.Condition()
-        self.inflight = {}  # id -> request info (and its upstream connection)
+        self.inflight = {}  # id -> request info (and how to cancel it)
+        self.waiting = {}  # id -> request info, waiting for its side to be loaded or for its turn
+        self.starts = {side: [] for side in SIDES}  # recent start times, for the batch count cap
+        self.loaded = None  # the side holding the GPU, as far as the broker knows
+        self.loaded_since = time.time()
+        self.swapping = None  # "llm" / "image" while swapping to that side, "mode" or "idle" while unloading
         self.pending_mode = None
+        self.last_image = time.time()
         self.ids = itertools.count(1)
         self.started = time.time()
 
-    def admit(self, info):
-        """Register LLM work, or raise DenError when the mode doesn't allow it right now."""
+    # --- admission and the swap ---
+
+    def detect_loaded(self):
+        """The side already on the GPU when the broker starts."""
         config = core.load_config()
-        state = core.load_state(config)
+        if image.settings(config) and ComfyUI(image.settings(config)["base_url"]).up():
+            self.loaded = "image"
+        else:
+            try:
+                self.loaded = "llm" if Ollama(config["llm"]["base_url"]).loaded() else None
+            except DenError:
+                self.loaded = None
+        return self.loaded
+
+    def _check_mode(self, side, state):
+        if side not in core.MODES[state["mode"]]:
+            raise DenError(_off_message(side, state["mode"]))
+        if self.pending_mode is not None and side not in core.MODES[self.pending_mode]:
+            raise DenError(
+                f"the {side} side is being turned off (switching to mode {self.pending_mode}); "
+                "no new requests for it until the mode allows it again"
+            )
+
+    def _batch_open(self, side, config, now):
+        """Whether the loaded side may start another request while the other side waits.
+
+        The caps count from when the other side started waiting, or from when this side was
+        loaded if that's later: requests that waited through a swap always get their turn.
+        """
+        others = [w["queued"] for w in self.waiting.values() if w["side"] != side]
+        if not others:
+            return True
+        since = max(min(others), self.loaded_since)
+        broker_config = config.get("broker", {})
+        max_s = core.duration_s(broker_config.get("batch_seconds", DEFAULT_BATCH_SECONDS))
+        max_n = int(broker_config.get("batch_requests", DEFAULT_BATCH_REQUESTS))
+        started = sum(1 for t in self.starts[side] if t >= since)
+        return now - since < max_s and started < max_n
+
+    def _can_start(self, side, config, now):
+        return self.swapping is None and self.loaded == side and self._batch_open(side, config, now)
+
+    def _can_swap(self, side, config, now):
+        """Swap to side once the loaded side has nothing running and nothing it may still start."""
+        if self.swapping is not None or self.loaded == side:
+            return False
+        if any(i["side"] != side for i in self.inflight.values()):
+            return False
+        return not any(
+            w["side"] == self.loaded and self._can_start(self.loaded, config, now) for w in self.waiting.values()
+        )
+
+    def _wait_reason(self, side, config, now):
+        if self.swapping in SIDES:
+            return {"reason": f"swapping to the {self.swapping} side"}
+        if self.swapping == "mode":
+            return {"reason": f"switching to mode {self.pending_mode}"}
+        if self.swapping == "idle":
+            return {"reason": "the idle image side is being stopped"}
+        running = [r for r in self.snapshot() if r["side"] != side]
+        if self.loaded == side:
+            return {"reason": f"the {_other(side)} side is waiting and the {side} side reached its batch cap"}
+        if running:
+            return {"reason": f"the {self.loaded} side has running requests; the swap follows", "running": running}
+        return {"reason": f"the {self.loaded} side still has requests to start before the swap"}
+
+    def admit(self, info, emit=_no_emit, caller_gone=lambda: False):
+        """Start a request for info["side"] once that side is loaded; returns its id.
+
+        Waits (reporting through emit) while the other side holds the GPU, and runs the swap
+        itself when it's due. Raises DenError when the mode doesn't allow the side, and
+        ConnectionResetError when the caller hangs up while waiting.
+        """
+        side = info["side"]
+        info["id"] = next(self.ids)
+        last_reason, last_report = None, 0.0
+        try:
+            while True:
+                config = core.load_config()
+                state = core.load_state(config)
+                with self.cond:
+                    self._check_mode(side, state)
+                    now = time.time()
+                    if self._can_start(side, config, now):
+                        self.waiting.pop(info["id"], None)
+                        info["started"] = now
+                        self.inflight[info["id"]] = info
+                        self.starts[side] = [t for t in self.starts[side] if now - t < 3600][-100:] + [now]
+                        if last_reason is not None:
+                            log(f"#{info['id']} {info['caller']} {side} starts after {now - info['queued']:.1f}s")
+                        return info["id"]
+                    if info["id"] not in self.waiting:
+                        info["queued"] = now
+                        self.waiting[info["id"]] = info
+                    swap = self._can_swap(side, config, now)
+                    if swap:
+                        self.swapping = side
+                    else:
+                        reason = self._wait_reason(side, config, now)
+                if swap:
+                    self._swap(side, config, emit)
+                    continue
+                # Report a change of reason or of the requests it waits on, not their growing ages.
+                key = (reason["reason"], [r["id"] for r in reason.get("running", [])])
+                if key != last_reason or now - last_report >= WAIT_REPORT_INTERVAL_S:
+                    if key[0] != (last_reason or ("",))[0]:
+                        log(f"#{info['id']} {info['caller']} {side} waits: {reason['reason']}")
+                    emit({"waiting": reason})
+                    last_reason, last_report = key, now
+                if caller_gone():
+                    log(f"#{info['id']} {info['caller']} {side} gave up after waiting {now - info['queued']:.1f}s")
+                    raise ConnectionResetError("the caller hung up while waiting")
+                with self.cond:
+                    self.cond.wait(timeout=1)
+        finally:
+            with self.cond:
+                if self.waiting.pop(info["id"], None) is not None:
+                    self.cond.notify_all()
+
+    def _swap(self, side, config, emit):
+        """Unload the other side and load this one; self.swapping is already set by the caller."""
+        began = time.time()
+        log(f"swap to the {side} side (from {self.loaded or 'nothing'})")
+        try:
+            if side == "image":
+                self._unload(Ollama(config["llm"]["base_url"]), emit)
+                self._start_comfyui(config, emit)
+            else:
+                self._stop_comfyui(config, emit)
+        except DenError as e:
+            log(f"swap to the {side} side failed: {e}")
+            with self.cond:
+                self.loaded, self.swapping = None, None
+                self.cond.notify_all()
+            raise
         with self.cond:
-            if not core.llm_on(state):
-                raise DenError(f"the local LLM is off (mode: {state['mode']}); turn it on with: den mode llm")
-            if self.pending_mode is not None and "llm" not in core.MODES[self.pending_mode]:
-                raise DenError(
-                    f"the local LLM is being turned off (switching to mode {self.pending_mode}); "
-                    "no new LLM requests until: den mode llm"
-                )
-            info["id"] = next(self.ids)
-            info["started"] = time.time()
-            self.inflight[info["id"]] = info
-        return info["id"]
+            self.loaded, self.loaded_since, self.swapping = side, time.time(), None
+            if side == "image":
+                self.last_image = time.time()
+            self.cond.notify_all()
+        log(f"swap to the {side} side done in {time.time() - began:.1f}s")
 
     def finish(self, req_id):
         with self.cond:
-            self.inflight.pop(req_id, None)
+            info = self.inflight.pop(req_id, None)
+            if info and info["side"] == "image":
+                self.last_image = time.time()
             self.cond.notify_all()
 
     def cancel(self, req_id, reason):
@@ -89,6 +268,12 @@ class Broker:
         if not info:
             return
         info["cancelled"] = reason
+        if info.get("cancel"):  # an image request: ComfyUI drops or interrupts the prompt
+            try:
+                info["cancel"]()
+            except DenError as e:
+                log(f"#{req_id} cancel failed: {e}")
+            return
         conn = info.get("upstream")
         if conn is not None and conn.sock is not None:
             try:
@@ -96,84 +281,103 @@ class Broker:
             except OSError:
                 pass
 
-    def snapshot(self):
-        now = time.time()
-        with self.cond:
-            return [
-                {
-                    "id": i["id"],
-                    "side": "llm",
-                    "caller": i["caller"],
-                    "request": f"{i['method']} {i['path']}",
-                    "model": i["model"],
-                    "seconds": round(now - i["started"], 1),
-                }
-                for i in sorted(self.inflight.values(), key=lambda i: i["id"])
-            ]
+    def switch_back(self, config, emit):
+        """After an image request that asked for it: stop ComfyUI if no image work is left.
 
-    def status(self):
-        config = core.load_config()
-        state = core.load_state(config)
-        ollama = Ollama(config["llm"]["base_url"])
-        try:
-            upstream = {"url": ollama.base_url, "version": ollama.version(), "loaded": ollama.loaded()}
-        except DenError as e:
-            upstream = {"url": ollama.base_url, "error": str(e)}
-        return {
-            "pid": os.getpid(),
-            "uptime_s": round(time.time() - self.started),
-            "mode": state["mode"],
-            "pending_mode": self.pending_mode,
-            "inflight": self.snapshot(),
-            "ollama": upstream,
-        }
-
-    def switch_mode(self, mode, now, emit, caller_gone):
-        """Run a mode switch, reporting progress through emit(dict). Raises DenError.
-
-        caller_gone() is polled while waiting: a caller that hangs up (Ctrl+C) drops the switch.
+        The LLM isn't preloaded; it loads on its next request as usual.
         """
-        config = core.load_config()
         state = core.load_state(config)
-        if mode not in core.MODES:
-            raise DenError(f"unknown mode {mode!r}; use one of: {', '.join(core.MODES)}")
-        if "image" in core.MODES[mode] and not core.image_available(config):
-            raise DenError("image generation is not set up yet (no [image.profiles] in config.toml)")
         with self.cond:
-            if self.pending_mode is not None:
-                raise DenError(f"a switch to mode {self.pending_mode} is already waiting")
-            self.pending_mode = mode
+            if (
+                self.loaded != "image"
+                or self.swapping is not None
+                or not core.llm_on(state)
+                or any(i["side"] == "image" for i in [*self.inflight.values(), *self.waiting.values()])
+            ):
+                return False
+            self.swapping = "llm"
+        self._swap("llm", config, emit)
+        return True
+
+    def stop_if_idle(self):
+        """Stop ComfyUI after [image] keep_alive without image requests (checked every few seconds)."""
+        config = core.load_config()
+        keep_alive = core.duration_s(image.settings(config).get("keep_alive", "30m"))
+        with self.cond:
+            if (
+                self.loaded != "image"
+                or self.swapping is not None
+                or time.time() - self.last_image < keep_alive
+                or any(i["side"] == "image" for i in [*self.inflight.values(), *self.waiting.values()])
+            ):
+                return
+            self.swapping = "idle"
         try:
-            unloaded = []
-            if "llm" not in core.MODES[mode]:
-                self._drain(now, emit, caller_gone)
-                unloaded = self._unload(Ollama(config["llm"]["base_url"]), emit)
-            state = core.load_state(config)
-            state["mode"] = mode
-            core.save_state(state)
-            emit({"mode": mode, "unloaded": unloaded})
+            try:
+                if ComfyUI(image.settings(config)["base_url"]).busy():  # its web UI is in use
+                    with self.cond:
+                        self.last_image = time.time()
+                    return
+            except DenError:
+                pass  # not answering: stopping the service is still right
+            log(f"the image side was idle for {keep_alive:.0f}s; stopping ComfyUI")
+            self._stop_comfyui(config, _no_emit)
+            with self.cond:
+                self.loaded = None
         finally:
             with self.cond:
-                self.pending_mode = None
+                self.swapping = None
+                self.cond.notify_all()
 
-    def _drain(self, now, emit, caller_gone):
-        """Wait until no LLM request is running; with now, cancel them first."""
-        if now:
-            for r in self.snapshot():
-                self.cancel(r["id"], "cancelled by: den mode --now")
-        last, last_emit = None, 0.0
+    def idle_loop(self):
         while True:
-            running = self.snapshot()
-            if not running:
-                return
-            if caller_gone():
-                raise ConnectionResetError("the caller hung up")
-            ids = [r["id"] for r in running]
-            if ids != last or time.time() - last_emit >= PROGRESS_INTERVAL_S:
-                emit({"cancelling" if now else "waiting": running})
-                last, last_emit = ids, time.time()
-            with self.cond:
-                self.cond.wait(timeout=1)
+            time.sleep(IDLE_CHECK_S)
+            try:
+                self.stop_if_idle()
+            except Exception as e:  # keep checking: one failed stop mustn't end the timeout
+                log(f"idle check failed: {e!r}")
+
+    # --- the sides' processes ---
+
+    def _start_comfyui(self, config, emit):
+        settings = image.settings(config)
+        comfy = ComfyUI(settings["base_url"])
+        if comfy.up():
+            return
+        service = settings.get("service", "comfyui")
+        emit({"starting": service})
+        _systemctl("start", service)
+        deadline = time.time() + COMFYUI_START_TIMEOUT_S
+        while not comfy.up():
+            if time.time() > deadline:
+                raise DenError(
+                    f"ComfyUI didn't answer at {comfy.base_url} {COMFYUI_START_TIMEOUT_S}s after starting {service}; "
+                    f"see: journalctl --user -u {service}"
+                )
+            try:
+                _systemctl("is-active", service)
+            except DenError as e:
+                raise DenError(f"{service} stopped while starting; see: journalctl --user -u {service}") from e
+            time.sleep(1)
+
+    def _stop_comfyui(self, config, emit):
+        settings = image.settings(config)
+        if not settings:
+            return
+        comfy = ComfyUI(settings["base_url"])
+        if not comfy.up():
+            return
+        service = settings.get("service", "comfyui")
+        emit({"stopping": service})
+        _systemctl("stop", service)
+        deadline = time.time() + COMFYUI_STOP_TIMEOUT_S
+        while comfy.up():
+            if time.time() > deadline:
+                raise DenError(
+                    f"ComfyUI still answers at {comfy.base_url} after stopping {service}; "
+                    "was it started by hand? Stop it, then retry"
+                )
+            time.sleep(0.5)
 
     def _unload(self, ollama, emit):
         """Unload every loaded model and wait until Ollama no longer lists them.
@@ -197,17 +401,131 @@ class Broker:
             time.sleep(0.5)
         return names
 
+    # --- status and mode switches ---
+
+    def snapshot(self, requests=None):
+        now = time.time()
+        with self.cond:
+            requests = list((self.inflight if requests is None else requests).values())
+            return [
+                {
+                    "id": i["id"],
+                    "side": i["side"],
+                    "caller": i["caller"],
+                    "request": f"{i['method']} {i['path']}",
+                    "model": i["model"],
+                    "seconds": round(now - i.get("started", i.get("queued", now)), 1),
+                }
+                for i in sorted(requests, key=lambda i: i["id"])
+            ]
+
+    def status(self):
+        config = core.load_config()
+        state = core.load_state(config)
+        ollama = Ollama(config["llm"]["base_url"])
+        try:
+            upstream = {"url": ollama.base_url, "version": ollama.version(), "loaded": ollama.loaded()}
+        except DenError as e:
+            upstream = {"url": ollama.base_url, "error": str(e)}
+        result = {
+            "pid": os.getpid(),
+            "uptime_s": round(time.time() - self.started),
+            "mode": state["mode"],
+            "pending_mode": self.pending_mode,
+            "loaded": self.loaded,
+            "loaded_s": round(time.time() - self.loaded_since),
+            "swapping": self.swapping,
+            "inflight": self.snapshot(),
+            "waiting": self.snapshot(self.waiting),
+            "ollama": upstream,
+        }
+        settings = image.settings(config)
+        if settings:
+            result["comfyui"] = {
+                "url": settings["base_url"],
+                "up": ComfyUI(settings["base_url"]).up(),
+                "idle_s": round(time.time() - self.last_image) if self.loaded == "image" else None,
+            }
+        return result
+
+    def switch_mode(self, mode, now, emit, caller_gone):
+        """Run a mode switch, reporting progress through emit(dict). Raises DenError.
+
+        caller_gone() is polled while waiting: a caller that hangs up (Ctrl+C) drops the switch.
+        """
+        config = core.load_config()
+        if mode not in core.MODES:
+            raise DenError(f"unknown mode {mode!r}; use one of: {', '.join(core.MODES)}")
+        if "image" in core.MODES[mode] and not image.available(config):
+            raise DenError("no image workflow can run (none configured, or model files missing); see: den image")
+        with self.cond:
+            if self.pending_mode is not None:
+                raise DenError(f"a switch to mode {self.pending_mode} is already waiting")
+            self.pending_mode = mode
+            self.cond.notify_all()  # waiting requests for a side being turned off give up
+        try:
+            off = [side for side in SIDES if side not in core.MODES[mode]]
+            self._drain(off, now, emit, caller_gone)
+            unloaded = []
+            try:
+                if "llm" in off:
+                    unloaded += self._unload(Ollama(config["llm"]["base_url"]), emit)
+                if "image" in off and image.settings(config) and ComfyUI(image.settings(config)["base_url"]).up():
+                    self._stop_comfyui(config, emit)
+                    unloaded.append("comfyui")
+                with self.cond:
+                    if self.loaded in off:
+                        self.loaded = None
+            finally:
+                with self.cond:
+                    self.swapping = None
+                    self.cond.notify_all()
+            state = core.load_state(config)
+            state["mode"] = mode
+            core.save_state(state)
+            emit({"mode": mode, "unloaded": unloaded})
+        finally:
+            with self.cond:
+                self.pending_mode = None
+                self.cond.notify_all()
+
+    def _drain(self, sides, now, emit, caller_gone):
+        """Wait until no request for the sides runs and no swap is going on, then hold off swaps.
+
+        With now, cancel the running requests first.
+        """
+        if now:
+            for r in self.snapshot():
+                if r["side"] in sides:
+                    self.cancel(r["id"], "cancelled by: den mode --now")
+        last, last_emit = None, 0.0
+        while True:
+            with self.cond:
+                running = [r for r in self.snapshot() if r["side"] in sides]
+                if not running and self.swapping is None:
+                    self.swapping = "mode"
+                    return
+            if caller_gone():
+                raise ConnectionResetError("the caller hung up")
+            ids = [r["id"] for r in running]
+            if running and (ids != last or time.time() - last_emit >= PROGRESS_INTERVAL_S):
+                emit({"cancelling" if now else "waiting": running})
+                last, last_emit = ids, time.time()
+            with self.cond:
+                self.cond.wait(timeout=1)
+
+
+def _other(side):
+    return "image" if side == "llm" else "llm"
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "den-broker"
     broker: Broker  # set on the class by serve()
 
-    def log_message(self, fmt, *args):  # one line per request is written by _log instead
+    def log_message(self, fmt, *args):  # one line per request is written by log() instead
         pass
-
-    def _log(self, text):
-        print(f"{time.strftime('%H:%M:%S')} {text}", file=sys.stderr, flush=True)
 
     # --- plumbing ---
 
@@ -252,28 +570,11 @@ class Handler(BaseHTTPRequestHandler):
     def _chunk(self, data):
         self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
 
-    # --- dispatch ---
+    def _caller(self):
+        return self.headers.get("X-Den-Caller") or self.headers.get("User-Agent", "?").split(" ")[0]
 
-    def _dispatch(self):
-        try:
-            path = urlsplit(self.path).path
-            if path == "/status" and self.command == "GET":
-                self._send_json(200, self.broker.status())
-            elif path == "/mode" and self.command == "POST":
-                self._mode(json.loads(self._read_body() or b"{}"))
-            else:
-                self._proxy(path)
-        except DenError as e:
-            self._send_json(503, self._error_body(str(e)))
-        except (BrokenPipeError, ConnectionResetError):
-            self.close_connection = True
-        except (OSError, http.client.HTTPException) as e:  # e.g. Ollama stalled or died mid-stream
-            self._log(f"{self.command} {self.path} failed: {e!r}")
-            self.close_connection = True
-
-    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = do_OPTIONS = _dispatch
-
-    def _mode(self, body):
+    def _ndjson(self):
+        """An emit(dict) that starts a chunked NDJSON response on first use; started() tells if it did."""
         started = False
 
         def emit(obj):
@@ -286,20 +587,134 @@ class Handler(BaseHTTPRequestHandler):
                 started = True
             self._chunk(json.dumps(obj).encode() + b"\n")
 
+        return emit, lambda: started
+
+    # --- dispatch ---
+
+    def _dispatch(self):
+        try:
+            path = urlsplit(self.path).path
+            if path == "/status" and self.command == "GET":
+                self._send_json(200, self.broker.status())
+            elif path == "/mode" and self.command == "POST":
+                self._mode(json.loads(self._read_body() or b"{}"))
+            elif path == "/image" and self.command == "POST":
+                self._image(json.loads(self._read_body() or b"{}"))
+            else:
+                self._proxy(path)
+        except DenError as e:
+            self._send_json(503, self._error_body(str(e)))
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+        except (OSError, http.client.HTTPException) as e:  # e.g. Ollama stalled or died mid-stream
+            log(f"{self.command} {self.path} failed: {e!r}")
+            self.close_connection = True
+
+    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = do_OPTIONS = _dispatch
+
+    def _mode(self, body):
+        emit, started = self._ndjson()
         mode = body.get("mode")
-        self._log(f"mode switch to {mode}{' --now' if body.get('now') else ''} requested")
+        log(f"mode switch to {mode}{' --now' if body.get('now') else ''} requested")
         try:
             self.broker.switch_mode(mode, bool(body.get("now")), emit, self._caller_gone)
         except DenError as e:
-            if not started:
+            if not started():
                 raise
             emit({"error": str(e)})
         except (BrokenPipeError, ConnectionResetError):
-            self._log(f"mode switch to {mode} dropped: the caller hung up")
+            log(f"mode switch to {mode} dropped: the caller hung up")
             self.close_connection = True
             return
-        self._log(f"mode switch to {mode} done")
+        log(f"mode switch to {mode} done")
         self.wfile.write(b"0\r\n\r\n")
+
+    def _image(self, body):
+        """POST /image {prompt, workflow?, negative?, seed?, size?, image?, out?, switch_back?}.
+
+        Streams progress lines (waiting, unloading, starting, generating, stopping) and ends
+        with {"result": {...}} or {"error": "..."}. Paths must be absolute.
+        """
+        emit, started = self._ndjson()
+        try:
+            self._generate(body, emit)
+        except DenError as e:
+            if not started():
+                raise
+            emit({"error": str(e)})
+        except (BrokenPipeError, ConnectionResetError):
+            self.close_connection = True
+            return
+        self.wfile.write(b"0\r\n\r\n")
+
+    def _generate(self, body, emit):
+        config = core.load_config()
+        settings = image.settings(config)
+        if not settings:
+            raise DenError("image generation is not configured ([image] in config.toml)")
+        name = body.get("workflow") or settings.get("default_workflow")
+        if not name:
+            raise DenError("no workflow given and no [image] default_workflow in config.toml")
+        for key in ("image", "out"):
+            if body.get(key) and not Path(body[key]).is_absolute():
+                raise DenError(f"{key} must be an absolute path, got {body[key]!r}")
+        if body.get("image") and not Path(body["image"]).is_file():
+            raise DenError(f"input image not found: {body['image']}")
+        prompt = body.get("prompt") or ""
+        graph, params = image.build(config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"))
+        if body.get("image") and not image.workflows(config)[name].get("image"):
+            raise DenError(f"workflow {name} takes no input image")
+
+        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/image", "model": name}
+        req_id = self.broker.admit(info, emit, self._caller_gone)
+        comfy = ComfyUI(settings["base_url"])
+        try:
+            if body.get("image"):
+                image.fill_image(config, name, graph, comfy.upload(body["image"]))
+            emit({"generating": params})
+            began = time.time()
+            prompt_id = comfy.submit(graph)
+            info["cancel"] = lambda: comfy.cancel(prompt_id)
+
+            def check():
+                if info.get("cancelled"):
+                    raise DenError(info["cancelled"])
+                if self._caller_gone():
+                    comfy.cancel(prompt_id)
+                    raise ConnectionResetError("the caller hung up while generating")
+
+            outputs = comfy.wait(prompt_id, check)
+            paths, copies = image.save([comfy.view(o) for o in outputs], prompt, body.get("out"))
+            seconds = round(time.time() - began, 1)
+        except (DenError, ConnectionResetError, BrokenPipeError) as e:
+            log(f"#{req_id} {info['caller']} POST /image {name} -> failed: {e}")
+            raise
+        finally:
+            self.broker.finish(req_id)
+        result = {
+            **params,
+            "paths": [str(p) for p in paths],
+            "copies": [str(p) for p in copies],
+            "seconds": seconds,
+            "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
+        }
+        image.log(
+            {
+                "caller": info["caller"],
+                **params,
+                "prompt": prompt,
+                "negative": body.get("negative"),
+                "image": body.get("image"),
+                "paths": result["paths"],
+                "copies": result["copies"],
+                "seconds": seconds,
+                "waited_s": result["waited_s"],
+            }
+        )
+        log(f"#{req_id} {info['caller']} POST /image {name} seed {params['seed']} -> {paths[0]} in {seconds}s")
+        if body.get("switch_back"):
+            result["switched_back"] = self.broker.switch_back(config, emit)
+        emit({"result": result})
 
     def _proxy(self, path):
         body = self._read_body()
@@ -309,12 +724,13 @@ class Handler(BaseHTTPRequestHandler):
             parsed = None
         control = path in CONTROL_PATHS or path.startswith("/api/blobs/") or _is_unload(parsed)
         info = {
-            "caller": self.headers.get("X-Den-Caller") or self.headers.get("User-Agent", "?").split(" ")[0],
+            "side": "llm",
+            "caller": self._caller(),
             "method": self.command,
             "path": path,
             "model": parsed.get("model") if isinstance(parsed, dict) else None,
         }
-        req_id = None if control else self.broker.admit(info)
+        req_id = None if control else self.broker.admit(info, caller_gone=self._caller_gone)
         try:
             config = core.load_config()
             keep_alive = config["llm"].get("keep_alive")
@@ -329,7 +745,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.broker.finish(req_id)
                 took = time.time() - info["started"]
                 outcome = info.get("status", "no response") if not info.get("cancelled") else info["cancelled"]
-                self._log(f"#{req_id} {info['caller']} {self.command} {path} {info['model']} -> {outcome} in {took:.1f}s")
+                log(f"#{req_id} {info['caller']} {self.command} {path} {info['model']} -> {outcome} in {took:.1f}s")
 
     def _refresh_keep_alive(self, config, info, keep_alive):
         """Give a /v1 request's model the configured keep_alive: Ollama ignores it in /v1 bodies.
@@ -339,12 +755,16 @@ class Handler(BaseHTTPRequestHandler):
         different model, since loading this one back would force an extra swap.
         """
         model = info["model"]
-        if not model or any(r["model"] not in (None, model) for r in self.broker.snapshot() if r["id"] != info["id"]):
+        others = [r for r in self.broker.snapshot() if r["id"] != info["id"]]
+        if not model or any(r["side"] != "llm" or r["model"] not in (None, model) for r in others):
             return
+        with self.broker.cond:
+            if any(w["side"] != "llm" for w in self.broker.waiting.values()):
+                return  # the image side waits: the swap would unload the model right away
         try:
             Ollama(config["llm"]["base_url"]).keep_loaded(model, keep_alive)
         except DenError as e:
-            self._log(f"#{info['id']} keep_alive refresh for {model} failed: {e}")
+            log(f"#{info['id']} keep_alive refresh for {model} failed: {e}")
 
     def _forward(self, body, info):
         config = core.load_config()
@@ -409,10 +829,14 @@ class Handler(BaseHTTPRequestHandler):
 def serve():
     config = core.load_config()
     url = urlsplit(core.broker_url(config))
-    Handler.broker = Broker()
+    broker = Broker()
+    Handler.broker = broker
     server = ThreadingHTTPServer((url.hostname, url.port), Handler)
     server.daemon_threads = True
-    print(f"den broker on {url.hostname}:{url.port} -> ollama {config['llm']['base_url']}", file=sys.stderr, flush=True)
+    loaded = broker.detect_loaded()
+    threading.Thread(target=broker.idle_loop, daemon=True).start()
+    comfy = image.settings(config).get("base_url", "not configured")
+    log(f"den broker on {url.hostname}:{url.port} -> ollama {config['llm']['base_url']}, comfyui {comfy}; loaded: {loaded or 'nothing'}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

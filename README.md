@@ -422,6 +422,20 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 
 ### Service
 
+Ollama is a **system** service running as its own user, so den can't start it: den runs as you
+and never uses sudo. It doesn't try to hide that either — when Ollama is down, every path says
+so and names the command:
+
+- callers (Claude's tool, pi, `den ask`) get `ollama is not reachable at … ; start it with:
+  sudo systemctl start ollama`, so whoever is at the keyboard is told;
+- the broker writes `OLLAMA DOWN at … ` to its journal (`journalctl --user -u den -f`);
+- `den status` prints `ollama DOWN: …` **and exits non-zero**, which is the hook for a
+  notifier or a shell check;
+- pi's footer says `den: ollama is down — sudo systemctl start ollama` while it works.
+
+`Restart=on-failure` in Ollama's unit already covers crashes, so this is mostly about a
+deliberate stop.
+
 | Command | What it does |
 |---|---|
 | `systemctl status ollama` | Is it running? |

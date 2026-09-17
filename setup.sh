@@ -107,7 +107,19 @@ if [ "$with_pi" = 1 ]; then
     todo "install Node.js with npm, then re-run to install pi"
   fi
 
-  models="$HOME/.pi/agent/models.json"
+  pi_dir="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
+  extension="$pi_dir/extensions/den.ts"
+  if [ "$(readlink -f "$extension" 2>/dev/null)" = "$REPO/integrations/pi/den.ts" ]; then
+    ok "pi extension $extension"
+  elif [ -e "$extension" ]; then
+    todo "$extension exists and isn't a link to this repo; remove it and re-run"
+  else
+    mkdir -p "$(dirname "$extension")"
+    ln -s "$REPO/integrations/pi/den.ts" "$extension"
+    did "linked the pi extension (generate_image, /imagine) into $pi_dir/extensions; /reload in running pi sessions"
+  fi
+
+  models="$pi_dir/models.json"
   if [ -f "$models" ]; then
     if grep -q "$BROKER_URL/v1" "$models"; then
       ok "$models points at the broker"

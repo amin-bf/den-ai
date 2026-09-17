@@ -79,6 +79,35 @@ prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
 
+[image.workflows.klein9b-realism]
+description = """FLUX.2 klein 9B realism fine-tune: fast photorealistic people and scenes. \
+Prompt: detailed natural-language description; \
+describe the pose precisely (hands, arms, framing). With an input image it edits it: the \
+prompt is the instruction; clothing, setting and style changes work better than pose or \
+expression changes."""
+prompt = "74.text"
+seed = "73.noise_seed"
+size = ["66", "62"]
+
+[image.workflows.klein9b-realism.edit]
+prompt = "74.text"
+seed = "73.noise_seed"
+image = "76.image"
+
+[image.workflows.klein9b-anime]
+description = """FLUX.2 klein 9B with the AniEdit LoRA: anime and illustration. \
+Prompt: natural-language description of the scene and \
+style. With an input image it edits it: turn a photo into anime, change clothes, pose, \
+expression or hairstyle; the prompt is the instruction."""
+prompt = "74.text"
+seed = "73.noise_seed"
+size = ["66", "62"]
+
+[image.workflows.klein9b-anime.edit]
+prompt = "74.text"
+seed = "73.noise_seed"
+image = "76.image"
+
 [image.workflows.chroma1-hd]
 description = """Chroma1-HD: slow, highest-quality photorealistic images, with a real negative \
 prompt (cfg 6, 35 steps). Prompt: a long, detailed natural-language caption; the negative \

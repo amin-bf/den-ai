@@ -259,7 +259,7 @@ Models tested on a 12 GB card (warm, ~1024² per image):
 | Model | Time | Prompt style |
 |---|---|---|
 | FLUX.2 klein 4B (fp8) | 2 s | Short descriptions; also does editing |
-| Z-Image-Turbo | 7.5 s | Short sentences; renders text well |
+| Z-Image-Turbo (int8) | 4.5 s | Short sentences; renders text well |
 | WAI-Illustrious SDXL | 10 s (29 s with hires fix) | Tags, anime and illustration |
 | Chroma1-HD (fp8) | 40–50 s | Long, detailed captions; realistic |
 | RealVisXL V5.0 (SDXL, fp16) | 8 s (30 steps, 896x1152) | Photo descriptions; portraits, natural skin |

@@ -59,7 +59,7 @@ nothing.
 | Workflow | Style | s/image |
 |---|---|---|
 | `flux2-klein-4b` (fp8) | general, quick drafts; edits | 2 |
-| `z-image-turbo` (bf16) | general, legible text | 7.5 |
+| `z-image-turbo` (int8 convrot, fp8 text encoder; bf16 took 8.5 s, same images) | general, legible text | 4.5 |
 | `wai-illustrious` (SDXL, hires fix) | anime and illustration, tag prompts | 29 |
 | `chroma1-hd` (fp8, cfg 6, 35 steps) | photorealistic, long captions, negative prompt | ~50 |
 | `realvisxl` (SDXL fp16, 30 steps, 896x1152) | photorealistic people, natural skin | 8 |

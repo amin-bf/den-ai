@@ -15,7 +15,7 @@ to it; nothing else talks to Ollama (11434) or, later, ComfyUI (8188) directly.
 
 - **Pass-through, not a new API.** The broker passes Ollama's native `/api/…` and OpenAI-style
   `/v1/…` requests through as they are, streaming included, so pi only changes its `baseUrl`.
-  Its own endpoints are `GET /status` and `POST /mode`.
+  Its own endpoints are `GET /status`, `POST /mode` and `POST /unload`.
 - **In-flight tracking instead of a busy flag.** The broker knows each running request (caller,
   endpoint, model, age). Callers identify themselves with `X-Den-Caller` (`cli`, `claude`);
   pi shows up by its user agent. Requests that don't use the GPU (`/api/tags`, `/api/ps`,
@@ -32,6 +32,12 @@ to it; nothing else talks to Ollama (11434) or, later, ComfyUI (8188) directly.
   direct-to-Ollama path would bring back the OOM this exists to prevent.
 - **Mode is enforced at the broker.** In `off` (and later `image`), LLM requests from any client,
   pi included, get `the local LLM is off … den mode llm`.
+- **Unloading on demand is not a mode.** `den unload` (`POST /unload`) drains the sides and
+  unloads them exactly as a mode switch does, but never touches the mode: nothing is refused,
+  the MCP tools stay listed, and a request that arrives meanwhile waits for the unload and then
+  loads its side again. A mode says who may use the GPU; what is loaded is the broker's own
+  business. `off` is for taking a side away from its callers, not for freeing memory — used that
+  way it makes `local_llm` vanish from every running Claude session.
 - **The broker applies `[llm] keep_alive` to every caller.** Pi never sends one, so Ollama
   would unload its model after its 5-minute default. Native requests without `keep_alive` get
   the configured value added. Ollama ignores `keep_alive` in `/v1` bodies (tested), so after a

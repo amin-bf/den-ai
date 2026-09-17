@@ -106,8 +106,10 @@ Claude Code sees two MCP tools while the LLM is on (`den mode llm`). Both disapp
 tokens/s. Small jobs take 3–10 s, and ~20K tokens of input about 30 s. The first request
 after loading takes about twice as long, plus ~15 s to load the model. The model stays
 loaded for 30 minutes after its last request from any caller, pi included (`keep_alive` in
-`config.toml`, applied by the broker); `den mode off` frees the GPU
-as soon as running requests finish (`--now` cancels them).
+`config.toml`, applied by the broker); `den unload` empties the GPU
+as soon as running requests finish (`--now` cancels them), without taking the LLM off: the
+next delegation loads it again. `den mode off` unloads it too, but also refuses new requests
+and takes the tools away from every Claude session.
 
 ## pi
 
@@ -183,7 +185,8 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
   new requests for up to 120 s or 4 requests (`[broker] batch_seconds`, `batch_requests`), then
   the other side gets its turn. The CLI prints what it waits for; `den status` shows the queue.
 - **Modes:** `den mode llm` stops ComfyUI (after running images finish, or at once with `--now`),
-  `den mode image` unloads the LLM, and `den mode off` does both.
+  `den mode image` unloads the LLM, and `den mode off` does both. To empty the GPU while keeping
+  both sides available, use `den unload` instead: it unloads without touching the mode.
 - **Claude** gets the `generate_image` MCP tool while images are on (`den mode image` or `both`)
   and at least one workflow can run. It picks the workflow from their descriptions, which the
   tool lists, and takes the same options as `den image` (`workflow`, `negative`, `size`, `seed`,
@@ -322,6 +325,9 @@ Changes take effect immediately. The broker, the CLI and the MCP server re-read
 | `den mode both` | Both on, one loaded at a time, swapped on demand with batching |
 | `den mode off` | Everything off. Refuses new requests, waits for the running ones (and shows them), unloads the LLM, stops ComfyUI and removes the tool from Claude. Ctrl+C drops the switch |
 | `den mode <mode> --now` | Same, but cancels running requests of the sides turned off instead of waiting; their callers get an error |
+| `den unload` | Empty the GPU without changing the mode: waits for running requests, unloads the LLM and stops ComfyUI. Nothing is refused, and the next request loads its side again |
+| `den unload llm` / `den unload image` | Unload one side only |
+| `den unload --now` | Same, but cancels the running requests instead of waiting |
 
 ### Models
 
@@ -446,7 +452,7 @@ Models live in `/var/lib/ollama` (owned by the `ollama` user). Browse tags at
 | Command | What it does |
 |---|---|
 | `ollama ps` | Loaded models, their size, **GPU/CPU split** and when they unload |
-| `ollama stop <model>` | Unload now and free GPU/RAM (`den mode off` does this for all models) |
+| `ollama stop <model>` | Unload now and free GPU/RAM (`den unload` does this for all models, through the broker) |
 | `ollama run <model>` | Interactive chat |
 | `ollama run <model> "prompt"` | One-shot answer |
 | `ollama run <model> --verbose` | Also print speed (look at `eval rate` for tok/s) |

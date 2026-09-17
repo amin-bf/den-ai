@@ -31,6 +31,10 @@ _Avoid_: quota, timeslice
 Stopping the image side after a request because no more images follow, so the LLM can load.
 _Avoid_: release, free
 
+**Unload**:
+Emptying the GPU without changing the mode (`den unload`), so both sides stay available and the next request loads its side again.
+_Avoid_: release, free, standby
+
 **In-flight request**:
 A request the broker has passed on and that hasn't finished yet. A swap or mode change waits for it.
 _Avoid_: busy, job

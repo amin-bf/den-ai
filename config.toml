@@ -52,7 +52,10 @@ default_workflow = "z-image-turbo"
 #   negative     "node.input" for the negative prompt (optional)
 #   seed         "node.input", or a list when several nodes take the seed
 #   size         node ids whose width and height inputs receive the size (optional)
-#   image        "node.input" of a LoadImage node for an input image (optional)
+# A workflow whose model can edit also gets [image.workflows.<name>.edit]: the same keys for
+# workflows/<name>-edit.json, plus
+#   image        "node.input" of the LoadImage node that receives the input image
+# That variant runs instead when a request brings an input image.
 [image.workflows.z-image-turbo]
 description = """Z-Image-Turbo: fast general-purpose images, photorealistic or illustrated, and \
 renders short text legibly. Prompt: a few short, concrete English sentences. The negative \
@@ -64,10 +67,17 @@ size = ["7"]
 
 [image.workflows.flux2-klein-4b]
 description = """FLUX.2 klein 4B: the fastest, for quick drafts, icons and simple assets; \
-details and anatomy slip more often. Prompt: a plain English description."""
+details and anatomy slip more often. Prompt: a plain English description. With an input \
+image it edits it: the prompt is the instruction ("make the sky red, keep the rest"), and \
+the result keeps the input's aspect ratio at about 1 megapixel."""
 prompt = "74.text"
 seed = "73.noise_seed"
 size = ["66", "62"]
+
+[image.workflows.flux2-klein-4b.edit]
+prompt = "74.text"
+seed = "73.noise_seed"
+image = "76.image"
 
 [image.workflows.chroma1-hd]
 description = """Chroma1-HD: slow, highest-quality photorealistic images, with a real negative \

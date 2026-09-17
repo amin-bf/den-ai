@@ -136,7 +136,8 @@ def cmd_image(args):
             print("no workflows configured ([image.workflows.<name>] in config.toml)")
         for name, (wf, problem) in flows.items():
             marker = "*" if name == default else " "
-            print(f"{marker} {name:<16} {wf.get('description', '')}")
+            edits = " [edits: takes --image]" if "edit" in wf else ""
+            print(f"{marker} {name:<16} {wf.get('description', '')}{edits}")
             if problem:
                 print(f"  {'':<16} CAN'T RUN: {problem}")
         return
@@ -161,7 +162,8 @@ def cmd_image(args):
             elif "generating" in msg:
                 g = msg["generating"]
                 size = f", {g['width']}x{g['height']}" if g["width"] else ""
-                print(f"generating with {g['workflow']} (seed {g['seed']}{size}) ...", flush=True)
+                what = "editing" if g.get("edit") else "generating"
+                print(f"{what} with {g['workflow']} (seed {g['seed']}{size}) ...", flush=True)
             elif "result" in msg:
                 r = msg["result"]
                 for path in r["paths"] + r["copies"]:
@@ -326,7 +328,7 @@ def main(argv=None):
     p.add_argument("-n", "--negative", help="negative prompt, for workflows that take one")
     p.add_argument("--seed", type=int, help="default: random")
     p.add_argument("--size", help="WIDTHxHEIGHT, e.g. 1024x1024 (default: the workflow's)")
-    p.add_argument("--image", type=Path, help="input image, for workflows that take one")
+    p.add_argument("--image", type=Path, help="input image to edit, for workflows whose model edits")
     p.add_argument("-o", "--out", type=Path, help="also copy the result here (a file, or a directory ending in /)")
     p.add_argument("--switch-back", action="store_true", help="stop ComfyUI afterwards so the LLM can load")
     p.set_defaults(func=cmd_image)

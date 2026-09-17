@@ -661,9 +661,9 @@ class Handler(BaseHTTPRequestHandler):
         if body.get("image") and not Path(body["image"]).is_file():
             raise DenError(f"input image not found: {body['image']}")
         prompt = body.get("prompt") or ""
-        graph, params = image.build(config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"))
-        if body.get("image") and not image.workflows(config)[name].get("image"):
-            raise DenError(f"workflow {name} takes no input image")
+        graph, params = image.build(
+            config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"), edit=bool(body.get("image"))
+        )
 
         info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/image", "model": name}
         req_id = self.broker.admit(info, emit, self._caller_gone)

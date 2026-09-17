@@ -2,9 +2,11 @@
 
 A workflow is a ComfyUI graph in API format, `workflows/<name>.json`, plus its
 `[image.workflows.<name>]` entry in config.toml: a description for whoever picks it and the
-node inputs that receive the prompt, seed, size and input image. A workflow is available when
-every model file its graph names is in ComfyUI's models folder. Only the broker talks to
-ComfyUI; clients ask the broker (POST /image).
+node inputs that receive the prompt, seed and size. A workflow whose model can edit also has
+an edit variant, `workflows/<name>-edit.json` with `[image.workflows.<name>.edit]`, used when a
+request brings an input image. A workflow is available when every model file its graphs name
+is in ComfyUI's models folder. Only the broker talks to ComfyUI; clients ask the broker
+(POST /image).
 """
 
 import fcntl
@@ -69,18 +71,28 @@ def installed_models():
     return found
 
 
+def variant(name, wf, edit):
+    """(graph name, input mapping) of a workflow, or of its edit variant."""
+    if not edit:
+        return name, wf
+    if "edit" not in wf:
+        raise DenError(f"workflow {name} can't take an input image (its model doesn't edit)")
+    return f"{name}-edit", wf["edit"]
+
+
 def check_workflows(config):
     """{name: (workflow config, problem or None)}: a problem is a missing graph or model file."""
     installed = installed_models()
     result = {}
     for name, wf in workflows(config).items():
         try:
-            graph = load_graph(name)
+            graphs = [load_graph(variant(name, wf, edit)[0]) for edit in ((False, True) if "edit" in wf else (False,))]
         except DenError as e:
             result[name] = (wf, str(e))
             continue
         # Loaders name files relative to their category folder (vae/, checkpoints/, …).
-        missing = [f for f in model_files(graph) if not any(p.endswith("/" + f) for p in installed)]
+        wanted = sorted({f for graph in graphs for f in model_files(graph)})
+        missing = [f for f in wanted if not any(p.endswith("/" + f) for p in installed)]
         result[name] = (wf, f"missing model files in {COMFYUI_DIR / 'models'}: {', '.join(missing)}" if missing else None)
     return result
 
@@ -108,10 +120,11 @@ def parse_size(size):
     return int(match[1]), int(match[2])
 
 
-def build(config, name, prompt, negative=None, seed=None, size=None):
+def build(config, name, prompt, negative=None, seed=None, size=None, edit=False):
     """The filled-in graph and the parameters used. Raises DenError on bad input.
 
-    The input image is set later (fill_image), after it's uploaded to ComfyUI.
+    With edit, it's the edit variant's graph; the input image is set later (fill_image),
+    after it's uploaded to ComfyUI.
     """
     flows = check_workflows(config)
     if name not in flows:
@@ -121,7 +134,8 @@ def build(config, name, prompt, negative=None, seed=None, size=None):
         raise DenError(f"workflow {name} can't run: {problem}")
     if not prompt or not prompt.strip():
         raise DenError("the prompt is empty")
-    graph = load_graph(name)
+    graph_name, wf = variant(name, wf, edit)
+    graph = load_graph(graph_name)
     _set(graph, wf["prompt"], prompt)
     if negative is not None:
         if "negative" not in wf:
@@ -133,7 +147,9 @@ def build(config, name, prompt, negative=None, seed=None, size=None):
     size_nodes = _refs(wf.get("size"))
     if size is not None:
         if not size_nodes:
-            raise DenError(f"workflow {name} has a fixed size")
+            raise DenError(
+                f"workflow {name} takes its size from the input image" if edit else f"workflow {name} has a fixed size"
+            )
         width, height = parse_size(size)
         for node in size_nodes:
             _set(graph, f"{node}.width", width)
@@ -143,15 +159,12 @@ def build(config, name, prompt, negative=None, seed=None, size=None):
         width, height = inputs["width"], inputs["height"]
     else:
         width = height = None
-    params = {"workflow": name, "seed": seed, "width": width, "height": height}
+    params = {"workflow": name, "edit": edit, "seed": seed, "width": width, "height": height}
     return graph, params
 
 
 def fill_image(config, name, graph, uploaded):
-    ref = workflows(config)[name].get("image")
-    if not ref:
-        raise DenError(f"workflow {name} takes no input image")
-    _set(graph, ref, uploaded)
+    _set(graph, workflows(config)[name]["edit"]["image"], uploaded)
 
 
 class ComfyUI:

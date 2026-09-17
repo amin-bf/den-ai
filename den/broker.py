@@ -456,7 +456,7 @@ class Broker:
             "releasing": list(self.releasing) or None,
             "pressure": pressure,
             # Set while a side that isn't loaded would have to wait for the machine to settle.
-            "busy": core.too_busy(config, pressure),
+            "too_busy": core.too_busy(config, pressure),
             "unavailable": {side: _unavailable(side, config, state) for side in SIDES},
             "loaded": self.loaded,
             "loaded_s": round(time.time() - self.loaded_since),

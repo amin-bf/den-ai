@@ -77,7 +77,7 @@ type BrokerStatus = {
   swapping: string | null;
   pending_mode: string | null;
   releasing?: string[] | null;
-  busy?: string | null;
+  too_busy?: string | null;
   ollama?: { error?: string };
   inflight: { id: number; side: string; caller: string; model: string | null }[];
   waiting: { id: number; side: string; caller: string; model: string | null }[];
@@ -232,7 +232,7 @@ function statusText(s: BrokerStatus): string | null {
   if (s.swapping === "unload") return "den: unloading the GPU (den unload)";
   const w = s.waiting[0];
   // Only worth saying while nothing waits on it: it's the reason the next request would be refused.
-  if (!w) return s.busy && !s.loaded ? `den: too busy to load a model — ${s.busy}` : null;
+  if (!w) return s.too_busy && !s.loaded ? `den: too busy to load a model — ${s.too_busy}` : null;
   const others = s.inflight.filter((r) => r.side !== w.side).map((r) => `${r.caller} ${r.side}`);
   const more = s.waiting.length > 1 ? ` (+${s.waiting.length - 1})` : "";
   return others.length

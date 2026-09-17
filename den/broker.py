@@ -630,7 +630,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b"0\r\n\r\n")
 
     def _image(self, body):
-        """POST /image {prompt, workflow?, negative?, seed?, size?, image?, out?, switch_back?}.
+        """POST /image {prompt, workflow?, negative?, seed?, size?, image?, out?, switch_back?,
+        steps?, cfg?, sampler?, scheduler?, loras? [{name, strength?}], references? [path],
+        control? {image, type, strength?, start?, end?}, upscale? {name, factor?}}.
 
         Streams progress lines (waiting, unloading, starting, generating, stopping) and ends
         with {"result": {...}} or {"error": "..."}. Paths must be absolute.
@@ -655,14 +657,22 @@ class Handler(BaseHTTPRequestHandler):
         name = body.get("workflow") or settings.get("default_workflow")
         if not name:
             raise DenError("no workflow given and no [image] default_workflow in config.toml")
-        for key in ("image", "out"):
-            if body.get(key) and not Path(body[key]).is_absolute():
-                raise DenError(f"{key} must be an absolute path, got {body[key]!r}")
-        if body.get("image") and not Path(body["image"]).is_file():
-            raise DenError(f"input image not found: {body['image']}")
+        references = body.get("references") or []
+        control_image = (body.get("control") or {}).get("image")
+        paths = [("image", body.get("image")), ("out", body.get("out")), ("control image", control_image)]
+        for key, path in paths + [("references", r) for r in references]:
+            if path and not Path(path).is_absolute():
+                raise DenError(f"{key} must be an absolute path, got {path!r}")
+        if body.get("control") and not control_image:
+            raise DenError("control needs a guide image")
+        for path in filter(None, [body.get("image"), control_image, *references]):
+            if not Path(path).is_file():
+                raise DenError(f"input image not found: {path}")
         prompt = body.get("prompt") or ""
-        graph, params = image.build(
-            config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"), edit=bool(body.get("image"))
+        options = {key: body.get(key) for key in (*image.SETTINGS, "loras", "references", "control", "upscale")}
+        graph, params, uploads = image.build(
+            config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"),
+            edit=bool(body.get("image")), options=options,
         )
 
         info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/image", "model": name}
@@ -671,6 +681,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if body.get("image"):
                 image.fill_image(config, name, graph, comfy.upload(body["image"]))
+            image.fill_uploads(graph, uploads, [comfy.upload(path) for _, path in uploads])
             emit({"generating": params})
             began = time.time()
             prompt_id = comfy.submit(graph)
@@ -705,6 +716,8 @@ class Handler(BaseHTTPRequestHandler):
                 "prompt": prompt,
                 "negative": body.get("negative"),
                 "image": body.get("image"),
+                "references": references or None,
+                "control_image": control_image,
                 "paths": result["paths"],
                 "copies": result["copies"],
                 "seconds": seconds,

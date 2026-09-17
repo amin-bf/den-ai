@@ -127,6 +127,35 @@ def _print_swap_step(msg):
     return True
 
 
+def _lora_arg(value):
+    name, _, strength = value.partition(":")
+    try:
+        return {"name": name, **({"strength": float(strength)} if strength else {})}
+    except ValueError:
+        raise DenError(f"--lora takes NAME or NAME:STRENGTH, got {value!r}") from None
+
+
+def _control_arg(args):
+    if not args.control:
+        return None
+    if not args.control_type:
+        raise DenError("--control needs --control-type (den image lists each workflow's types)")
+    control = {"image": str(args.control.expanduser().resolve()), "type": args.control_type}
+    if args.control_strength is not None:
+        control["strength"] = args.control_strength
+    return control
+
+
+def _upscale_arg(value):
+    if not value:
+        return None
+    name, _, factor = value.partition(":")
+    try:
+        return {"name": name, **({"factor": float(factor)} if factor else {})}
+    except ValueError:
+        raise DenError(f"--upscale takes NAME or NAME:FACTOR, got {value!r}") from None
+
+
 def cmd_image(args):
     config, state = _load()
     if args.prompt is None:
@@ -140,6 +169,15 @@ def cmd_image(args):
             print(f"{marker} {name:<16} {image.describe(wf)}{edits}")
             if problem:
                 print(f"  {'':<16} CAN'T RUN: {problem}")
+                continue
+            for line in image.describe_options(config, name, wf):
+                print(f"  {'':<16} {line}")
+        ups = image.describe_upscalers(config)
+        if ups:
+            print("\nupscalers (--upscale NAME[:FACTOR], any workflow):")
+            for line in ups:
+                print(f"  {line}")
+        print(f"\n{image.PROMPT_SYNTAX}")
         return
     request = {
         "prompt": args.prompt,
@@ -150,6 +188,14 @@ def cmd_image(args):
         "image": str(args.image.expanduser().resolve()) if args.image else None,
         "out": str(args.out.expanduser().resolve()) + ("/" if str(args.out).endswith("/") else "") if args.out else None,
         "switch_back": args.switch_back,
+        "steps": args.steps,
+        "cfg": args.cfg,
+        "sampler": args.sampler,
+        "scheduler": args.scheduler,
+        "loras": [_lora_arg(value) for value in args.lora] or None,
+        "references": [str(path.expanduser().resolve()) for path in args.reference] or None,
+        "control": _control_arg(args),
+        "upscale": _upscale_arg(args.upscale),
     }
     try:
         for msg in core.broker(config, "cli").generate_image(**{k: v for k, v in request.items() if v is not None}):
@@ -163,7 +209,12 @@ def cmd_image(args):
                 g = msg["generating"]
                 size = f", {g['width']}x{g['height']}" if g["width"] else ""
                 what = "editing" if g.get("edit") else "generating"
-                print(f"{what} with {g['workflow']} (seed {g['seed']}{size}) ...", flush=True)
+                extra = "".join(f", {k} {g[k]}" for k in image.SETTINGS if k in g)
+                extra += "".join(f", lora {l['name']} {l['strength']}" for l in g.get("loras", []))
+                extra += f", {g['references']} reference(s)" if g.get("references") else ""
+                extra += f", control {g['control']['type']} {g['control']['strength']}" if g.get("control") else ""
+                extra += f", upscale {g['upscale']['name']} x{g['upscale']['factor']:g}" if g.get("upscale") else ""
+                print(f"{what} with {g['workflow']} (seed {g['seed']}{size}{extra}) ...", flush=True)
             elif "result" in msg:
                 r = msg["result"]
                 for path in r["paths"] + r["copies"]:
@@ -331,6 +382,16 @@ def main(argv=None):
     p.add_argument("--image", type=Path, help="input image to edit, for workflows whose model edits")
     p.add_argument("-o", "--out", type=Path, help="also copy the result here (a file, or a directory ending in /)")
     p.add_argument("--switch-back", action="store_true", help="stop ComfyUI afterwards so the LLM can load")
+    p.add_argument("--steps", type=int, help="sampling steps (den image lists each workflow's ranges)")
+    p.add_argument("--cfg", type=float, help="guidance scale; overrides the cfg a negative prompt sets")
+    p.add_argument("--sampler", help="ComfyUI sampler name, e.g. euler, dpmpp_2m")
+    p.add_argument("--scheduler", help="ComfyUI scheduler name, e.g. simple, karras")
+    p.add_argument("--lora", action="append", default=[], metavar="NAME[:STRENGTH]", help="add a LoRA the workflow offers; repeatable")
+    p.add_argument("--reference", action="append", default=[], type=Path, help="reference image, for workflows that take them; repeatable")
+    p.add_argument("--control", type=Path, help="ControlNet guide image, for workflows that list control")
+    p.add_argument("--control-type", help="what the guide image is: canny (a photo), pose, depth, … (den image lists them)")
+    p.add_argument("--control-strength", type=float, help="how strongly the guide image steers (default: the workflow's)")
+    p.add_argument("--upscale", metavar="NAME[:FACTOR]", help="upscale the result with this model (default factor 2)")
     p.set_defaults(func=cmd_image)
 
     p = sub.add_parser("log", help="review delegations by Claude: per-task stats, verdicts and problem notes")

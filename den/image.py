@@ -32,6 +32,41 @@ LOG_PATH = Path(os.environ.get("DEN_IMAGE_LOG", core._STATE_HOME / "den/images.j
 MODEL_SUFFIXES = (".safetensors", ".gguf", ".ckpt", ".pt", ".pth", ".bin", ".sft")
 POLL_S = 0.5
 
+# What ComfyUI accepts (comfy/samplers.py, v0.36). Each workflow recommends a few of them.
+SAMPLERS = [
+    "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp", "heun", "heunpp2", "exp_heun_2_x0",
+    "exp_heun_2_x0_sde", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral",
+    "dpmpp_2s_ancestral_cfg_pp", "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m", "dpmpp_2m_cfg_pp", "dpmpp_2m_sde",
+    "dpmpp_2m_sde_gpu", "dpmpp_2m_sde_heun", "dpmpp_2m_sde_heun_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu", "ddpm",
+    "lcm", "ipndm", "ipndm_v", "deis", "cfgpp_ud10_ab", "res_multistep", "res_multistep_cfg_pp",
+    "res_multistep_ancestral", "res_multistep_ancestral_cfg_pp", "gradient_estimation", "gradient_estimation_cfg_pp",
+    "er_sde", "seeds_2", "seeds_3", "sa_solver", "sa_solver_pece", "ddim", "uni_pc", "uni_pc_bh2",
+]
+SCHEDULERS = ["simple", "sgm_uniform", "karras", "exponential", "ddim_uniform", "beta", "normal", "linear_quadratic", "kl_optimal"]
+SETTINGS = {"steps": int, "cfg": float, "sampler": SAMPLERS, "scheduler": SCHEDULERS}
+# Guide image types per control kind; for SDXL union ControlNets, the union type each one maps to.
+CONTROL_TYPES = {
+    "controlnet": {
+        "canny": "canny/lineart/anime_lineart/mlsd",
+        "lineart": "canny/lineart/anime_lineart/mlsd",
+        "scribble": "hed/pidi/scribble/ted",
+        "pose": "openpose",
+        "depth": "depth",
+        "normal": "normal",
+        "segment": "segment",
+        "tile": "tile",
+    },
+    "zimage-fun": {"canny": None, "hed": None, "depth": None, "pose": None, "mlsd": None},
+}
+
+# For whoever writes prompts (the MCP tool, pi): what the text encoders do with prompt syntax.
+PROMPT_SYNTAX = (
+    "Prompts reach the model's text encoder as plain text: ComfyUI just encodes it as text. "
+    "Midjourney-style flags such as --ar 9:16, --v 2 or --stylize set nothing and only add noise "
+    "to the prompt; use size and the settings instead. ComfyUI parses weights like (word:1.3), "
+    "but only workflows whose description says so respond to them reliably."
+)
+
 
 def settings(config):
     return config.get("image", {})
@@ -125,21 +160,205 @@ def parse_size(size):
     return int(match[1]), int(match[2])
 
 
-def build(config, name, prompt, negative=None, seed=None, size=None, edit=False):
-    """The filled-in graph and the parameters used. Raises DenError on bad input.
+def loras(config):
+    return settings(config).get("loras", {})
 
-    With edit, it's the edit variant's graph; the input image is set later (fill_image),
-    after it's uploaded to ComfyUI.
+
+def available_loras(config, wf, graph=None):
+    """{name: lora config} a workflow can add: its model family, downloaded, not already in the graph."""
+    family = wf.get("family")
+    if not family or "model" not in wf:
+        return {}
+    installed = installed_models()
+    present = set(model_files(graph)) if graph is not None else set()
+    return {
+        name: lora
+        for name, lora in loras(config).items()
+        if lora.get("family") == family
+        and lora["file"] not in present
+        and any(p.endswith("/" + lora["file"]) for p in installed)
+    }
+
+
+def _check_range(what, value, spec):
+    low, high = spec.get("allowed", [None, None])
+    if low is not None and value < low or high is not None and value > high:
+        raise DenError(f"{what} {value} is outside the allowed range {low}–{high}")
+
+
+def _add_loras(config, name, wf, graph, chosen):
+    """Chain LoraLoaderModelOnly nodes after the workflow's model node."""
+    offered = available_loras(config, wf, graph)
+    source = [wf["model"], 0]
+    consumers = [
+        (node, key) for node, spec in graph.items() for key, value in spec["inputs"].items() if value == source
+    ]
+    used = []
+    for i, item in enumerate(chosen):
+        lora_name = item.get("name")
+        if lora_name not in offered:
+            raise DenError(
+                f"LoRA {lora_name!r} isn't available for workflow {name}; available: {', '.join(offered) or 'none'}"
+            )
+        spec = offered[lora_name]
+        strength = float(item.get("strength", spec.get("strength", {}).get("default", 1.0)))
+        _check_range(f"LoRA {lora_name} strength", strength, spec.get("strength", {}))
+        node = str(900 + i)
+        graph[node] = {
+            "class_type": "LoraLoaderModelOnly",
+            "inputs": {"model": source, "lora_name": spec["file"], "strength_model": strength},
+        }
+        source = [node, 0]
+        used.append({"name": lora_name, "strength": strength})
+    for node, key in consumers:
+        graph[node]["inputs"][key] = source
+    return used
+
+
+def _load_image(graph, node):
+    graph[node] = {"class_type": "LoadImage", "inputs": {"image": ""}}
+    return node
+
+
+def _add_references(name, wf, graph, paths):
+    """Chain one ReferenceLatent per reference image into the guider's positive and negative."""
+    ref = wf.get("references")
+    if not ref:
+        raise DenError(f"workflow {name} takes no reference images")
+    count = len(paths)
+    if count > ref.get("max", 1):
+        raise DenError(f"at most {ref.get('max', 1)} reference images, got {count}")
+    pos_node, _, pos_key = ref["positive"].partition(".")
+    neg_node, _, neg_key = ref["negative"].partition(".")
+    loads = []
+    for i in range(count):
+        load, scale, encode, pos, neg = (str(950 + 5 * i + k) for k in range(5))
+        _load_image(graph, load)
+        graph[scale] = {
+            "class_type": "ImageScaleToTotalPixels",
+            "inputs": {"image": [load, 0], "upscale_method": "lanczos", "megapixels": ref.get("megapixels", 1), "resolution_steps": 1},
+        }
+        graph[encode] = {"class_type": "VAEEncode", "inputs": {"pixels": [scale, 0], "vae": [ref["vae"], 0]}}
+        graph[pos] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": graph[pos_node]["inputs"][pos_key], "latent": [encode, 0]}}
+        graph[neg] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": graph[neg_node]["inputs"][neg_key], "latent": [encode, 0]}}
+        graph[pos_node]["inputs"][pos_key] = [pos, 0]
+        graph[neg_node]["inputs"][neg_key] = [neg, 0]
+        loads.append((load, paths[i]))
+    return loads
+
+
+def controls(config, wf):
+    """A workflow's control (ControlNet) mapping when its model file is downloaded, else None."""
+    control = wf.get("control")
+    if control and any(p.endswith("/" + control["file"]) for p in installed_models()):
+        return control
+    return None
+
+
+def _rewire(graph, old, new, skip=()):
+    for node, spec in graph.items():
+        if node in skip:
+            continue
+        for key, value in spec["inputs"].items():
+            if value == old:
+                spec["inputs"][key] = new
+
+
+def _add_control(config, name, wf, graph, request):
+    """Guide the image with a ControlNet: a guide image, its type and a strength."""
+    control = controls(config, wf)
+    if not control:
+        raise DenError(f"workflow {name} takes no guide image (no ControlNet configured or downloaded)")
+    kind = control["kind"]
+    kind_types = CONTROL_TYPES[kind]
+    allowed_types = control.get("types", list(kind_types))
+    kind_type = request.get("type")
+    if kind_type not in allowed_types:
+        raise DenError(f"control type must be one of {', '.join(allowed_types)}, got {kind_type!r}")
+    spec = control.get("strength", {})
+    strength = float(request.get("strength", spec.get("default", 1.0)))
+    _check_range("control strength", strength, spec)
+    load = _load_image(graph, "980")
+    hint = [load, 0]
+    if kind_type == "canny":  # a photo: den draws the edges
+        graph["981"] = {"class_type": "Canny", "inputs": {"image": hint, "low_threshold": 0.4, "high_threshold": 0.8}}
+        hint = ["981", 0]
+    if kind == "controlnet":
+        graph["982"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": control["file"]}}
+        graph["983"] = {"class_type": "SetUnionControlNetType", "inputs": {"control_net": ["982", 0], "type": kind_types[kind_type]}}
+        pos, neg = [control["positive"], 0], [control["negative"], 0]
+        graph["984"] = {
+            "class_type": "ControlNetApplyAdvanced",
+            "inputs": {
+                "positive": pos, "negative": neg, "control_net": ["983", 0], "image": hint, "strength": strength,
+                "start_percent": float(request.get("start", 0.0)), "end_percent": float(request.get("end", 1.0)),
+            },
+        }
+        _rewire(graph, pos, ["984", 0], skip={"984"})
+        _rewire(graph, neg, ["984", 1], skip={"984"})
+    else:  # zimage-fun: a model patch between the model and the sampler
+        model = [control["model"], 0]
+        graph["982"] = {"class_type": "ModelPatchLoader", "inputs": {"name": control["file"]}}
+        graph["984"] = {
+            "class_type": "ZImageFunControlnet",
+            "inputs": {"model": model, "model_patch": ["982", 0], "vae": [control["vae"], 0], "strength": strength, "image": hint},
+        }
+        _rewire(graph, model, ["984", 0], skip={"984"})
+    return {"type": kind_type, "strength": strength}, [(load, request.get("image"))]
+
+
+def upscalers(config):
+    """{name: upscaler config} whose model file is downloaded."""
+    installed = installed_models()
+    return {
+        name: up
+        for name, up in settings(config).get("upscalers", {}).items()
+        if any(p.endswith("/" + up["file"]) for p in installed)
+    }
+
+
+def _add_upscale(config, graph, request):
+    """Run the decoded image through an upscale model before it's saved; factor scales the result."""
+    offered = upscalers(config)
+    up_name = request.get("name")
+    if up_name not in offered:
+        raise DenError(f"unknown upscaler {up_name!r}; available: {', '.join(offered) or 'none'}")
+    up = offered[up_name]
+    native = up.get("scale", 4)
+    factor = float(request.get("factor", settings(config).get("upscale_factor", 2)))
+    if not 1 <= factor <= native:
+        raise DenError(f"upscale factor must be between 1 and {native}, got {factor}")
+    graph["990"] = {"class_type": "UpscaleModelLoader", "inputs": {"model_name": up["file"]}}
+    for i, (node, spec) in enumerate([(n, s) for n, s in graph.items() if s["class_type"] == "SaveImage"]):
+        up_node, scale_node = str(991 + 2 * i), str(992 + 2 * i)
+        graph[up_node] = {"class_type": "ImageUpscaleWithModel", "inputs": {"upscale_model": ["990", 0], "image": spec["inputs"]["images"]}}
+        out = [up_node, 0]
+        if factor != native:
+            graph[scale_node] = {"class_type": "ImageScaleBy", "inputs": {"image": out, "upscale_method": "lanczos", "scale_by": factor / native}}
+            out = [scale_node, 0]
+        spec["inputs"]["images"] = out
+    return {"name": up_name, "factor": factor}
+
+
+def build(config, name, prompt, negative=None, seed=None, size=None, edit=False, options=None):
+    """(graph, parameters used, uploads). Raises DenError on bad input.
+
+    options holds the optional settings (steps, cfg, sampler, scheduler) and extras: loras
+    ([{name, strength}]), references ([path]), control ({image, type, strength, start, end})
+    and upscale ({name, factor}). With edit, it's the edit variant's graph. uploads lists
+    (LoadImage node, path) pairs for the reference and control images; the broker uploads them
+    and sets the names (fill_uploads), as it does for the input image (fill_image).
     """
+    options = options or {}
     flows = check_workflows(config)
     if name not in flows:
         raise DenError(f"unknown workflow {name!r}; configured: {', '.join(flows) or 'none'}")
-    wf, problem = flows[name]
+    base, problem = flows[name]
     if problem:
         raise DenError(f"workflow {name} can't run: {problem}")
     if not prompt or not prompt.strip():
         raise DenError("the prompt is empty")
-    graph_name, wf = variant(name, wf, edit)
+    graph_name, wf = variant(name, base, edit)
     graph = load_graph(graph_name)
     _set(graph, wf["prompt"], prompt)
     if negative is not None and negative.strip():
@@ -168,11 +387,104 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False)
     else:
         width = height = None
     params = {"workflow": name, "edit": edit, "seed": seed, "width": width, "height": height}
-    return graph, params
+
+    # Settings come after with_negative, so an explicit cfg wins over its cfg.
+    specs = wf.get("settings", base.get("settings", {}))
+    for key, kind in SETTINGS.items():
+        if options.get(key) is None:
+            continue
+        if key not in specs:
+            raise DenError(f"workflow {name} has no {key} setting; it has: {', '.join(specs) or 'none'}")
+        value = options[key]
+        if isinstance(kind, list):
+            if value not in kind:
+                raise DenError(f"unknown {key} {value!r}; ComfyUI has: {', '.join(kind)}")
+        else:
+            try:
+                value = kind(value)
+            except (TypeError, ValueError):
+                raise DenError(f"{key} must be a number, got {value!r}") from None
+            _check_range(key, value, specs[key])
+        for ref in _refs(specs[key]["input"]):
+            _set(graph, ref, value)
+        params[key] = value
+    if options.get("loras"):
+        params["loras"] = _add_loras(config, name, base, graph, options["loras"])
+    uploads = []
+    if options.get("references"):
+        uploads += _add_references(name, wf if "references" in wf else base, graph, options["references"])
+        params["references"] = len(options["references"])
+    if options.get("control"):
+        params["control"], control_uploads = _add_control(config, name, base, graph, options["control"])
+        uploads += control_uploads
+    if options.get("upscale"):
+        params["upscale"] = _add_upscale(config, graph, options["upscale"])
+    return graph, params, uploads
+
+
+def describe_options(config, name, wf):
+    """One line per optional setting, LoRA and reference input a workflow offers, with defaults and ranges."""
+    specs = wf.get("settings", {})
+    graph = load_graph(name)
+    lines = []
+    for key in SETTINGS:
+        if key not in specs:
+            continue
+        spec = specs[key]
+        node, _, field = _refs(spec["input"])[0].partition(".")
+        default = graph[node]["inputs"][field]
+        if "edit" in wf:
+            edit_default = load_graph(f"{name}-edit").get(node, {}).get("inputs", {}).get(field, default)
+            if edit_default != default:
+                default = f"{default} (edits: {edit_default})"
+        recommended = spec.get("recommended")
+        if key in ("sampler", "scheduler"):
+            rec = f"recommended {', '.join(recommended)}; " if recommended else ""
+            lines.append(f"{key}: default {default} ({rec}available: any ComfyUI {key})")
+        else:
+            rec = f"recommended {recommended[0]}–{recommended[1]}, " if recommended else ""
+            allowed = spec.get("allowed")
+            lines.append(f"{key}: default {default} ({rec}allowed {allowed[0]}–{allowed[1]})" if allowed else f"{key}: default {default}")
+    for lora_name, lora in available_loras(config, wf, graph).items():
+        strength = lora.get("strength", {})
+        rec, allowed = strength.get("recommended"), strength.get("allowed")
+        rng = "".join(
+            [f", recommended {rec[0]}–{rec[1]}" if rec else "", f", allowed {allowed[0]}–{allowed[1]}" if allowed else ""]
+        )
+        desc = describe(lora)
+        lines.append(f"lora {lora_name}: {desc} (strength default {strength.get('default', 1.0)}{rng})")
+    if "references" in wf:
+        lines.append(f"references: up to {wf['references'].get('max', 1)} reference images")
+    control = controls(config, wf)
+    if control:
+        strength = control.get("strength", {})
+        rec, allowed = strength.get("recommended"), strength.get("allowed")
+        lines.append(
+            f"control: guide image types {', '.join(control.get('types', CONTROL_TYPES[control['kind']]))}"
+            f" (canny takes a photo and den draws the edges; the others take a ready-made map);"
+            f" strength default {strength.get('default', 1.0)}"
+            + (f", recommended {rec[0]}–{rec[1]}" if rec else "")
+            + (f", allowed {allowed[0]}–{allowed[1]}" if allowed else "")
+        )
+    return lines
 
 
 def fill_image(config, name, graph, uploaded):
     _set(graph, workflows(config)[name]["edit"]["image"], uploaded)
+
+
+def fill_uploads(graph, uploads, names):
+    for (node, _), uploaded in zip(uploads, names):
+        graph[node]["inputs"]["image"] = uploaded
+
+
+def describe_upscalers(config):
+    """One line per downloaded upscaler, for whoever picks one."""
+    factor = settings(config).get("upscale_factor", 2)
+    return [
+        f"{name}: {describe(up)} (factor default {factor}, allowed 1–{up.get('scale', 4)})"
+        for name, up in upscalers(config).items()
+    ]
 
 
 class ComfyUI:

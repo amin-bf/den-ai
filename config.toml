@@ -44,8 +44,6 @@ service = "comfyui"
 keep_alive = "30m"
 # Used when a request names no workflow.
 default_workflow = "z-image-turbo"
-# prompt_note (optional): added to the instructions of models that write image prompts (pi,
-# Claude). Put private notes in config.local.toml.
 
 # Workflows: workflows/<name>.json is the ComfyUI graph in API format (web UI: Export (API)).
 # A workflow can run when the model files its graph names are downloaded.

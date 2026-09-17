@@ -168,7 +168,7 @@ Restart=no
 WantedBy=default.target
 EOF
     systemctl --user daemon-reload
-    did "wrote comfyui.service (not enabled: start it by hand after 'den mode off' until the broker manages it)"
+    did "wrote comfyui.service (not enabled: the broker starts and stops it)"
   fi
   if ! find "$COMFYUI_DIR/models" -name '*.safetensors' -size +100M 2>/dev/null | grep -q .; then
     todo "download an image model: see 'Image models' in README.md"

@@ -1,0 +1,67 @@
+---
+status: accepted (broker and CLI built; Claude's tool and the pi extension follow)
+---
+
+# Image generation: ComfyUI behind the broker, workflows as files
+
+Image generation is the second **side** of the GPU broker (ADR 0002). Every image model
+tested fills the 12 GB card, and ComfyUI keeps 9–20 GB of RAM besides, so it can't share the
+machine with the LLM. The broker runs ComfyUI as a systemd user service, starts it on a swap to
+images and stops it on a swap back. Clients ask the broker (`POST /image`); none of them talks
+to ComfyUI.
+
+## Decisions
+
+- **ComfyUI as the backend.** Its web UI is where models get tried and workflows exported, and
+  its graph API covers text-to-image, editing and multi-pass workflows with one interface. It
+  runs from its own venv (`setup.sh`), outside the stdlib-only den code.
+- **A swap stops the service; it doesn't ask ComfyUI to free memory.** `POST /free` only acts once
+  ComfyUI's queue is idle, and the process keeps its RAM. Stopping takes about a second and frees
+  the GPU at once; starting takes ~4 s plus the first model load (5–40 s).
+- **Workflows are files plus a mapping.** `workflows/<name>.json` is a graph in API format, and
+  `[image.workflows.<name>]` names the node inputs that receive the prompt, negative prompt,
+  seed (sometimes several nodes), size and input image, with a description that says what the
+  workflow is good at and how to write its prompt. Prompt style matters more than the model:
+  each model wants its own (short sentences, long captions, tags).
+- **No model names in config: availability comes from the files.** A workflow can run when every
+  model file its graph names is under `$COMFYUI_DIR/models`. Whoever calls picks the workflow
+  per request from the descriptions; `[image] default_workflow` covers requests that name none.
+- **The broker writes the files.** It saves each result to
+  `~/Pictures/den/YYYY-MM-DD/<time>-<slug>.png` (`DEN_IMAGES` overrides), copies it to `out` when
+  given, and appends prompt, seed, workflow, times and caller to
+  `~/.local/state/den/images.jsonl`. Results carry paths, never image data, so Claude's and pi's
+  models never receive the image. Paths in a request must be absolute.
+- **Lazy switch-back.** After an image ComfyUI stays up, since images tend to come in series.
+  It stops when an LLM request needs the GPU, when a request sets `switch_back` and no other
+  image work is left, or after `[image] keep_alive` (30 m) without image requests. `switch_back`
+  only stops ComfyUI; the LLM loads on its next request, as usual.
+- **The idle timeout checks ComfyUI's own queue** before stopping it, so a session in its web UI
+  keeps it up.
+
+## Batching (refines ADR 0002)
+
+The caps (`[broker] batch_seconds = 120`, `batch_requests = 4`) apply to both sides the same way:
+while the other side waits, the loaded side starts new requests only until one cap is reached.
+They count from when the other side started waiting **or from when the loaded side was loaded,
+whichever is later**. Without the second clause, requests that waited through a long batch would
+find their own cap already expired after the swap and hand the GPU straight back, starting
+nothing.
+
+## Models (tested on a 12 GB card, warm, ~1024²)
+
+| Workflow | Style | s/image |
+|---|---|---|
+| `flux2-klein-4b` (fp8) | general, quick drafts | 2 |
+| `z-image-turbo` (bf16) | general, legible text | 7.5 |
+| `wai-illustrious` (SDXL, hires fix) | anime and illustration, tag prompts | 29 |
+| `chroma1-hd` (fp8, cfg 6, 35 steps) | photorealistic, long captions, negative prompt | ~50 |
+
+## Consequences
+
+- **A mode switch or swap waits for running images**, which can take a minute with Chroma.
+  `den mode … --now` interrupts them in ComfyUI.
+- **ComfyUI started by hand is outside the broker.** A swap that finds ComfyUI still answering
+  after stopping the unit fails loudly rather than loading the LLM beside it. Its web UI is safe
+  to use while the image side is loaded.
+- **Pass-through LLM callers (pi) can't see why they wait.** Their request simply takes longer
+  while images finish and ComfyUI stops; `den status` and the broker's journal show the queue.

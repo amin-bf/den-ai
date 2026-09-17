@@ -2,16 +2,17 @@
 
 HQ for a local AI toolchain. Claude Code stays the main coding agent and hands selected
 cheap, bulk or private tasks to a local LLM served by Ollama, through the `local_llm` MCP
-tool. [pi](#pi) is the local chat and coding agent on the same model. Image generation with
-ComfyUI is being built.
+tool. [pi](#pi) is the local chat and coding agent on the same model. Images come from
+ComfyUI, through `den image` for now.
 
 Everything that uses the GPU (the `den` CLI, Claude's MCP server, pi) goes through the
-**broker**, `den serve` on `127.0.0.1:11435`. It passes requests on to Ollama, knows which
-ones are running and owns mode switches, so two models never fight over the 12 GB card
-([ADR 0002](docs/adr/0002-gpu-broker.md)).
+**broker**, `den serve` on `127.0.0.1:11435`. It passes LLM requests on to Ollama, runs image
+requests on ComfyUI, swaps the GPU between the two and owns mode switches, so two models never
+fight over the 12 GB card ([ADR 0002](docs/adr/0002-gpu-broker.md),
+[ADR 0003](docs/adr/0003-image-generation.md)).
 
 See `AGENTS.md` for the layout and design rules, `CONTEXT.md` for the vocabulary (broker,
-side, mode, swap, caller) and `docs/adr/` for decisions.
+side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
 
 ## Status
 
@@ -21,8 +22,8 @@ side, mode, swap, caller) and `docs/adr/` for decisions.
 | GPU broker, LLM side (pass-through, mode switches that wait, `keep_alive` for every caller) | Done ([ADR 0002](docs/adr/0002-gpu-broker.md)) |
 | pi through the broker | Done |
 | ComfyUI install (`setup.sh`) and model tests | Done ([Image generation](#image-generation)) |
-| Image side of the broker: swaps, queue, `den image` | Next |
-| Claude's `generate_image` MCP tool | Planned |
+| Image side of the broker: swaps, batching, idle timeout, `den image` | Done ([ADR 0003](docs/adr/0003-image-generation.md)) |
+| Claude's `generate_image` MCP tool | Next |
 | pi image extension (`/imagine`, inline images) | Planned |
 
 ## Setup
@@ -130,15 +131,48 @@ outside this repo:
 
 ## Image generation
 
-In progress: the broker doesn't manage images yet (ADR 0003 will record the design).
-What's there now:
+ComfyUI lives in `~/ComfyUI` (installed by `setup.sh`) with a user unit `comfyui.service` on
+`127.0.0.1:8188`. It isn't enabled: the broker starts it when an image is requested and stops it
+when the LLM needs the GPU.
 
-- **ComfyUI** in `~/ComfyUI` (installed by `setup.sh`), with a user unit `comfyui.service`
-  on `127.0.0.1:8188`. It isn't enabled: the broker will start and stop it. Use the web UI at
-  <http://127.0.0.1:8188> to try models and export API workflows.
-- **Until the broker handles images, swap by hand:** run `den mode off` before
-  `systemctl --user start comfyui`, and `systemctl --user stop comfyui` before
-  `den mode llm` or using pi. On a 12 GB card both at once run out of memory.
+```sh
+den mode both                       # LLM and images available, swapped on demand
+den image                           # list workflows (* = default) and whether they can run
+den image "A red fox reading a book under a lamp" --seed 7
+den image "masterpiece, best quality, fox, forest" -w wai-illustrious -n "bad quality" --size 832x1216
+den image "…" -o ~/project/assets/fox.png --switch-back
+```
+
+- **Results** go to `~/Pictures/den/YYYY-MM-DD/<time>-<slug>.png` (`DEN_IMAGES` overrides), plus
+  a copy at `-o` when given. Every request is logged to `~/.local/state/den/images.jsonl` with
+  prompt, seed, workflow, times and caller.
+- **Swaps:** the first image after LLM work unloads the LLM and starts ComfyUI (a few seconds plus
+  the model load). ComfyUI then stays up for the next images. The next LLM request, pi's
+  included, stops it first; so does `--switch-back`, or 30 minutes without images
+  (`[image] keep_alive`).
+- **Batching:** when both sides want the GPU, the loaded one finishes what's running and may start
+  new requests for up to 120 s or 4 requests (`[broker] batch_seconds`, `batch_requests`), then
+  the other side gets its turn. The CLI prints what it waits for; `den status` shows the queue.
+- **Modes:** `den mode llm` stops ComfyUI (after running images finish, or at once with `--now`),
+  `den mode image` unloads the LLM, and `den mode off` does both.
+- **The web UI** at <http://127.0.0.1:8188> works whenever ComfyUI is up (e.g. after a
+  `den image`), and the idle timeout leaves it running while its queue is busy. Don't start
+  ComfyUI by hand while the LLM is loaded: the broker can't see it.
+
+### Workflows
+
+| Workflow | Good for | Prompt |
+|---|---|---|
+| `z-image-turbo` (default) | fast general images, legible text | a few short concrete sentences |
+| `flux2-klein-4b` | the fastest drafts and simple assets | a plain description |
+| `chroma1-hd` | slow, highest-quality photorealism (cfg 6, 35 steps) | a long detailed caption, plus a negative prompt |
+| `wai-illustrious` | anime and illustration, with a hires-fix pass | Danbooru tags, positive and negative |
+
+Each is `workflows/<name>.json` (a graph in API format) plus `[image.workflows.<name>]` in
+`config.toml`, which says where the prompt, negative prompt, seed and size go. To add one, build
+it in the web UI, export it with Workflow → Export (API), save it under `workflows/` and add
+its mapping. A workflow can run once the model files its graph names are in
+`~/ComfyUI/models` (`COMFYUI_DIR` overrides the location).
 
 ### Image models
 
@@ -170,7 +204,7 @@ Changes take effect immediately. The broker, the CLI and the MCP server re-read
 
 | Command | What it does |
 |---|---|
-| `den status` | Mode, broker (up? a switch waiting? requests running), active model (pulled? loaded? how much is on the GPU), Ollama version, tasks |
+| `den status` | Mode, broker (up? which side holds the GPU? a switch waiting? requests running or waiting), active model (pulled? loaded? how much is on the GPU), Ollama version, ComfyUI (up? idle for how long?) and runnable workflows, tasks |
 | `den serve` | Run the broker in the foreground (the systemd unit does this) |
 | `den --help` / `den <cmd> --help` | Help |
 
@@ -179,10 +213,11 @@ Changes take effect immediately. The broker, the CLI and the MCP server re-read
 | Command | What it does |
 |---|---|
 | `den mode` | Show the current mode |
-| `den mode llm` | LLM on, image off (default) |
-| `den mode off` | Everything off. Refuses new LLM requests, waits for the running ones (and shows them), unloads the LLM and removes the tool from Claude. Ctrl+C drops the switch |
-| `den mode off --now` | Same, but cancels running requests instead of waiting; their callers get an error |
-| `den mode image` / `both` | Not available yet (no image backend) |
+| `den mode llm` | LLM on, image off (default). Stops ComfyUI after running images finish |
+| `den mode image` | Images on, LLM off. Unloads the LLM after running requests finish |
+| `den mode both` | Both on, one loaded at a time, swapped on demand with batching |
+| `den mode off` | Everything off. Refuses new requests, waits for the running ones (and shows them), unloads the LLM, stops ComfyUI and removes the tool from Claude. Ctrl+C drops the switch |
+| `den mode <mode> --now` | Same, but cancels running requests of the sides turned off instead of waiting; their callers get an error |
 
 ### Models
 
@@ -226,6 +261,19 @@ git diff --staged | den ask draft "A conventional commit message"
 den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide the stats
 ```
 
+### Images
+
+| Command | What it does |
+|---|---|
+| `den image` | List workflows with descriptions; `*` marks the default, and missing model files are shown |
+| `den image "<prompt>"` | Generate with the default workflow; prints the saved path, then seed and time on stderr |
+| `-w <workflow>` / `-n "<negative>"` | Pick a workflow / give a negative prompt (workflows that take one) |
+| `--seed N` / `--size 832x1216` | Fix the seed (default random) / override the workflow's size |
+| `-o <file or dir/>` | Also copy the result there |
+| `--switch-back` | Stop ComfyUI afterwards so the LLM can load right away |
+
+Ctrl+C cancels the request, in ComfyUI too.
+
 ### Reviewing delegations
 
 Every `local_llm` call Claude makes is logged with an id and its verdict (see
@@ -241,13 +289,16 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 
 | Item | Purpose |
 |---|---|
-| `config.toml` | Edit by hand: broker and Ollama URLs, shared LLM settings, tasks and their system prompts, defaults |
+| `config.toml` | Edit by hand: broker, Ollama and ComfyUI URLs, batch caps, shared LLM settings, image settings and workflow mappings, tasks and their system prompts, defaults |
+| `workflows/` | ComfyUI graphs (API format), one per workflow |
 | `state.json` | Written by the broker (mode) and the CLI (active model, task overrides). Delete it to reset to the defaults |
 | `systemd/den.service` | The broker's user unit. Logs: `journalctl --user -u den -f` |
-| `curl -s localhost:11435/status` | The broker's state as JSON: mode, a pending switch, running requests, loaded models |
+| `curl -s localhost:11435/status` | The broker's state as JSON: mode, a pending switch, the loaded side, running and waiting requests, loaded models, ComfyUI |
 | `DEN_CONFIG=<path>` | Use a different config file |
 | `DEN_STATE=<path>` | Use a different state file (e.g. for testing without touching the real one) |
 | `~/.local/state/den/delegations.jsonl` | Delegation log (outside git). `DEN_LOG=<path>` uses a different one |
+| `~/.local/state/den/images.jsonl` | Image log. `DEN_IMAGE_LOG=<path>` uses a different one |
+| `DEN_IMAGES=<dir>` / `COMFYUI_DIR=<dir>` | Where images are saved / where ComfyUI and its models live |
 
 ## Ollama cheatsheet
 

@@ -1,6 +1,8 @@
 # runtime switches written by `den` (mode, active profile, task toggles)
 state.json
 state.tmp
+# private additions merged over config.toml (e.g. workflow notes)
+config.local.toml
 __pycache__/
 
 # Per-branch working artifacts (handoffs, diff viewers, agent notes); see AGENTS.md

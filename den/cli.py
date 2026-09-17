@@ -137,7 +137,7 @@ def cmd_image(args):
         for name, (wf, problem) in flows.items():
             marker = "*" if name == default else " "
             edits = " [edits: takes --image]" if "edit" in wf else ""
-            print(f"{marker} {name:<16} {wf.get('description', '')}{edits}")
+            print(f"{marker} {name:<16} {image.describe(wf)}{edits}")
             if problem:
                 print(f"  {'':<16} CAN'T RUN: {problem}")
         return

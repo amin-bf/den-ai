@@ -295,6 +295,7 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 | Item | Purpose |
 |---|---|
 | `config.toml` | Edit by hand: broker, Ollama and ComfyUI URLs, batch caps, shared LLM settings, image settings and workflow mappings, tasks and their system prompts, defaults |
+| `config.local.toml` | Optional, git-ignored: private additions merged over `config.toml`, e.g. a workflow's `note`, which is appended to its description. `DEN_CONFIG_LOCAL=<path>` uses a different one |
 | `workflows/` | ComfyUI graphs (API format), one per workflow |
 | `state.json` | Written by the broker (mode) and the CLI (active model, task overrides). Delete it to reset to the defaults |
 | `systemd/den.service` | The broker's user unit. Logs: `journalctl --user -u den -f` |

@@ -80,6 +80,11 @@ def variant(name, wf, edit):
     return f"{name}-edit", wf["edit"]
 
 
+def describe(wf):
+    """A workflow's description, with its private note from config.local.toml if any."""
+    return " ".join(filter(None, (wf.get("description", ""), wf.get("note", ""))))
+
+
 def check_workflows(config):
     """{name: (workflow config, problem or None)}: a problem is a missing graph or model file."""
     installed = installed_models()

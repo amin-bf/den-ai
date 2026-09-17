@@ -18,6 +18,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(os.environ.get("DEN_CONFIG", ROOT / "config.toml"))
+# Private additions merged over config.toml (git-ignored), e.g. workflow notes.
+LOCAL_CONFIG_PATH = Path(os.environ.get("DEN_CONFIG_LOCAL", CONFIG_PATH.with_name("config.local.toml")))
 STATE_PATH = Path(os.environ.get("DEN_STATE", ROOT / "state.json"))
 # Delegation log: one JSON object per line, outside git because it names files and projects.
 _STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
@@ -38,12 +40,27 @@ class DenError(Exception):
     pass
 
 
+def _merge(base, extra):
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            _merge(base[key], value)
+        else:
+            base[key] = value
+    return base
+
+
 def load_config():
-    try:
-        with open(CONFIG_PATH, "rb") as f:
-            return tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError) as e:
-        raise DenError(f"cannot read {CONFIG_PATH}: {e}") from e
+    """config.toml, with config.local.toml (when it exists) merged over it table by table."""
+    config = {}
+    for path in (CONFIG_PATH, LOCAL_CONFIG_PATH):
+        if path is LOCAL_CONFIG_PATH and not path.exists():
+            break
+        try:
+            with open(path, "rb") as f:
+                _merge(config, tomllib.load(f))
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            raise DenError(f"cannot read {path}: {e}") from e
+    return config
 
 
 def load_state(config):

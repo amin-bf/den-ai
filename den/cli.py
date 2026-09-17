@@ -1,6 +1,7 @@
 """`den` — switch modes, models and delegated tasks; run a task from the shell."""
 
 import argparse
+import json
 import subprocess
 import sys
 import time
@@ -158,6 +159,15 @@ def _upscale_arg(value):
 
 def cmd_image(args):
     config, state = _load()
+    if args.json:
+        # For callers that build their own tool from it (pi's extension): the workflows that can
+        # run now, with the description and parameter schema Claude's MCP tool uses too.
+        default = image.settings(config).get("default_workflow")
+        flows = image.available(config)
+        spec = image.request_spec(config, flows, default) if flows else {"description": None, "parameters": None}
+        listing = {"broker": core.broker_url(config), "mode": state["mode"], "image_on": core.image_on(state), "default": default}
+        print(json.dumps({**listing, "workflows": list(flows), "edits": [n for n, wf in flows.items() if "edit" in wf], **spec}))
+        return
     if args.prompt is None:
         default = image.settings(config).get("default_workflow")
         flows = image.check_workflows(config)
@@ -375,6 +385,7 @@ def main(argv=None):
 
     p = sub.add_parser("image", help="generate an image through the broker, or list workflows (no prompt)")
     p.add_argument("prompt", nargs="?")
+    p.add_argument("--json", action="store_true", help="print the runnable workflows with a tool description and parameter schema as JSON")
     p.add_argument("-w", "--workflow", help="workflow name (default: [image] default_workflow)")
     p.add_argument("-n", "--negative", help="negative prompt, for workflows that take one (on klein it raises cfg to 2)")
     p.add_argument("--seed", type=int, help="default: random")

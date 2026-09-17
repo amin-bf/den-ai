@@ -298,9 +298,11 @@ def save(images, prompt, out=None):
         paths.append(path)
     copies = []
     if out:
+        # Check the trailing slash before Path() drops it: out/ is a folder, even a new one.
+        into_dir = str(out).endswith("/")
         out = Path(out).expanduser()
         for i, path in enumerate(paths):
-            if out.is_dir() or str(out).endswith("/"):
+            if into_dir or out.is_dir():
                 target = out / path.name
             elif len(paths) > 1:
                 target = out.with_name(f"{out.stem}-{i + 1}{out.suffix}")

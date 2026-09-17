@@ -35,9 +35,17 @@ _Avoid_: release, free
 Whether a side can run a request now: an LLM model is selected, or a workflow's model files are there. The broker checks it per request and answers an unavailable one with the reason.
 _Avoid_: enabled, on
 
+**Release**:
+Giving the machine back because someone asked for it: the sides take no new requests, finish what is running and unload — the GPU, and the RAM and CPU their models hold. The mode stays on, so the next request loads its side again.
+_Avoid_: free, standby, eviction
+
 **Unload**:
-Emptying the GPU without changing the mode (`den unload`), so both sides stay available and the next request loads its side again.
-_Avoid_: release, free, standby
+Emptying memory of a loaded side's model. It is the last step of a swap, of a release and of turning den off.
+_Avoid_: kill, purge, drop
+
+**Pressure**:
+What the machine is doing besides den: how loaded its CPUs are and how much RAM is still available. Enough of it stops a side that isn't loaded from loading, while a loaded side keeps serving.
+_Avoid_: load (that is only one of its two numbers), utilisation
 
 **In-flight request**:
 A request the broker has passed on and that hasn't finished yet. A swap or mode change waits for it.

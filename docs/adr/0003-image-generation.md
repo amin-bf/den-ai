@@ -37,7 +37,10 @@ to ComfyUI.
   `~/Pictures/den/YYYY-MM-DD/<time>-<slug>.png` (`DEN_IMAGES` overrides), copies it to `out` when
   given, and appends prompt, seed, workflow, times and caller to
   `~/.local/state/den/images.jsonl`. Results carry paths, never image data, so Claude's and pi's
-  models never receive the image. Paths in a request must be absolute.
+  models never receive the image. Paths in a request must be absolute. (One exception since:
+  a caller may ask for a small re-encoded copy with `preview`, which Claude's MCP tool does so
+  its model can judge what it made — [ADR 0004](0004-releasing-the-machine.md). pi's model
+  still gets text only.)
 - **Lazy switch-back.** After an image ComfyUI stays up, since images tend to come in series.
   It stops when an LLM request needs the GPU, when a request sets `switch_back` and no other
   image work is left, or after `[image] keep_alive` (30 m) without image requests. `switch_back`

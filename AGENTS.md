@@ -10,8 +10,8 @@ it delegates selected cheap, bulk or private tasks to a local LLM. Image generat
 
 - **Runtime:** Ollama serves the LLM. Main model: `qwen3.6:35b-a3b` (MoE, ~23 GB,
   split between GPU and RAM).
-- **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation) and `generate_image`
-  to Claude Code.
+- **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation), `generate_image`
+  and `release_resources` (hand the machine back) to Claude Code.
 - **GPU broker:** `den serve` (user unit `den.service`, `127.0.0.1:11435`) sits in front
   of Ollama. The CLI, the MCP server and pi all go through it
   ([ADR 0002](docs/adr/0002-gpu-broker.md)).
@@ -38,17 +38,17 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 
 | Path | Role |
 |---|---|
-| `config.toml` | Hand-edited: broker address, Ollama endpoint and shared model settings (no model names), batch caps, image section (ComfyUI, idle timeout, workflow mappings), delegated tasks with system prompts. |
+| `config.toml` | Hand-edited: broker address, Ollama endpoint and shared model settings (no model names), batch caps, `[limits]` (the load and free RAM above which no side is loaded), image section (ComfyUI, idle timeout, workflow mappings), delegated tasks with system prompts. |
 | `state.json` | Written by the broker (mode) and the CLI, not versioned: the kill switch (`on`/`off`), active model, task on/off overrides. |
-| `den/core.py` | Config and state loading, Ollama and broker clients, `run_task` (with a guard against overflowing the context window). |
-| `den/broker.py` | `den serve`: streaming pass-through to Ollama (`/api`, `/v1`), `/image`, swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, `/status`, `/mode` and `/unload` (both wait, `now` cancels). |
+| `den/core.py` | Config and state loading, Ollama and broker clients, `run_task` (with a guard against overflowing the context window), the machine's load and free RAM (`pressure`, `too_busy`). |
+| `den/broker.py` | `den serve`: streaming pass-through to Ollama (`/api`, `/v1`), `/image`, swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, the busy gate, `/status`, `/mode` and `/unload` (both wait, `now` cancels, and both refuse meanwhile). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
 | `workflows/` | ComfyUI graphs in API format, one per workflow; their mappings live in `config.toml`. |
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / log / serve`. |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
-| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, unload, caller, task, delegation, workflow. |
-| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback` and `generate_image`; sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow. |
+| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image) and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
@@ -66,13 +66,24 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   (`den model`), or a workflow's model files are there. An unavailable side answers with what
   is missing, never with silence. `llm`, `image` and `both` are gone; an old `state.json`
   reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
+- **A side that isn't loaded isn't loaded onto a busy machine.** Above `[limits]`
+  `max_load_per_cpu` (1-minute load average) or below `min_free_ram_gb` (`MemAvailable`), a
+  request whose side would have to load is refused with the numbers and the limit; a side that
+  is loaded keeps serving, so den never gates out its own generation load. The tools stay
+  listed and the call fails, rather than the tool list flapping with the load
+  ([ADR 0004](docs/adr/0004-releasing-the-machine.md)).
 - **The mode is only a kill switch,** `on | off`, enforced by the broker. `den mode off` goes
   through the broker: it refuses new requests, waits for in-flight ones (`--now` cancels them),
   unloads both sides (Ollama via `keep_alive: 0` until `/api/ps` is empty; ComfyUI by stopping
   its unit), and only then saves the mode.
-- **`den unload` frees the GPU without a mode switch:** the same draining and unloading, but
-  nothing is refused and the next request loads its side again. Only one side holds the GPU at
-  a time, swapped on demand and batched by the caps in `[broker]`
+- **`den unload` is the release, without a mode switch:** the same draining and unloading, and
+  it refuses requests for the sides it frees *while it runs* — a release is an explicit "I need
+  this machine now", and a request that only waited would load a side again right behind it.
+  The refusal ends with the release, so the next request loads its side again; that is the
+  difference from `den mode off`. It frees the RAM and CPU the models hold, not only the GPU.
+  Claude asks for the same thing through the `release_resources` tool before it starts
+  something heavy ([ADR 0004](docs/adr/0004-releasing-the-machine.md)). Only one side holds the
+  GPU at a time, swapped on demand and batched by the caps in `[broker]`
   ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **Only a human can start Ollama:** it's a system service, den runs as the user and never uses
   sudo. When it's down the broker logs `OLLAMA DOWN`, callers get the same line with
@@ -82,6 +93,11 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   `[image.workflows.<name>]`. A model that can edit gets an edit variant too
   (`<name>-edit.json`, `[image.workflows.<name>.edit]`). Descriptions say style and prompt
   format only.
+- **An image result is paths, plus a small copy when asked for.** `POST /image` takes
+  `preview`, and only Claude's MCP tool sets it: ComfyUI re-encodes the output as a small JPEG
+  so that model can look at what it made. The saved file stays the full-size PNG, the CLI and
+  pi don't ask for a copy, and an unsupported `/view?preview` falls back to the text result
+  ([ADR 0004](docs/adr/0004-releasing-the-machine.md)).
 - **Delegation is opt-in per task.** Only enabled tasks appear in the tool's `task` enum,
   and the tool description tells Claude to delegate nothing else. Add tasks in
   `config.toml`; toggle them with `den task <name> on|off`.

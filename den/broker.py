@@ -768,7 +768,7 @@ class Handler(BaseHTTPRequestHandler):
             if body.get("image"):
                 image.fill_image(config, name, graph, comfy.upload(body["image"]))
             image.fill_uploads(graph, uploads, [comfy.upload(path) for _, path in uploads])
-            emit({"generating": params})
+            emit({"generating": {**params, "summary": image.summary_parts(params)}})
             began = time.time()
             prompt_id = comfy.submit(graph)
             info["cancel"] = lambda: comfy.cancel(prompt_id)
@@ -793,6 +793,7 @@ class Handler(BaseHTTPRequestHandler):
             self.broker.finish(req_id)
         result = {
             **params,
+            "summary": image.summary_parts(params),
             "paths": [str(p) for p in paths],
             "copies": [str(p) for p in copies],
             "seconds": seconds,

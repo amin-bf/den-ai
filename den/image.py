@@ -455,6 +455,28 @@ def control_summary(control):
     return f"{control['type']} {control['strength']}{window}"
 
 
+def summary_parts(params):
+    """What an image was made with, in order: workflow, seed, size, settings and extras.
+
+    Every caller's summary line is built from this one list — the CLI's, the MCP server's and
+    pi's, which reads it off the wire — so a new setting or extra shows up everywhere at once
+    instead of in whichever renderer was remembered. The time isn't here: a `generating` message
+    doesn't have it yet, so each caller appends its own.
+    """
+    parts = [params["workflow"], f"seed {params['seed']}"]
+    if params.get("width"):
+        parts.append(f"{params['width']}x{params['height']}")
+    parts += [f"{key} {params[key]}" for key in SETTINGS if key in params]
+    parts += [f"lora {lora['name']} {lora['strength']}" for lora in params.get("loras", [])]
+    if params.get("references"):
+        parts.append(f"{params['references']} reference(s)")
+    if params.get("control"):
+        parts.append(f"control {control_summary(params['control'])}")
+    if params.get("upscale"):
+        parts.append(f"upscale {params['upscale']['name']} x{params['upscale']['factor']:g}")
+    return parts
+
+
 def describe_options(config, name, wf):
     """One line per option a workflow offers — size, negative prompt, settings, LoRAs, references,
     control — with its default and range. Everything a caller may pass is named here."""

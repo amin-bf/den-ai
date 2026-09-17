@@ -235,14 +235,9 @@ def generate_image(args, progress_token):
     if result is None:
         raise DenError("the broker ended the image request without a result")
     lines = [f"saved: {p}" for p in result["paths"]] + [f"copied to: {p}" for p in result["copies"]]
-    size = f" · {result['width']}x{result['height']}" if result.get("width") else ""
-    size += "".join(f" · {k} {result[k]}" for k in image.SETTINGS if k in result)
-    size += "".join(f" · lora {l['name']} {l['strength']}" for l in result.get("loras", []))
-    size += f" · {result['references']} reference(s)" if result.get("references") else ""
-    size += f" · control {image.control_summary(result['control'])}" if result.get("control") else ""
-    size += f" · upscale {result['upscale']['name']} x{result['upscale']['factor']:g}" if result.get("upscale") else ""
     waited = f", waited {result['waited_s']:.0f}s" if result["waited_s"] >= 1 else ""
-    lines.append(f"[{result['workflow']} · seed {result['seed']}{size} · {result['seconds']}s{waited}]")
+    parts = [*result["summary"], f"{result['seconds']}s{waited}"]
+    lines.append(f"[{' · '.join(parts)}]")
     if result.get("switched_back"):
         lines.append("ComfyUI stopped; the GPU is free for the LLM.")
     shown = result.get("preview")

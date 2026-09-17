@@ -281,21 +281,17 @@ def cmd_image(args):
                 pass
             elif "generating" in msg:
                 g = msg["generating"]
-                size = f", {g['width']}x{g['height']}" if g["width"] else ""
                 what = "editing" if g.get("edit") else "generating"
-                extra = "".join(f", {k} {g[k]}" for k in image.SETTINGS if k in g)
-                extra += "".join(f", lora {l['name']} {l['strength']}" for l in g.get("loras", []))
-                extra += f", {g['references']} reference(s)" if g.get("references") else ""
-                extra += f", control {image.control_summary(g['control'])}" if g.get("control") else ""
-                extra += f", upscale {g['upscale']['name']} x{g['upscale']['factor']:g}" if g.get("upscale") else ""
-                print(f"{what} with {g['workflow']} (seed {g['seed']}{size}{extra}) ...", flush=True)
+                workflow, *rest = g["summary"]
+                print(f"{what} with {workflow} ({', '.join(rest)}) ...", flush=True)
             elif "result" in msg:
                 r = msg["result"]
                 for path in r["paths"] + r["copies"]:
                     print(path, flush=True)
                 waited = f", waited {r['waited_s']:.0f}s" if r["waited_s"] >= 1 else ""
                 back = "; ComfyUI stopped" if r.get("switched_back") else ""
-                print(f"[{r['workflow']} · seed {r['seed']} · {r['seconds']}s{waited}{back}]", file=sys.stderr)
+                parts = [*r["summary"], f"{r['seconds']}s{waited}"]
+                print(f"[{' · '.join(parts)}{back}]", file=sys.stderr)
     except KeyboardInterrupt:
         print("\nimage request cancelled", file=sys.stderr)
         return 130

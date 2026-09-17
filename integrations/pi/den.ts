@@ -61,6 +61,8 @@ type ImageResult = {
   seed: number;
   width: number | null;
   height: number | null;
+  /** What it was made with — workflow, seed, size, settings, extras — built by den for every caller. */
+  summary?: string[];
   paths: string[];
   copies: string[];
   seconds: number;
@@ -194,25 +196,17 @@ function progressText(msg: Record<string, any>): string | null {
   if (msg.stopping) return "stopping ComfyUI";
   if (msg.generating) {
     const g = msg.generating;
-    const size = g.width ? `, ${g.width}x${g.height}` : "";
-    return `${g.edit ? "editing" : "generating"} with ${g.workflow} (seed ${g.seed}${size})`;
+    const [workflow, ...rest] = g.summary as string[];
+    return `${g.edit ? "editing" : "generating"} with ${workflow} (${rest.join(", ")})`;
   }
   return null;
 }
 
-/** One line of what was used: workflow, seed, size, settings and extras, time. */
+/** One line of what was used: den's summary, plus the time only this side knows how to phrase.
+ *  A generation saved before den sent a summary falls back to what its result still carries. */
 function summary(r: ImageResult): string {
-  const parts = [r.workflow, `seed ${r.seed}`];
-  if (r.width) parts.push(`${r.width}x${r.height}`);
-  for (const key of ["steps", "cfg", "sampler", "scheduler"]) if (key in r) parts.push(`${key} ${r[key]}`);
-  for (const l of (r.loras as { name: string; strength: number }[]) ?? []) parts.push(`lora ${l.name} ${l.strength}`);
-  if (r.references) parts.push(`${r.references} reference(s)`);
-  const control = r.control as { type: string; strength: number } | undefined;
-  if (control) parts.push(`control ${control.type} ${control.strength}`);
-  const upscale = r.upscale as { name: string; factor: number } | undefined;
-  if (upscale) parts.push(`upscale ${upscale.name} x${upscale.factor}`);
-  parts.push(`${r.seconds}s${r.waited_s >= 1 ? `, waited ${Math.round(r.waited_s)}s` : ""}`);
-  return parts.join(" · ");
+  const made = r.summary ?? [r.workflow, `seed ${r.seed}`, ...(r.width ? [`${r.width}x${r.height}`] : [])];
+  return [...made, `${r.seconds}s${r.waited_s >= 1 ? `, waited ${Math.round(r.waited_s)}s` : ""}`].join(" · ");
 }
 
 function resultText(g: Generation): string {

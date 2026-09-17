@@ -110,7 +110,12 @@ def generate_image_tool(flows, default):
                 "workflow": {"type": "string", "enum": list(flows), "description": f"Default: {default}."},
                 "negative": {
                     "type": "string",
-                    "description": "What to avoid, for workflows whose description mentions a negative prompt.",
+                    "description": (
+                        "What to avoid; not every workflow takes one. Leave it out on a first try: fix "
+                        "problems by rewording the prompt first. Add one when feedback on an earlier "
+                        "image names something unwanted that rewording didn't remove, and reuse that "
+                        "image's seed so the change shows."
+                    ),
                 },
                 "size": {
                     "type": "string",

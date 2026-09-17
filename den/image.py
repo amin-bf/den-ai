@@ -142,10 +142,13 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False)
     graph_name, wf = variant(name, wf, edit)
     graph = load_graph(graph_name)
     _set(graph, wf["prompt"], prompt)
-    if negative is not None:
+    if negative is not None and negative.strip():
         if "negative" not in wf:
             raise DenError(f"workflow {name} takes no negative prompt")
         _set(graph, wf["negative"], negative)
+        # Guidance-distilled models ignore a negative at cfg 1: rewire and raise cfg only when one is given.
+        for ref, value in wf.get("with_negative", {}).items():
+            _set(graph, ref, value)
     seed = random.randrange(2**32) if seed is None else int(seed)
     for ref in _refs(wf.get("seed")):
         _set(graph, ref, seed)

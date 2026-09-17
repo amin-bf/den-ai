@@ -33,6 +33,19 @@
       "title": "Positive (plain description)"
     }
   },
+  "77": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "71",
+        0
+      ],
+      "text": ""
+    },
+    "_meta": {
+      "title": "Negative prompt (wired in by den when given)"
+    }
+  },
   "76": {
     "class_type": "ConditioningZeroOut",
     "inputs": {

@@ -66,6 +66,19 @@
       "title": "Edit instruction (plain English)"
     }
   },
+  "77": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "71",
+        0
+      ],
+      "text": ""
+    },
+    "_meta": {
+      "title": "Negative prompt (wired in by den when given)"
+    }
+  },
   "82": {
     "class_type": "ConditioningZeroOut",
     "inputs": {

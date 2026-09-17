@@ -325,7 +325,7 @@ def main(argv=None):
     p = sub.add_parser("image", help="generate an image through the broker, or list workflows (no prompt)")
     p.add_argument("prompt", nargs="?")
     p.add_argument("-w", "--workflow", help="workflow name (default: [image] default_workflow)")
-    p.add_argument("-n", "--negative", help="negative prompt, for workflows that take one")
+    p.add_argument("-n", "--negative", help="negative prompt, for workflows that take one (on klein it raises cfg to 2)")
     p.add_argument("--seed", type=int, help="default: random")
     p.add_argument("--size", help="WIDTHxHEIGHT, e.g. 1024x1024 (default: the workflow's)")
     p.add_argument("--image", type=Path, help="input image to edit, for workflows whose model edits")

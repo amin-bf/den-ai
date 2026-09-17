@@ -53,6 +53,8 @@ default_workflow = "z-image-turbo"
 #   negative     "node.input" for the negative prompt (optional)
 #   seed         "node.input", or a list when several nodes take the seed
 #   size         node ids whose width and height inputs receive the size (optional)
+#   with_negative  {"node.input" = value} set only when a request brings a negative prompt, e.g.
+#                wiring the negative encoder into the guider and raising cfg (optional)
 # A workflow whose model can edit also gets [image.workflows.<name>.edit]: the same keys for
 # workflows/<name>-edit.json, plus
 #   image        "node.input" of the LoadImage node that receives the input image
@@ -70,44 +72,58 @@ size = ["7"]
 description = """FLUX.2 klein 4B: the fastest, for quick drafts, icons and simple assets; \
 details and anatomy slip more often. Prompt: a plain English description. With an input \
 image it edits it: the prompt is the instruction ("make the sky red, keep the rest"), and \
-the result keeps the input's aspect ratio at about 1 megapixel."""
+the result keeps the input's aspect ratio at about 1 megapixel. A negative prompt raises cfg \
+to 2: slower, a bit more contrast."""
 prompt = "74.text"
 seed = "73.noise_seed"
 size = ["66", "62"]
+negative = "77.text"
+with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.flux2-klein-4b.edit]
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+negative = "77.text"
+with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.klein9b-realism]
 description = """FLUX.2 klein 9B realism fine-tune: fast photorealistic people and scenes. \
 Prompt: detailed natural-language description; \
 describe the pose precisely (hands, arms, framing). With an input image it edits it: the \
 prompt is the instruction; clothing, setting and style changes work better than pose or \
-expression changes."""
+expression changes. A negative prompt raises cfg to 2: slower, a bit more contrast."""
 prompt = "74.text"
 seed = "73.noise_seed"
 size = ["66", "62"]
+negative = "77.text"
+with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.klein9b-realism.edit]
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+negative = "77.text"
+with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.klein9b-anime]
 description = """FLUX.2 klein 9B with the AniEdit LoRA: anime and illustration. \
 Prompt: natural-language description of the scene and \
 style. With an input image it edits it: turn a photo into anime, change clothes, pose, \
-expression or hairstyle; the prompt is the instruction."""
+expression or hairstyle; the prompt is the instruction. A negative prompt raises cfg to 2: \
+slower, a bit more contrast."""
 prompt = "74.text"
 seed = "73.noise_seed"
 size = ["66", "62"]
+negative = "77.text"
+with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.klein9b-anime.edit]
 prompt = "74.text"
 seed = "73.noise_seed"
 image = "76.image"
+negative = "77.text"
+with_negative = { "121.conditioning" = ["77", 0], "63.cfg" = 2 }
 
 [image.workflows.chroma1-hd]
 description = """Chroma1-HD: slow, highest-quality photorealistic images, with a real negative \

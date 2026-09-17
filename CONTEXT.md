@@ -54,3 +54,14 @@ _Avoid_: request (that's the HTTP level)
 **Workflow**:
 A ComfyUI graph saved as a file, with the inputs where a request's prompt, seed and size go. It is what a caller picks instead of a model; one whose model can edit also has an edit variant, used when a request brings an input image.
 _Avoid_: profile, pipeline, preset
+
+**Setting**:
+An optional per-request value a workflow exposes (steps, cfg, sampler, scheduler), with a default from its graph, a recommended range for callers and an allowed range the broker enforces.
+_Avoid_: parameter (too broad), option
+
+**Reference image**:
+An image a request brings for the model to draw on (a person, style or object), chained into the conditioning next to the prompt. Unlike an input image, it isn't edited.
+
+**Guide image**:
+The image a ControlNet follows for composition, pose or outlines: a photo (edges drawn by den) or a ready-made pose, depth or line map.
+_Avoid_: control image, hint

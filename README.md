@@ -159,7 +159,7 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
 - **Claude** gets the `generate_image` MCP tool while images are on (`den mode image` or `both`)
   and at least one workflow can run. It picks the workflow from their descriptions, which the
   tool lists, and takes the same options as `den image` (`workflow`, `negative`, `size`, `seed`,
-  `image`, `out`, `switch_back`). The result is text only: the saved paths, workflow, seed and
+  `image`, `out`, `switch_back`, plus the [settings and extras](#settings-and-extras)). The result is text only: the saved paths, workflow, seed and
   time. Claude doesn't see the image. The tool list refreshes when a mode switch or a model
   download changes the available workflows. A call blocks through queue waits and swaps and
   sends MCP progress messages meanwhile, which keep Claude Code's idle timeout (30 minutes
@@ -185,6 +185,58 @@ its mapping under `[image.workflows.<name>.edit]` (including the LoadImage input
 an input image use it. Of the four, only klein edits; the others generate from text only.
 A workflow can run once the model files its graphs name are in `~/ComfyUI/models`
 (`COMFYUI_DIR` overrides the location).
+
+### Settings and extras
+
+Each request may override a workflow's settings, add LoRAs and bring reference images. All are
+optional; the defaults come from the graph. `den image` lists what each workflow offers, and
+Claude's tool description carries the same list. A value outside the allowed range is refused,
+never clamped. The recommended ranges are starting points, not tested limits.
+
+| Workflow | steps (default · recommended · allowed) | cfg | sampler (recommended) | scheduler (recommended) | Extras |
+|---|---|---|---|---|---|
+| `z-image-turbo` | 8 · 8–10 · 4–20 | 1 · 1–1.5 · 1–4 | res_multistep, euler | simple, beta | control |
+| `flux2-klein-4b` | 4 · 4–6 · 2–12 | 1 · 1–2.5 · 1–5 | euler | fixed | references |
+| `klein9b-realism` | 4 · 4–6 · 2–12 | 1 (edits 2) · 1–2.5 · 1–5 | euler | fixed | references; LoRA `aniedit` |
+| `klein9b-anime` | 4 · 4–6 · 2–12 | 1 (edits 2) · 1–2.5 · 1–5 | euler | fixed | references |
+| `chroma1-hd` | 35 · 26–40 · 10–60 | 6 · 4–6 · 1–10 | euler, res_multistep | beta, simple | |
+| `wai-illustrious` | 28 · 24–30 · 10–50 | 6 · 5–7 · 1–12 | euler_ancestral, dpmpp_2m | normal, karras | control |
+
+- **Available samplers and schedulers:** any name ComfyUI knows; others are refused: 45 samplers such as `euler`, `euler_ancestral`,
+  `dpmpp_2m`, `dpmpp_2m_sde`, `dpmpp_3m_sde`, `res_multistep`, `uni_pc`, `lcm`, and the
+  schedulers `simple`, `sgm_uniform`, `karras`, `exponential`, `ddim_uniform`, `beta`, `normal`,
+  `linear_quadratic`, `kl_optimal`. "DPM++ 2M Karras" is sampler `dpmpp_2m` with scheduler
+  `karras`.
+- **Negative prompts on klein:** klein is distilled for cfg 1, where a negative is skipped
+  entirely. Giving one wires it in and raises cfg to 2 (about twice the compute; an explicit
+  `--cfg` wins). In a test with a hands-heavy prompt it removed the oversaturation cfg 2 alone
+  causes, but didn't look clearly better than no negative, so reword the prompt first.
+- **LoRAs** are `[image.loras.<name>]` entries: a file in `models/loras`, the model family it
+  fits, a description and a strength range. A workflow with that `family` offers it unless its
+  graph already loads it.
+- **Reference images** (klein) are chained into the conditioning as extra reference latents,
+  klein's own way to carry a person, style or object into a new image: up to 3, or 2 when
+  editing. Klein needs no
+  IP-Adapter for this.
+- **Control (ControlNet)** locks composition, pose or outlines to a guide image.
+  `wai-illustrious` uses the SDXL union ControlNet (xinsir promax, `models/controlnet`) with the
+  types `canny`, `lineart`, `scribble`, `pose`, `depth`, `normal`, `segment` and `tile`.
+  `z-image-turbo` uses the Z-Image Fun ControlNet Union 2.1 lite (`models/model_patches`) with
+  `canny`, `hed`, `depth`, `pose` and `mlsd`. For `canny`, pass a photo and den draws the edges
+  with ComfyUI's built-in Canny node. Every other type needs a ready-made map (a pose skeleton, a
+  depth image): making those from a photo takes preprocessor custom nodes, which aren't
+  installed. Strength defaults to 0.7–0.75. Klein and Chroma have no ControlNet among ComfyUI's
+  built-in nodes; use klein's references instead.
+- **Upscalers** run the finished image through an upscale model (`models/upscale_models`), with
+  any workflow: `ultrasharp` (4x-UltraSharp, photos and general), `realesrgan` (Real-ESRGAN
+  x4plus, photos, smoother) and `realesrgan-anime` (anime and illustration). They're native 4x;
+  the factor (default 2, `[image] upscale_factor`) scales the result down after them. They're
+  `[image.upscalers.<name>]` entries.
+- **Prompt syntax:** ComfyUI just encodes the prompt as text. Midjourney flags (`--ar 9:16`,
+  `--v 2`) set nothing; use `--size` and the settings. Weights like `(word:1.3)` are parsed, but
+  only the SDXL workflow (`wai-illustrious`) responds to them reliably.
+- **Not included, since there are no custom nodes:** IP-Adapter (ComfyUI has no built-in node for
+  it; klein's references do that job) and preprocessors that make pose or depth maps from a photo.
 
 ### Image models
 
@@ -279,11 +331,17 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 |---|---|
 | `den image` | List workflows with descriptions; `*` marks the default, and missing model files are shown |
 | `den image "<prompt>"` | Generate with the default workflow; prints the saved path, then seed and time on stderr |
-| `-w <workflow>` / `-n "<negative>"` | Pick a workflow / give a negative prompt (workflows that take one) |
+| `-w <workflow>` / `-n "<negative>"` | Pick a workflow / give a negative prompt (workflows that take one; on klein it raises cfg to 2) |
 | `--seed N` / `--size 832x1216` | Fix the seed (default random) / override the workflow's size |
 | `--image <file>` | Edit this image (workflows whose model edits; the size follows the input) |
 | `-o <file or dir/>` | Also copy the result there |
 | `--switch-back` | Stop ComfyUI afterwards so the LLM can load right away |
+| `--steps N` / `--cfg X` | Override the workflow's steps / guidance, within its allowed range |
+| `--sampler NAME` / `--scheduler NAME` | Any ComfyUI sampler or scheduler the workflow has a setting for |
+| `--lora NAME[:STRENGTH]` | Add a LoRA the workflow offers; repeatable |
+| `--reference <file>` | A reference image (person, style, object) for klein workflows; repeatable |
+| `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo, wai-illustrious): `canny` for a photo, or a ready-made `pose`, `depth`, … map |
+| `--upscale NAME[:FACTOR]` | Enlarge the result with an upscale model (default factor 2), any workflow |
 
 Ctrl+C cancels the request, in ComfyUI too.
 

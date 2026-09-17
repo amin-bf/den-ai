@@ -63,6 +63,30 @@ nothing.
 | `wai-illustrious` (SDXL, hires fix) | anime and illustration, tag prompts | 29 |
 | `chroma1-hd` (fp8, cfg 6, 35 steps) | photorealistic, long captions, negative prompt | ~50 |
 
+## Request settings, LoRAs and references
+
+The caller's model can tune a request instead of only picking a workflow: `steps`, `cfg`,
+`sampler`, `scheduler`, `loras` and `references` are optional request fields, mapped per workflow
+in `config.toml` like the prompt and seed.
+
+- **Ranges are enforced.** Each numeric setting has a `recommended` range (shown to the model)
+  and an `allowed` one (refused outside, never clamped). Advice written for another model family,
+  e.g. SDXL's cfg 5 on a distilled klein, would otherwise ruin the image quietly. Samplers and
+  schedulers accept any ComfyUI name, with a recommended few per workflow.
+- **A negative prompt on a guidance-distilled model changes the graph.** At cfg 1 ComfyUI never
+  runs the negative pass, so klein's graphs carry an unwired negative encoder, and a
+  `with_negative` mapping wires it in and raises cfg to 2 only when a negative is given. Requests
+  without one produce pixel-identical images to before. An explicit cfg wins.
+- **Extras are graph insertions, not new workflows,** built only from ComfyUI's built-in nodes
+  (no custom nodes): LoRAs as `LoraLoaderModelOnly` nodes after the workflow's model node
+  (matched by model family), klein reference images as chained `ReferenceLatent` nodes,
+  ControlNet as `ControlNetApplyAdvanced` on the prompt conditioning (SDXL union) or the
+  `ZImageFunControlnet` model patch (Z-Image), with the built-in Canny node when the guide is a
+  photo, and upscale models before `SaveImage`. IP-Adapter and pose or depth preprocessors exist
+  only as custom nodes, so they're left out; klein's references cover what IP-Adapter would do.
+- **When to use them is the caller's call**, from feedback on an earlier image. The tool
+  description says to start from the defaults, reword before adding a negative, and reuse the seed.
+
 ## Consequences
 
 - **A mode switch or swap waits for running images**, which can take a minute with Chroma.

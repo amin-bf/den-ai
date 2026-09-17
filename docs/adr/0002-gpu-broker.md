@@ -19,25 +19,30 @@ to it; nothing else talks to Ollama (11434) or, later, ComfyUI (8188) directly.
 - **In-flight tracking instead of a busy flag.** The broker knows each running request (caller,
   endpoint, model, age). Callers identify themselves with `X-Den-Caller` (`cli`, `claude`);
   pi shows up by its user agent. Requests that don't use the GPU (`/api/tags`, `/api/ps`,
-  `/api/show`, pulls, a bare `keep_alive: 0` unload, …) aren't tracked and work in every mode.
+  `/api/show`, pulls, a bare `keep_alive: 0` unload, …) aren't tracked and work even when den is off.
 - **The broker owns mode switches.** `den mode` asks the broker, which streams its progress.
-  A switch that turns the LLM off refuses new LLM requests at once, waits for the running ones,
-  unloads every model and only then saves the mode. It never returns early.
+  Turning den off refuses new requests at once, waits for the running ones, unloads every model
+  and only then saves the mode. It never returns early.
   - `--now` cancels the running requests instead. The broker closes their upstream connection,
     Ollama stops generating, and the client gets an error in its own stream format.
   - Ctrl+C on `den mode` drops the switch (checked every second), and new requests are
     accepted again.
 - **Broker down means failure, with no fallback.** Clients print
-  `den broker not running …: systemctl --user start den`, even in `llm` mode. A silent
-  direct-to-Ollama path would bring back the OOM this exists to prevent.
-- **Mode is enforced at the broker.** In `off` (and later `image`), LLM requests from any client,
-  pi included, get `the local LLM is off … den mode llm`.
+  `den broker not running …: systemctl --user start den`. A silent direct-to-Ollama path would
+  bring back the OOM this exists to prevent.
+- **Availability decides, not a mode** (revised 2026-09-17; `llm`, `image` and `both` are gone).
+  A side's requests run when that side *can* run — an LLM model is selected, a workflow's model
+  files are there — and an unavailable side answers with what's missing (`no LLM model is
+  selected; pick one with: den model`). A mode that also picked a side made the two questions
+  one: `mode off` was the only way to free the GPU, and it took `local_llm` away from every
+  running Claude session at the same time. What is left is the kill switch `den mode on|off`,
+  which is about the machine, not about the sides. State files written with the old modes read
+  `llm`, `image` and `both` as `on`.
 - **Unloading on demand is not a mode.** `den unload` (`POST /unload`) drains the sides and
   unloads them exactly as a mode switch does, but never touches the mode: nothing is refused,
   the MCP tools stay listed, and a request that arrives meanwhile waits for the unload and then
-  loads its side again. A mode says who may use the GPU; what is loaded is the broker's own
-  business. `off` is for taking a side away from its callers, not for freeing memory — used that
-  way it makes `local_llm` vanish from every running Claude session.
+  loads its side again. Emptying the GPU is the broker's own business; `off` is for keeping
+  every caller off the machine.
 - **The broker applies `[llm] keep_alive` to every caller.** Pi never sends one, so Ollama
   would unload its model after its 5-minute default. Native requests without `keep_alive` get
   the configured value added. Ollama ignores `keep_alive` in `/v1` bodies (tested), so after a
@@ -62,7 +67,7 @@ The swap relies on how Ollama treats an unload that arrives while a request is r
 
 ## Queue caps (decided now, built with the image side)
 
-When both sides are wanted (`both` mode), requests for the loaded side run first, then one swap
+When both sides want the GPU, requests for the loaded side run first, then one swap
 happens. The loaded side stops taking new requests after **120 s or 4 requests**, whichever comes
 first, counted from when the other side started waiting. A running request always finishes: caps,
 mode switches and the idle timeout never swap in the middle of one. Step-1 timings: 4 fast images
@@ -73,6 +78,6 @@ take 8–30 s and 4 Chroma images 150–200 s, so Chroma batches hit the time ca
 - **Clients that bypass the broker aren't covered:** `ollama run`, `ollama launch claude`,
   direct `curl` to 11434, and the ComfyUI web UI used on its own. Downloading (`ollama pull`, which
   `den model` also runs) doesn't use the GPU and goes straight to Ollama.
-- **Pi fails loudly when the LLM is off,** where before it quietly loaded the model.
+- **Pi fails loudly when den is off,** where before it quietly loaded the model.
 - Code changes to the broker need `systemctl --user restart den`, and code changes to the
   MCP server need `/mcp` in running Claude Code sessions.

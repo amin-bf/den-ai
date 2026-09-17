@@ -111,8 +111,8 @@ in `config.toml` like the prompt and seed.
 
 ## Consequences
 
-- **A mode switch or swap waits for running images**, which can take a minute with Chroma.
-  `den mode … --now` interrupts them in ComfyUI.
+- **A mode switch, an unload or a swap waits for running images**, which can take a minute with
+  Chroma. `den mode off --now` and `den unload --now` interrupt them in ComfyUI.
 - **ComfyUI started by hand is outside the broker.** A swap that finds ComfyUI still answering
   after stopping the unit fails loudly rather than loading the LLM beside it. Its web UI is safe
   to use while the image side is loaded.

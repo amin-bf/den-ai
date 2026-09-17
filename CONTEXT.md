@@ -16,7 +16,7 @@ One kind of GPU work, LLM or image. Only one side is loaded at a time.
 _Avoid_: backend, engine
 
 **Mode**:
-The sides that are available: `llm`, `image`, `both` or `off`.
+The kill switch, `on` or `off`: whether any caller may use the GPU at all. It never picks a side — a request runs when its own side can.
 _Avoid_: profile, state
 
 **Swap**:
@@ -30,6 +30,10 @@ _Avoid_: quota, timeslice
 **Switch back**:
 Stopping the image side after a request because no more images follow, so the LLM can load.
 _Avoid_: release, free
+
+**Available**:
+Whether a side can run a request now: an LLM model is selected, or a workflow's model files are there. The broker checks it per request and answers an unavailable one with the reason.
+_Avoid_: enabled, on
 
 **Unload**:
 Emptying the GPU without changing the mode (`den unload`), so both sides stay available and the next request loads its side again.

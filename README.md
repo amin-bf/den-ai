@@ -80,8 +80,8 @@ a mode switch can't wait for them.
 
 ## How delegation works
 
-Claude Code sees two MCP tools while the LLM is on (`den mode llm`). Both disappear in
-`mode off`.
+Claude Code sees two MCP tools once an LLM model is selected (`den model`). Both disappear
+while den is off (`den mode off`).
 
 | Tool | Purpose |
 |---|---|
@@ -108,8 +108,9 @@ after loading takes about twice as long, plus ~15 s to load the model. The model
 loaded for 30 minutes after its last request from any caller, pi included (`keep_alive` in
 `config.toml`, applied by the broker); `den unload` empties the GPU
 as soon as running requests finish (`--now` cancels them), without taking the LLM off: the
-next delegation loads it again. `den mode off` unloads it too, but also refuses new requests
-and takes the tools away from every Claude session.
+next delegation loads it again. `den mode off` unloads it too, but it also refuses new
+requests and takes the tools away from every Claude session, so it's the kill switch, not the
+way to free memory.
 
 ## pi
 
@@ -127,8 +128,8 @@ outside this repo:
   fits in memory, so a switch unloads the other. It took 14–46 s in tests, since the new model
   also rereads the whole conversation. When pi and Claude's delegations use different models,
   each one swaps the other out, so keep both on the same model and switch pi only when needed.
-- **Mode:** pi works only while the LLM is on. In `den mode off` it gets "the local LLM is off
-  … den mode llm".
+- **Off:** pi works unless den is off. In `den mode off` it gets "den is off; turn it on with:
+  den mode on".
 - **Checking the traffic:** `journalctl --user -u den -f` shows one line per request with the
   caller (`pi`, `claude`, `cli`), model, status and duration.
 
@@ -137,8 +138,8 @@ outside this repo:
 `integrations/pi/den.ts` is a pi extension, linked into `~/.pi/agent/extensions/` by `setup.sh`.
 It talks only to the broker and the `den` CLI.
 
-- **`generate_image` tool:** the model calls it on its own while images are on (`den mode image`
-  or `both`) and a workflow can run. Its description and parameters come from `den image --json`,
+- **`generate_image` tool:** the model calls it on its own whenever a workflow can run and den
+  isn't off. Its description and parameters come from `den image --json`,
   the same text as Claude's tool, plus how the swap affects pi: the tool unloads the chat model,
   so the model should write its reply first and call the tool last. The turn ends when the images
   are done; the chat model reloads on the next message instead of straight away. Paths may be
@@ -166,7 +167,7 @@ ComfyUI lives in `~/ComfyUI` (installed by `setup.sh`) with a user unit `comfyui
 when the LLM needs the GPU.
 
 ```sh
-den mode both                       # LLM and images available, swapped on demand
+den status                          # what can run, and what holds the GPU
 den image                           # list workflows (* = default) and whether they can run
 den image "A red fox reading a book under a lamp" --seed 7
 den image "masterpiece, best quality, fox, forest" -w wai-illustrious -n "bad quality" --size 832x1216
@@ -184,11 +185,10 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
 - **Batching:** when both sides want the GPU, the loaded one finishes what's running and may start
   new requests for up to 120 s or 4 requests (`[broker] batch_seconds`, `batch_requests`), then
   the other side gets its turn. The CLI prints what it waits for; `den status` shows the queue.
-- **Modes:** `den mode llm` stops ComfyUI (after running images finish, or at once with `--now`),
-  `den mode image` unloads the LLM, and `den mode off` does both. To empty the GPU while keeping
-  both sides available, use `den unload` instead: it unloads without touching the mode.
-- **Claude** gets the `generate_image` MCP tool while images are on (`den mode image` or `both`)
-  and at least one workflow can run. It picks the workflow from their descriptions, which the
+- **Nothing to switch on:** images work whenever a workflow can run, LLM requests whenever a
+  model is selected, and the broker swaps between them. `den unload` empties the GPU without
+  taking anything away; `den mode off` refuses both sides until `den mode on`.
+- **Claude** gets the `generate_image` MCP tool while at least one workflow can run. It picks the workflow from their descriptions, which the
   tool lists, and takes the same options as `den image` (`workflow`, `negative`, `size`, `seed`,
   `image`, `out`, `switch_back`, plus the [settings and extras](#settings-and-extras)). The result is text only: the saved paths, workflow, seed and
   time. Claude doesn't see the image. The tool list refreshes when a mode switch or a model
@@ -315,16 +315,14 @@ Changes take effect immediately. The broker, the CLI and the MCP server re-read
 | `den serve` | Run the broker in the foreground (the systemd unit does this) |
 | `den --help` / `den <cmd> --help` | Help |
 
-### Modes: who gets the GPU
+### On, off and who gets the GPU
 
 | Command | What it does |
 |---|---|
-| `den mode` | Show the current mode |
-| `den mode llm` | LLM on, image off (default). Stops ComfyUI after running images finish |
-| `den mode image` | Images on, LLM off. Unloads the LLM after running requests finish |
-| `den mode both` | Both on, one loaded at a time, swapped on demand with batching |
-| `den mode off` | Everything off. Refuses new requests, waits for the running ones (and shows them), unloads the LLM, stops ComfyUI and removes the tool from Claude. Ctrl+C drops the switch |
-| `den mode <mode> --now` | Same, but cancels running requests of the sides turned off instead of waiting; their callers get an error |
+| `den mode` | Show whether den is on or off |
+| `den mode off` | The kill switch. Refuses new requests, waits for the running ones (and shows them), unloads the LLM, stops ComfyUI and takes the tools away from Claude. Ctrl+C drops the switch |
+| `den mode on` | Serve again (the default). A request runs when its side can: an LLM model is selected, or a workflow can run; otherwise the caller is told which |
+| `den mode off --now` | Same as `off`, but cancels the running requests instead of waiting; their callers get an error |
 | `den unload` | Empty the GPU without changing the mode: waits for running requests, unloads the LLM and stops ComfyUI. Nothing is refused, and the next request loads its side again |
 | `den unload llm` / `den unload image` | Unload one side only |
 | `den unload --now` | Same, but cancels the running requests instead of waiting |

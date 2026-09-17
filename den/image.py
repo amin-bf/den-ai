@@ -487,6 +487,131 @@ def describe_upscalers(config):
     ]
 
 
+def request_spec(config, flows, default):
+    """{description, parameters}: what a model needs to call POST /image, shared by Claude's MCP
+    tool and pi's extension (`den image --json`). Each caller adds how swaps affect it."""
+    lines, lora_names = [], set()
+    for name, wf in flows.items():
+        marks = " [default]" * (name == default) + " [edits]" * ("edit" in wf)
+        lines.append(f"- {name}{marks}: {describe(wf)}")
+        lines.extend(f"    {line}" for line in describe_options(config, name, wf))
+        lora_names.update(available_loras(config, wf, load_graph(name)))
+    workflow_lines = "\n".join(lines)
+    ups = describe_upscalers(config)
+    description = (
+        "Generate an image on this machine's GPU with a local image model (ComfyUI), or edit an "
+        "input image. Pick the workflow that fits the request and write the prompt in the style "
+        "its description asks for; prompt style matters more than the choice of model. "
+        "Workflows, with the settings each one offers (default, recommended, allowed):\n"
+        f"{workflow_lines}\n"
+        + ("Upscalers, for any workflow:\n" + "".join(f"    {line}\n" for line in ups) if ups else "")
+        + f"{PROMPT_SYNTAX}\n"
+        "Settings, LoRAs, references, control and upscale are optional: start with the defaults, and change them "
+        "when feedback on an earlier image calls for it (reuse its seed so the change shows). "
+        "A value outside a workflow's allowed range is refused.\n"
+        "The image is saved in a dated folder on this machine; the result gives its path, seed "
+        "and workflow, not the image itself. Pass `out` to also copy it somewhere, e.g. into a "
+        "project. Reuse a seed with a changed prompt to vary one image."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "The image prompt, or the edit instruction with `image`."},
+            "workflow": {"type": "string", "enum": list(flows), "description": f"Default: {default}."},
+            "negative": {
+                "type": "string",
+                "description": (
+                    "What to avoid; not every workflow takes one. Leave it out on a first try: fix "
+                    "problems by rewording the prompt first. Add one when feedback on an earlier "
+                    "image names something unwanted that rewording didn't remove, and reuse that "
+                    "image's seed so the change shows."
+                ),
+            },
+            "size": {
+                "type": "string",
+                "description": "WIDTHxHEIGHT, e.g. 1024x1024; omit for the workflow's default. Edits keep the input's size.",
+            },
+            "seed": {"type": "integer", "description": "Omit for a random seed."},
+            "image": {
+                "type": "string",
+                "description": "Absolute path of an input image to edit; only for workflows marked [edits].",
+            },
+            "out": {
+                "type": "string",
+                "description": "Absolute path of a file, or of a directory ending in /, to copy the image to.",
+            },
+            "steps": {"type": "integer", "description": "Sampling steps, within the workflow's range."},
+            "cfg": {
+                "type": "number",
+                "description": "Guidance scale, within the workflow's range; overrides the cfg a negative sets.",
+            },
+            "sampler": {"type": "string", "enum": SAMPLERS, "description": "Prefer the workflow's recommended ones."},
+            "scheduler": {
+                "type": "string",
+                "enum": SCHEDULERS,
+                "description": "Prefer the workflow's recommended ones; not every workflow has one.",
+            },
+            **(
+                {
+                    "loras": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "enum": sorted(lora_names)},
+                                "strength": {"type": "number"},
+                            },
+                            "required": ["name"],
+                        },
+                        "description": "LoRAs the workflow lists, with an optional strength.",
+                    }
+                }
+                if lora_names
+                else {}
+            ),
+            "references": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Absolute paths of reference images (a person, style or object to carry over), "
+                    "for workflows that list references."
+                ),
+            },
+            "control": {
+                "type": "object",
+                "properties": {
+                    "image": {"type": "string", "description": "Absolute path of the guide image."},
+                    "type": {
+                        "type": "string",
+                        "description": "What the guide image is, from the workflow's control types: canny for a photo "
+                        "(den draws its edges), or a ready-made pose, depth, … map.",
+                    },
+                    "strength": {"type": "number"},
+                },
+                "required": ["image", "type"],
+                "description": "Lock composition, pose or outlines to a guide image, for workflows that list control.",
+            },
+            **(
+                {
+                    "upscale": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "enum": sorted(upscalers(config))},
+                            "factor": {"type": "number", "description": "How much larger; default 2."},
+                        },
+                        "required": ["name"],
+                        "description": "Enlarge the finished image with an upscale model.",
+                    }
+                }
+                if upscalers(config)
+                else {}
+            ),
+        },
+        "required": ["prompt"],
+    }
+    return {"description": description, "parameters": parameters}
+
+
 class ComfyUI:
     def __init__(self, base_url):
         self.base_url = base_url.rstrip("/")

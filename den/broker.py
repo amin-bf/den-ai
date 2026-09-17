@@ -849,9 +849,12 @@ class Handler(BaseHTTPRequestHandler):
             except OSError as e:
                 if info.get("cancelled"):
                     raise DenError(info["cancelled"]) from e
+                # Also in the journal: nobody is watching this caller's error, and someone has
+                # to start Ollama by hand (den runs as your user; Ollama is a system service).
+                log(f"OLLAMA DOWN at {config['llm']['base_url']} ({e}): start it with: sudo systemctl start ollama")
                 raise DenError(
                     f"ollama is not reachable at {config['llm']['base_url']} ({e}); "
-                    "start it with: sudo systemctl enable --now ollama"
+                    "start it with: sudo systemctl start ollama"
                 ) from e
 
             self.send_response(resp.status, resp.reason)

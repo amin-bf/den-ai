@@ -56,7 +56,8 @@ def cmd_status(args):
     for r in status["waiting"]:
         print(f"         waiting {_describe(r)}")
     upstream = status["ollama"]
-    if "error" in upstream:
+    down = "error" in upstream
+    if down:
         print(f"llm      {model}")
         print(f"ollama   DOWN: {upstream['error']}")
     else:
@@ -82,7 +83,8 @@ def cmd_status(args):
             where += f", idle {comfy['idle_s'] // 60} min"
         print(f"image    comfyui {where} at {comfy['url']}; workflows: {', '.join(runnable) or 'none can run (den image)'}")
     _print_tasks(config, state)
-    return 1 if "error" in upstream else 0
+    # Non-zero while Ollama is down, so a shell check or a notifier can watch this.
+    return 1 if down else 0
 
 
 def _print_tasks(config, state):

@@ -76,6 +76,7 @@ type BrokerStatus = {
   loaded: string | null;
   swapping: string | null;
   pending_mode: string | null;
+  ollama?: { error?: string };
   inflight: { id: number; side: string; caller: string; model: string | null }[];
   waiting: { id: number; side: string; caller: string; model: string | null }[];
 };
@@ -219,6 +220,8 @@ function resultText(g: Generation): string {
 }
 
 function statusText(s: BrokerStatus): string | null {
+  // Nobody else is watching the broker's journal: say it here so it gets started.
+  if (s.ollama?.error) return `den: ollama is down — sudo systemctl start ollama`;
   if (s.pending_mode) return `den: turning den ${s.pending_mode}`;
   if (s.swapping === "llm" || s.swapping === "image") return `den: swapping the GPU to the ${s.swapping} side`;
   if (s.swapping === "idle") return "den: stopping the idle image side";

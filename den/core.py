@@ -165,7 +165,7 @@ class Ollama:
 
     def _unreachable(self, e):
         return DenError(
-            f"ollama is not reachable at {self.base_url} ({e}); start it with: sudo systemctl enable --now ollama"
+            f"ollama is not reachable at {self.base_url} ({e}); start it with: sudo systemctl start ollama"
         )
 
     def _open(self, method, path, body, timeout):

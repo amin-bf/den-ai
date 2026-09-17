@@ -213,6 +213,44 @@ cfg = { input = ["5.cfg", "10.cfg"], recommended = [5, 7], allowed = [1, 12] }
 sampler = { input = ["5.sampler_name", "10.sampler_name"], recommended = ["euler_ancestral", "dpmpp_2m"] }
 scheduler = { input = ["5.scheduler", "10.scheduler"], recommended = ["normal", "karras"] }
 
+[image.workflows.realvisxl]
+description = """RealVisXL V5.0 (SDXL): photorealistic people, portraits and scenes, with natural \
+skin. Prompt: a natural-language photo description with camera terms (lens, light); the \
+negative lists what to avoid, and "(face asymmetry, eyes asymmetry, deformed eyes, open mouth)" \
+suits it. Responds to weights like (word:1.2). Default 896x1152."""
+prompt = "2.text"
+negative = "3.text"
+seed = "5.seed"
+size = ["4"]
+family = "sdxl"
+model = "1"
+control = { kind = "controlnet", file = "controlnet-union-sdxl-promax.safetensors", positive = "2", negative = "3", types = ["canny", "lineart", "scribble", "pose", "depth", "normal", "segment", "tile"], strength = { default = 0.7, recommended = [0.5, 0.9], allowed = [0, 1.5] } }
+
+[image.workflows.realvisxl.settings]
+steps = { input = "5.steps", recommended = [25, 40], allowed = [10, 60] }
+cfg = { input = "5.cfg", recommended = [4, 6], allowed = [1, 12] }
+sampler = { input = "5.sampler_name", recommended = ["dpmpp_2m", "dpmpp_sde", "dpmpp_2m_sde"] }
+scheduler = { input = "5.scheduler", recommended = ["karras"] }
+
+[image.workflows.juggernaut-xl]
+description = """Juggernaut XI (SDXL): versatile photorealism with a cinematic look: people, \
+landscapes, architecture, products. Prompt: natural language with photographic terms (shot \
+type, lens, lighting, film stock); short tag lists work too. Needs little negative prompt. \
+Responds to weights like (word:1.2). Default 832x1216."""
+prompt = "2.text"
+negative = "3.text"
+seed = "5.seed"
+size = ["4"]
+family = "sdxl"
+model = "1"
+control = { kind = "controlnet", file = "controlnet-union-sdxl-promax.safetensors", positive = "2", negative = "3", types = ["canny", "lineart", "scribble", "pose", "depth", "normal", "segment", "tile"], strength = { default = 0.7, recommended = [0.5, 0.9], allowed = [0, 1.5] } }
+
+[image.workflows.juggernaut-xl.settings]
+steps = { input = "5.steps", recommended = [30, 40], allowed = [10, 60] }
+cfg = { input = "5.cfg", recommended = [3, 6], allowed = [1, 12] }
+sampler = { input = "5.sampler_name", recommended = ["dpmpp_2m", "dpmpp_2m_sde"] }
+scheduler = { input = "5.scheduler", recommended = ["karras"] }
+
 # Upscale models a request may run the finished image through (upscale = {name, factor}), with
 # any workflow, once the file is in ComfyUI's models/upscale_models folder.
 #   file         the file name in models/upscale_models

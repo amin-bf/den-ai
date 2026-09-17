@@ -1,8 +1,8 @@
 /**
  * den for pi: image generation through den's GPU broker.
  *
- * - `generate_image`: a tool the model calls on its own, listed while den's image side is on
- *   (`den mode image` or `both`) and a workflow can run. Its description and parameters come
+ * - `generate_image`: a tool the model calls on its own, listed while a workflow can run and
+ *   den isn't off (`den mode off`). Its description and parameters come
  *   from `den image --json`, the same text Claude's MCP tool uses.
  * - `/imagine [hint]`: the chat model writes a prompt from the conversation and the hint, an
  *   editable box shows it, and Enter generates. When the image model is still loaded, the box
@@ -48,6 +48,7 @@ type Spec = {
   broker: string;
   mode: string;
   image_on: boolean;
+  unavailable: string | null;
   default: string | null;
   workflows: string[];
   edits: string[];
@@ -218,10 +219,11 @@ function resultText(g: Generation): string {
 }
 
 function statusText(s: BrokerStatus): string | null {
-  if (s.pending_mode) return `den: switching to mode ${s.pending_mode}`;
+  if (s.pending_mode) return `den: turning den ${s.pending_mode}`;
   if (s.swapping === "llm" || s.swapping === "image") return `den: swapping the GPU to the ${s.swapping} side`;
   if (s.swapping === "idle") return "den: stopping the idle image side";
-  if (s.swapping === "mode") return "den: unloading for a mode switch";
+  if (s.swapping === "mode") return "den: unloading to turn den off";
+  if (s.swapping === "unload") return "den: unloading the GPU (den unload)";
   const w = s.waiting[0];
   if (!w) return null;
   const others = s.inflight.filter((r) => r.side !== w.side).map((r) => `${r.caller} ${r.side}`);
@@ -604,7 +606,7 @@ export default function (pi: ExtensionAPI) {
     await ctx.waitForIdle();
     const s = await refreshTool();
     if (!s) throw new Error(`den isn't available: ${DEN} image --json failed (is den on PATH?)`);
-    if (!s.image_on) throw new Error(`image generation is off (mode: ${s.mode}); turn it on with: den mode both`);
+    if (!s.image_on) throw new Error(s.unavailable || "image generation isn't available (see: den image)");
     if (!s.workflows.length) throw new Error("no image workflow can run (see: den image)");
     if (options.workflow && !s.workflows.includes(options.workflow)) {
       throw new Error(`workflow ${options.workflow} can't run; available: ${s.workflows.join(", ")}`);

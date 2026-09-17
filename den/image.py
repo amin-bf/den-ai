@@ -428,7 +428,13 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False,
             _check_range(key, value, specs[key])
         for ref in _refs(specs[key]["input"]):
             _set(graph, ref, value)
-        params[key] = value
+    # Report every setting the workflow offers, read back from the graph: the caller's value where
+    # it gave one, the graph's default otherwise, including a cfg that with_negative raised. A
+    # setting that came from the graph is the one most worth seeing, since nobody chose it.
+    for key in specs:
+        node, _, field = _refs(specs[key]["input"])[0].partition(".")
+        if field in graph.get(node, {}).get("inputs", {}):
+            params[key] = graph[node]["inputs"][field]
     if options.get("loras"):
         params["loras"] = _add_loras(config, name, base, graph, options["loras"])
     uploads = []

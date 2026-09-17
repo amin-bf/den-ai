@@ -9,6 +9,7 @@ is in ComfyUI's models folder. Only the broker talks to ComfyUI; clients ask the
 (POST /image).
 """
 
+import base64
 import fcntl
 import json
 import os
@@ -795,9 +796,12 @@ class ComfyUI:
                 return saved or images
             time.sleep(POLL_S)
 
-    def view(self, img):
-        query = urllib.parse.urlencode({k: img.get(k, "") for k in ("filename", "subfolder", "type")})
-        with self._open("GET", f"/view?{query}", timeout=60) as resp:
+    def view(self, img, preview=None):
+        """The image's bytes; with preview ("jpeg;70") ComfyUI re-encodes it on the way out."""
+        query = {k: img.get(k, "") for k in ("filename", "subfolder", "type")}
+        if preview:
+            query["preview"] = preview
+        with self._open("GET", f"/view?{urllib.parse.urlencode(query)}", timeout=60) as resp:
             return resp.read()
 
     def cancel(self, prompt_id):
@@ -827,6 +831,27 @@ def _execution_error(status):
         if event == "execution_error":
             return f"{data.get('node_type')}: {data.get('exception_message', '').strip()}"
     return "unknown error (see: journalctl --user -u comfyui)"
+
+
+# A copy of the result for a caller whose model can look at images (Claude's MCP tool). The
+# file that is saved stays a full-size PNG; this is only what goes back over the wire.
+PREVIEW_FORMAT = "jpeg;70"
+PREVIEW_MAX_BYTES = 4 << 20
+
+
+def preview(comfy, img):
+    """{mime, base64} of a small re-encoded copy of an output image, or None.
+
+    A caller that asks for it still gets the path and the settings, so an old ComfyUI without
+    /view?preview, or an image too big to hand over, must not fail the request.
+    """
+    try:
+        data = comfy.view(img, preview=PREVIEW_FORMAT)
+    except DenError:
+        return None
+    if not data or len(data) > PREVIEW_MAX_BYTES:
+        return None
+    return {"mime": "image/jpeg", "base64": base64.b64encode(data).decode()}
 
 
 def slug(prompt, length=40):

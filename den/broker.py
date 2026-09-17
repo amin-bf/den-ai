@@ -718,7 +718,7 @@ class Handler(BaseHTTPRequestHandler):
     def _image(self, body):
         """POST /image {prompt, workflow?, negative?, seed?, size?, image?, out?, switch_back?,
         steps?, cfg?, sampler?, scheduler?, loras? [{name, strength?}], references? [path],
-        control? {image, type, strength?, start?, end?}, upscale? {name, factor?}}.
+        control? {image, type, strength?, start?, end?}, upscale? {name, factor?}, preview?}.
 
         Streams progress lines (waiting, unloading, starting, generating, stopping) and ends
         with {"result": {...}} or {"error": "..."}. Paths must be absolute.
@@ -783,6 +783,9 @@ class Handler(BaseHTTPRequestHandler):
             outputs = comfy.wait(prompt_id, check)
             paths, copies = image.save([comfy.view(o) for o in outputs], prompt, body.get("out"))
             seconds = round(time.time() - began, 1)
+            # A small copy for a caller whose model can look at the image; the saved file is
+            # always the full-size PNG (ADR 0003, ADR 0004).
+            shown = image.preview(comfy, outputs[0]) if body.get("preview") else None
         except (DenError, ConnectionResetError, BrokenPipeError) as e:
             log(f"#{req_id} {info['caller']} POST /image {name} -> failed: {e}")
             raise
@@ -794,6 +797,7 @@ class Handler(BaseHTTPRequestHandler):
             "copies": [str(p) for p in copies],
             "seconds": seconds,
             "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
+            **({"preview": shown} if shown else {}),
         }
         image.log(
             {

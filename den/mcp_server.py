@@ -121,6 +121,10 @@ def generate_image_tool(config, flows, default):
         "name": "generate_image",
         "description": (
             spec["description"] + "\n"
+            "A small copy of the image comes back with the result, so look at it before you answer: "
+            "say what you see, and when it misses the request, change one thing — prompt wording, a "
+            "setting, a LoRA, the workflow — and reuse the seed so that change is the only "
+            "difference. The saved file is the full-size one.\n"
             "The GPU holds either the local LLM or the image model: when the LLM is loaded or busy, "
             "the call waits for it and swaps, so a call can take minutes. The image model stays "
             "loaded afterwards; set switch_back on the last image of a batch to free the GPU for "
@@ -218,7 +222,9 @@ def release_resources(args, progress_token):
 def generate_image(args, progress_token):
     config = core.load_config()
     keys = ("prompt", "workflow", "negative", "seed", "size", "image", "out", "switch_back", *image.SETTINGS, "loras", "references", "control", "upscale")
-    request = {k: args[k] for k in keys if args.get(k) is not None}
+    # Ask for a small copy of the image: a text path can't be judged, and the next call's
+    # prompt, seed or settings depend on what came out (the saved file stays a full-size PNG).
+    request = {k: args[k] for k in keys if args.get(k) is not None} | {"preview": True}
     result, step = None, 0
     for msg in core.broker(config, "claude").generate_image(**request):
         if "result" in msg:
@@ -239,7 +245,11 @@ def generate_image(args, progress_token):
     lines.append(f"[{result['workflow']} · seed {result['seed']}{size} · {result['seconds']}s{waited}]")
     if result.get("switched_back"):
         lines.append("ComfyUI stopped; the GPU is free for the LLM.")
-    return "\n".join(lines)
+    shown = result.get("preview")
+    content = [{"type": "text", "text": "\n".join(lines)}]
+    if shown:
+        content.append({"type": "image", "data": shown["base64"], "mimeType": shown["mime"]})
+    return content
 
 
 def call_tool(req_id, params):
@@ -267,7 +277,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         else:
             raise DenError(f"unknown tool {name!r}")
-        result = {"content": [{"type": "text", "text": text}]}
+        content = text if isinstance(text, list) else [{"type": "text", "text": text}]
+        result = {"content": content}
     except DenError as e:
         result = {"content": [{"type": "text", "text": f"den: {e}"}], "isError": True}
     except Exception as e:  # never let one call kill the server

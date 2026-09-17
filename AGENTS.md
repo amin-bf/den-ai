@@ -10,7 +10,8 @@ it delegates selected cheap, bulk or private tasks to a local LLM. Image generat
 
 - **Runtime:** Ollama serves the LLM. Main model: `qwen3.6:35b-a3b` (MoE, ~23 GB,
   split between GPU and RAM).
-- **Integration:** a stdlib-only MCP server exposes one tool, `local_llm`, to Claude Code.
+- **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation) and `generate_image`
+  to Claude Code.
 - **GPU broker:** `den serve` (user unit `den.service`, `127.0.0.1:11435`) sits in front
   of Ollama. The CLI, the MCP server and pi all go through it
   ([ADR 0002](docs/adr/0002-gpu-broker.md)).
@@ -47,7 +48,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, caller, task, delegation, workflow. |
-| `den/mcp_server.py` | MCP stdio server: `local_llm` and `local_llm_feedback`; sends `tools/list_changed` when config or state changes. |
+| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback` and `generate_image`; sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
 | `.agents/skills/` | Agent-agnostic skills, local only (git-ignored); `.claude/skills` is a symlink to it. |

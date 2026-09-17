@@ -3,7 +3,7 @@
 HQ for a local AI toolchain. Claude Code stays the main coding agent and hands selected
 cheap, bulk or private tasks to a local LLM served by Ollama, through the `local_llm` MCP
 tool. [pi](#pi) is the local chat and coding agent on the same model. Images come from
-ComfyUI, through `den image` for now.
+ComfyUI, through `den image` or Claude's `generate_image` MCP tool.
 
 Everything that uses the GPU (the `den` CLI, Claude's MCP server, pi) goes through the
 **broker**, `den serve` on `127.0.0.1:11435`. It passes LLM requests on to Ollama, runs image
@@ -23,8 +23,8 @@ side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
 | pi through the broker | Done |
 | ComfyUI install (`setup.sh`) and model tests | Done ([Image generation](#image-generation)) |
 | Image side of the broker: swaps, batching, idle timeout, `den image` | Done ([ADR 0003](docs/adr/0003-image-generation.md)) |
-| Claude's `generate_image` MCP tool | Next |
-| pi image extension (`/imagine`, inline images) | Planned |
+| Claude's `generate_image` MCP tool | Done ([Image generation](#image-generation)) |
+| pi image extension (`/imagine`, inline images) | Next |
 
 ## Setup
 
@@ -156,6 +156,14 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
   the other side gets its turn. The CLI prints what it waits for; `den status` shows the queue.
 - **Modes:** `den mode llm` stops ComfyUI (after running images finish, or at once with `--now`),
   `den mode image` unloads the LLM, and `den mode off` does both.
+- **Claude** gets the `generate_image` MCP tool while images are on (`den mode image` or `both`)
+  and at least one workflow can run. It picks the workflow from their descriptions, which the
+  tool lists, and takes the same options as `den image` (`workflow`, `negative`, `size`, `seed`,
+  `image`, `out`, `switch_back`). The result is text only: the saved paths, workflow, seed and
+  time. Claude doesn't see the image. The tool list refreshes when a mode switch or a model
+  download changes the available workflows. A call blocks through queue waits and swaps and
+  sends MCP progress messages meanwhile, which keep Claude Code's idle timeout (30 minutes
+  without a response or progress) from firing.
 - **The web UI** at <http://127.0.0.1:8188> works whenever ComfyUI is up (e.g. after a
   `den image`), and the idle timeout leaves it running while its queue is busy. Don't start
   ComfyUI by hand while the LLM is loaded: the broker can't see it.

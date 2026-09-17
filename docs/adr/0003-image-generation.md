@@ -1,5 +1,5 @@
 ---
-status: accepted (broker and CLI built; Claude's tool and the pi extension follow)
+status: accepted (broker, CLI and Claude's tool built; the pi extension follows)
 ---
 
 # Image generation: ComfyUI behind the broker, workflows as files

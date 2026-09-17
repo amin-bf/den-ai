@@ -1,5 +1,5 @@
 ---
-status: accepted (broker, CLI and Claude's tool built; the pi extension follows)
+status: accepted (broker, CLI, Claude's tool and the pi extension built)
 ---
 
 # Image generation: ComfyUI behind the broker, workflows as files
@@ -89,6 +89,26 @@ in `config.toml` like the prompt and seed.
 - **When to use them is the caller's call**, from feedback on an earlier image. The tool
   description says to start from the defaults, reword before adding a negative, and reuse the seed.
 
+## Callers: Claude's tool and pi's extension
+
+- **One description for both.** `image.request_spec` builds the workflow list, settings, prompt
+  syntax note and parameter schema. The MCP server adds `switch_back`; pi's extension reads the
+  same spec from `den image --json` (stdlib Python stays the only place it's written) and adds how
+  swaps affect pi. The MCP server rebuilds it for every tool list and pi before every turn, so
+  mode switches and model downloads show up.
+- **pi's tool ends the turn.** After an image, pi would normally send the result back to the
+  chat model, which swaps ComfyUI out again right away and makes the model reread the
+  conversation (up to ~45 s at 32k). The tool returns `terminate: true` instead, and its
+  description asks the model to write its reply first and call the tool last. The next user
+  message reloads the model; errors still go back to the model.
+- **`/imagine` doesn't swap to draft when the image model is loaded.** The box opens with the
+  last prompt and shows the hint as a note, and the chat model is asked only on Ctrl+R. With the
+  LLM loaded, the chat model writes a workflow and prompt as JSON from the conversation and hint.
+- **Images show only to the user.** pi draws them in the terminal, never as image content that
+  could reach the model. pi turns its own inline images off inside tmux, so under tmux in kitty
+  the extension uses kitty's Unicode placeholders: tmux moves them like text, and the graphics
+  command (kitty reads the file itself) reaches kitty through tmux's passthrough.
+
 ## Consequences
 
 - **A mode switch or swap waits for running images**, which can take a minute with Chroma.
@@ -96,5 +116,6 @@ in `config.toml` like the prompt and seed.
 - **ComfyUI started by hand is outside the broker.** A swap that finds ComfyUI still answering
   after stopping the unit fails loudly rather than loading the LLM beside it. Its web UI is safe
   to use while the image side is loaded.
-- **Pass-through LLM callers (pi) can't see why they wait.** Their request simply takes longer
-  while images finish and ComfyUI stops; `den status` and the broker's journal show the queue.
+- **Pass-through LLM callers can't see why they wait.** Their request simply takes longer
+  while images finish and ComfyUI stops. pi's extension polls `/status` while pi works and says
+  so in its footer; other clients have `den status` and the broker's journal.

@@ -3,7 +3,7 @@
 HQ for a local AI toolchain. Claude Code stays the main coding agent and hands selected
 cheap, bulk or private tasks to a local LLM served by Ollama, through the `local_llm` MCP
 tool. [pi](#pi) is the local chat and coding agent on the same model. Images come from
-ComfyUI, through `den image` or Claude's `generate_image` MCP tool.
+ComfyUI, through `den image`, Claude's `generate_image` MCP tool or pi's extension.
 
 Everything that uses the GPU (the `den` CLI, Claude's MCP server, pi) goes through the
 **broker**, `den serve` on `127.0.0.1:11435`. It passes LLM requests on to Ollama, runs image
@@ -24,7 +24,7 @@ side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
 | ComfyUI install (`setup.sh`) and model tests | Done ([Image generation](#image-generation)) |
 | Image side of the broker: swaps, batching, idle timeout, `den image` | Done ([ADR 0003](docs/adr/0003-image-generation.md)) |
 | Claude's `generate_image` MCP tool | Done ([Image generation](#image-generation)) |
-| pi image extension (`/imagine`, inline images) | Next |
+| pi image extension (`generate_image` tool, `/imagine`, inline images, footer status) | Done ([pi](#images-in-pi)) |
 
 ## Setup
 
@@ -51,8 +51,8 @@ can't do, it lists as TODO at the end. It:
 
 - links `den` into `~/.local/bin`, links and starts the broker unit `den.service`, and registers
   the `den` MCP server with Claude Code;
-- installs pi if it's missing and writes `~/.pi/agent/models.json` pointing at the broker (only
-  when that file doesn't exist yet);
+- installs pi if it's missing, links the den extension into `~/.pi/agent/extensions/`, and writes
+  `~/.pi/agent/models.json` pointing at the broker (only when that file doesn't exist yet);
 - clones ComfyUI into `~/ComfyUI`, creates its venv with PyTorch, and writes `comfyui.service`
   without enabling it. Override with `COMFYUI_DIR`, `COMFYUI_REF`, `COMFYUI_PY` and `TORCH_INDEX`
   (the default is the CUDA 13.0 wheel index; pick the one for your driver from
@@ -71,7 +71,8 @@ Two manual steps:
 ### After changing code
 
 Reconnect the MCP server in running Claude Code sessions with `/mcp`, and restart the broker
-with `systemctl --user restart den`. Config and state changes need neither.
+with `systemctl --user restart den`. Run `/reload` in running pi sessions after changing the
+extension. Config and state changes need none of these.
 
 Point every client at the broker, not at Ollama (see [pi](#pi)). Clients that go to Ollama
 directly (`ollama run`, `ollama launch claude`, `curl localhost:11434`) bypass the broker, and
@@ -129,6 +130,33 @@ outside this repo:
 - **Checking the traffic:** `journalctl --user -u den -f` shows one line per request with the
   caller (`pi`, `claude`, `cli`), model, status and duration.
 
+### Images in pi
+
+`integrations/pi/den.ts` is a pi extension, linked into `~/.pi/agent/extensions/` by `setup.sh`.
+It talks only to the broker and the `den` CLI.
+
+- **`generate_image` tool:** the model calls it on its own while images are on (`den mode image`
+  or `both`) and a workflow can run. Its description and parameters come from `den image --json`,
+  the same text as Claude's tool, plus how the swap affects pi: the tool unloads the chat model,
+  so the model should write its reply first and call the tool last. The turn ends when the images
+  are done; the chat model reloads on the next message instead of straight away. Paths may be
+  relative to pi's working directory, and `image: "last"` edits the session's last image. pi
+  never sets `switch_back`: its next request swaps back anyway.
+- **`/imagine [hint]`:** the chat model writes a workflow and prompt from the conversation and the
+  hint, and an editable box shows them: Enter generates, Shift+Enter adds a line, Tab picks another
+  workflow, Ctrl+R asks the chat model to rewrite, Esc cancels. When the image model is still
+  loaded, the box opens with the last prompt and shows the hint as a note, so nothing swaps until
+  you press Ctrl+R. `--yes` skips the box, `--workflow NAME` forces a workflow, and
+  `--image [PATH]` edits a file, or the session's last image when no path follows. The result
+  goes into the conversation as text, so the chat model knows what was drawn.
+- **Results** show inline with the path as a `file://` link. The model gets text only: paths,
+  workflow, seed and settings. Inside tmux pi turns its own images off, so the extension draws them
+  with kitty's Unicode placeholders; that needs kitty and `set -g allow-passthrough on`. Links need
+  `set -as terminal-features ',xterm-kitty:hyperlinks'` and a tmux client attached after that line
+  was loaded. `PI_IMAGE_PROTOCOL=none` turns the images off.
+- **Footer:** while pi works or `/imagine` runs, the footer says when a request waits for the other
+  side or the GPU is swapping (`den: pi llm waits for claude image to finish`).
+
 ## Image generation
 
 ComfyUI lives in `~/ComfyUI` (installed by `setup.sh`) with a user unit `comfyui.service` on
@@ -164,6 +192,8 @@ den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/P
   download changes the available workflows. A call blocks through queue waits and swaps and
   sends MCP progress messages meanwhile, which keep Claude Code's idle timeout (30 minutes
   without a response or progress) from firing.
+- **pi** gets the same tool and a `/imagine` command from its extension (see
+  [Images in pi](#images-in-pi)).
 - **The web UI** at <http://127.0.0.1:8188> works whenever ComfyUI is up (e.g. after a
   `den image`), and the idle timeout leaves it running while its queue is busy. Don't start
   ComfyUI by hand while the LLM is loaded: the broker can't see it.
@@ -340,6 +370,7 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 | Command | What it does |
 |---|---|
 | `den image` | List workflows with descriptions; `*` marks the default, and missing model files are shown |
+| `den image --json` | The runnable workflows, mode, and the tool description and parameter schema (what pi's extension reads) |
 | `den image "<prompt>"` | Generate with the default workflow; prints the saved path, then seed and time on stderr |
 | `-w <workflow>` / `-n "<negative>"` | Pick a workflow / give a negative prompt (workflows that take one; on klein it raises cfg to 2) |
 | `--seed N` / `--size 832x1216` | Fix the seed (default random) / override the workflow's size |
@@ -373,6 +404,7 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 | `config.toml` | Edit by hand: broker, Ollama and ComfyUI URLs, batch caps, shared LLM settings, image settings and workflow mappings, tasks and their system prompts, defaults |
 | `config.local.toml` | Optional, git-ignored: private additions merged over `config.toml`, e.g. a workflow's `note`, which is appended to its description. `DEN_CONFIG_LOCAL=<path>` uses a different one |
 | `workflows/` | ComfyUI graphs (API format), one per workflow |
+| `integrations/pi/den.ts` | pi extension: `generate_image`, `/imagine`, inline images, footer status. `DEN_BIN=<path>` names the `den` it runs |
 | `state.json` | Written by the broker (mode) and the CLI (active model, task overrides). Delete it to reset to the defaults |
 | `systemd/den.service` | The broker's user unit. Logs: `journalctl --user -u den -f` |
 | `curl -s localhost:11435/status` | The broker's state as JSON: mode, a pending switch, the loaded side, running and waiting requests, loaded models, ComfyUI |

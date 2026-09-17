@@ -13,11 +13,12 @@ request, a `switch_back`, or `[image] keep_alive` of idle time.
 
 The broker owns mode switches too: a switch that turns a side off refuses its new requests,
 waits for the running ones (or cancels them with `now`), unloads that side and only then saves
-the new mode. It re-reads config.toml and state.json on every request; only the listen address
-needs a restart.
+the new mode. POST /unload does the same unloading without touching the mode, so the GPU is
+empty while both sides stay available and the next request loads its side again. It re-reads
+config.toml and state.json on every request; only the listen address needs a restart.
 
-Own endpoints: GET /status, POST /mode {"mode", "now"} and POST /image (both stream NDJSON
-progress lines).
+Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"} and
+POST /image (all but /status stream NDJSON progress lines).
 """
 
 import http.client
@@ -170,6 +171,8 @@ class Broker:
             return {"reason": f"swapping to the {self.swapping} side"}
         if self.swapping == "mode":
             return {"reason": f"switching to mode {self.pending_mode}"}
+        if self.swapping == "unload":
+            return {"reason": "the loaded side is being unloaded; this request loads it again"}
         if self.swapping == "idle":
             return {"reason": "the idle image side is being stopped"}
         running = [r for r in self.snapshot() if r["side"] != side]
@@ -489,21 +492,49 @@ class Broker:
                 self.pending_mode = None
                 self.cond.notify_all()
 
-    def _drain(self, sides, now, emit, caller_gone):
+    def unload_sides(self, sides, now, emit, caller_gone):
+        """Unload the sides without changing the mode, reporting progress through emit(dict).
+
+        Nothing is refused: a request that arrives while this runs waits for the unload and then
+        loads its side again, which is the difference from switching to mode off.
+        """
+        config = core.load_config()
+        unknown = [side for side in sides if side not in SIDES]
+        if unknown:
+            raise DenError(f"unknown side {unknown[0]!r}; use one of: {', '.join(SIDES)}")
+        self._drain(sides, now, emit, caller_gone, command="unload")
+        unloaded = []
+        try:
+            if "llm" in sides:
+                unloaded += self._unload(Ollama(config["llm"]["base_url"]), emit)
+            if "image" in sides and image.settings(config) and ComfyUI(image.settings(config)["base_url"]).up():
+                self._stop_comfyui(config, emit)
+                unloaded.append("comfyui")
+            with self.cond:
+                if self.loaded in sides:
+                    self.loaded = None
+        finally:
+            with self.cond:
+                self.swapping = None
+                self.cond.notify_all()
+        emit({"unloaded": unloaded})
+
+    def _drain(self, sides, now, emit, caller_gone, command="mode"):
         """Wait until no request for the sides runs and no swap is going on, then hold off swaps.
 
-        With now, cancel the running requests first.
+        With now, cancel the running requests first. command is the `den` command doing it:
+        "mode" refuses new requests meanwhile (pending_mode), "unload" only makes them wait.
         """
         if now:
             for r in self.snapshot():
                 if r["side"] in sides:
-                    self.cancel(r["id"], "cancelled by: den mode --now")
+                    self.cancel(r["id"], f"cancelled by: den {command} --now")
         last, last_emit = None, 0.0
         while True:
             with self.cond:
                 running = [r for r in self.snapshot() if r["side"] in sides]
                 if not running and self.swapping is None:
-                    self.swapping = "mode"
+                    self.swapping = "mode" if command == "mode" else "unload"
                     return
             if caller_gone():
                 raise ConnectionResetError("the caller hung up")
@@ -598,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(200, self.broker.status())
             elif path == "/mode" and self.command == "POST":
                 self._mode(json.loads(self._read_body() or b"{}"))
+            elif path == "/unload" and self.command == "POST":
+                self._unload(json.loads(self._read_body() or b"{}"))
             elif path == "/image" and self.command == "POST":
                 self._image(json.loads(self._read_body() or b"{}"))
             else:
@@ -627,6 +660,24 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         log(f"mode switch to {mode} done")
+        self.wfile.write(b"0\r\n\r\n")
+
+    def _unload(self, body):
+        """POST /unload {"sides": ["llm", "image"], "now": false}: unload sides, keep the mode."""
+        emit, started = self._ndjson()
+        sides = body.get("sides") or list(SIDES)
+        log(f"unload of the {' and '.join(sides)} side requested{' --now' if body.get('now') else ''}")
+        try:
+            self.broker.unload_sides(sides, bool(body.get("now")), emit, self._caller_gone)
+        except DenError as e:
+            if not started():
+                raise
+            emit({"error": str(e)})
+        except (BrokenPipeError, ConnectionResetError):
+            log("unload dropped: the caller hung up")
+            self.close_connection = True
+            return
+        log("unload done")
         self.wfile.write(b"0\r\n\r\n")
 
     def _image(self, body):

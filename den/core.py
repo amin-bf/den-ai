@@ -238,6 +238,10 @@ class BrokerClient(Ollama):
     def switch_mode(self, mode, now=False):
         return self._stream("/mode", {"mode": mode, "now": now})
 
+    def unload_sides(self, sides=(), now=False):
+        """Unload without changing the mode; the next request loads its side again."""
+        return self._stream("/unload", {"sides": list(sides), "now": now})
+
     def generate_image(self, **request):
         """Progress lines of one image request; the last one carries "result"."""
         return self._stream("/image", request)

@@ -115,6 +115,33 @@ def cmd_mode(args):
         return 130
 
 
+def cmd_unload(args):
+    config, _ = _load()
+    # Unlike `den mode off` this leaves the mode alone: both sides stay available, so the tools
+    # stay listed and the next request loads its side again.
+    try:
+        for msg in core.broker(config, "cli").unload_sides([args.side] if args.side else [], args.now):
+            if "waiting" in msg or "cancelling" in msg:
+                running = msg.get("waiting") or msg["cancelling"]
+                requests = f"{len(running)} running request{'s' if len(running) > 1 else ''}"
+                print(
+                    f"cancelling {requests} before unloading:"
+                    if "cancelling" in msg
+                    else f"waiting for {requests} to finish before unloading "
+                    "(--now cancels them); new ones wait and then load again:",
+                    flush=True,
+                )
+                for r in running:
+                    print(f"  {_describe(r)}", flush=True)
+            elif _print_swap_step(msg):
+                pass
+            elif "unloaded" in msg:
+                print(f"unloaded: {', '.join(msg['unloaded']) or 'nothing was loaded'}")
+    except KeyboardInterrupt:
+        print("\nunload dropped, unless it was already unloading (check: den status)", file=sys.stderr)
+        return 130
+
+
 def _print_swap_step(msg):
     """Print an unloading / starting / stopping progress line; False for other messages."""
     if "unloading" in msg:
@@ -362,6 +389,11 @@ def main(argv=None):
     p.add_argument("mode", nargs="?", choices=list(core.MODES))
     p.add_argument("--now", action="store_true", help="cancel running requests instead of waiting for them")
     p.set_defaults(func=cmd_mode)
+
+    p = sub.add_parser("unload", help="unload the GPU now without changing the mode (the next request reloads)")
+    p.add_argument("side", nargs="?", choices=["llm", "image"], help="default: both sides")
+    p.add_argument("--now", action="store_true", help="cancel running requests instead of waiting for them")
+    p.set_defaults(func=cmd_unload)
 
     sub.add_parser("serve", help="run the GPU broker (normally started by: systemctl --user start den)").set_defaults(
         func=cmd_serve

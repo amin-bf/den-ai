@@ -39,16 +39,17 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | Path | Role |
 |---|---|
 | `config.toml` | Hand-edited: broker address, Ollama endpoint and shared model settings (no model names), batch caps, image section (ComfyUI, idle timeout, workflow mappings), delegated tasks with system prompts. |
-| `state.json` | Written by the broker (mode) and the CLI, not versioned: current mode, active model, task on/off overrides. |
+| `state.json` | Written by the broker (mode) and the CLI, not versioned: the kill switch (`on`/`off`), active model, task on/off overrides. |
 | `den/core.py` | Config and state loading, Ollama and broker clients, `run_task` (with a guard against overflowing the context window). |
-| `den/broker.py` | `den serve`: streaming pass-through to Ollama (`/api`, `/v1`), `/image`, swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, `/status`, `/mode` (waits, `now` cancels). |
+| `den/broker.py` | `den serve`: streaming pass-through to Ollama (`/api`, `/v1`), `/image`, swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, `/status`, `/mode` and `/unload` (both wait, `now` cancels). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
 | `workflows/` | ComfyUI graphs in API format, one per workflow; their mappings live in `config.toml`. |
-| `den/cli.py` | `den status / mode / model / task / ask / image / log / serve`. |
+| `den/cli.py` | `den status / mode / unload / model / task / ask / image / log / serve`. |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
-| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, caller, task, delegation, workflow. |
+| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, unload, caller, task, delegation, workflow. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback` and `generate_image`; sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
 | `.agents/skills/` | Agent-agnostic skills, local only (git-ignored); `.claude/skills` is a symlink to it. |
@@ -61,12 +62,21 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **Everything that uses the GPU goes through the broker.** Clients never call Ollama
   (11434) directly. When the broker is down they fail with a start hint and never fall back.
   Only downloads (`ollama pull`) skip it.
-- **Modes:** `llm | image | both | off`, enforced by the broker. A mode switch goes through
-  the broker: it refuses new requests for the side being turned off, waits for in-flight
-  ones (`--now` cancels them), unloads that side (Ollama via `keep_alive: 0` until `/api/ps`
-  is empty; ComfyUI by stopping its unit), and only then saves the mode. Only one side holds
-  the GPU at a time; `both` means "both available, one loaded, swapped on demand", batched
-  by the caps in `[broker]` ([ADR 0003](docs/adr/0003-image-generation.md)).
+- **Availability, not modes.** A request runs when its own side can: an LLM model is selected
+  (`den model`), or a workflow's model files are there. An unavailable side answers with what
+  is missing, never with silence. `llm`, `image` and `both` are gone; an old `state.json`
+  reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
+- **The mode is only a kill switch,** `on | off`, enforced by the broker. `den mode off` goes
+  through the broker: it refuses new requests, waits for in-flight ones (`--now` cancels them),
+  unloads both sides (Ollama via `keep_alive: 0` until `/api/ps` is empty; ComfyUI by stopping
+  its unit), and only then saves the mode.
+- **`den unload` frees the GPU without a mode switch:** the same draining and unloading, but
+  nothing is refused and the next request loads its side again. Only one side holds the GPU at
+  a time, swapped on demand and batched by the caps in `[broker]`
+  ([ADR 0003](docs/adr/0003-image-generation.md)).
+- **Only a human can start Ollama:** it's a system service, den runs as the user and never uses
+  sudo. When it's down the broker logs `OLLAMA DOWN`, callers get the same line with
+  `sudo systemctl start ollama`, and `den status` exits non-zero.
 - **Workflows, not model names:** a workflow is available when its graph's model files are in
   ComfyUI's models folder. Add one as `workflows/<name>.json` (API format) plus
   `[image.workflows.<name>]`. A model that can edit gets an edit variant too
@@ -86,8 +96,8 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 
 ## Checks
 
-No test suite yet. Smoke test with `bin/den status`, `bin/den task` and
-`bin/den model`. Test MCP by piping JSON-RPC into `bin/den-mcp`, with
+No test suite yet. Smoke test with `bin/den status`, `bin/den task`, `bin/den model` and
+`bin/den unload` (it loads nothing). Test MCP by piping JSON-RPC into `bin/den-mcp`, with
 `DEN_STATE` and `DEN_LOG` pointed at scratch files so the real state and delegation
 log stay untouched. Test the broker as a second instance: a scratch copy of `config.toml`
 with `[broker] base_url` on another port (e.g. 11436), `DEN_CONFIG` pointing at it, and

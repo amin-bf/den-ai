@@ -48,7 +48,7 @@ def cmd_status(args):
     loaded = status["loaded"] or "nothing"
     print(f"broker   up at {client.base_url}, pid {status['pid']}; GPU side: {loaded}")
     if status["pending_mode"]:
-        print(f"         switching to mode {status['pending_mode']}")
+        print(f"         turning den {status['pending_mode']}")
     if status["swapping"]:
         print(f"         swapping ({status['swapping']})")
     for r in status["inflight"]:

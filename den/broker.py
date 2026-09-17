@@ -170,7 +170,7 @@ class Broker:
         if self.swapping in SIDES:
             return {"reason": f"swapping to the {self.swapping} side"}
         if self.swapping == "mode":
-            return {"reason": f"switching to mode {self.pending_mode}"}
+            return {"reason": "den is being turned off"}
         if self.swapping == "unload":
             return {"reason": "the loaded side is being unloaded; this request loads it again"}
         if self.swapping == "idle":
@@ -186,7 +186,7 @@ class Broker:
         """Start a request for info["side"] once that side is loaded; returns its id.
 
         Waits (reporting through emit) while the other side holds the GPU, and runs the swap
-        itself when it's due. Raises DenError when the mode doesn't allow the side, and
+        itself when it's due. Raises DenError when the side can't run, and
         ConnectionResetError when the caller hangs up while waiting.
         """
         side = info["side"]

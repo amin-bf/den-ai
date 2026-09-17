@@ -1,4 +1,4 @@
-# runtime switches written by `den` (mode, active profile, task toggles)
+# runtime switches written by `den` (the on/off mode, active model, task toggles)
 state.json
 state.tmp
 # private additions merged over config.toml (e.g. workflow notes)

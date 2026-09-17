@@ -52,5 +52,5 @@ _Avoid_: request (that's the HTTP level)
 ### Image generation
 
 **Workflow**:
-A ComfyUI graph saved as a file, with the inputs where a request's prompt, seed and size go. It is what a caller picks instead of a model.
+A ComfyUI graph saved as a file, with the inputs where a request's prompt, seed and size go. It is what a caller picks instead of a model; one whose model can edit also has an edit variant, used when a request brings an input image.
 _Avoid_: profile, pipeline, preset

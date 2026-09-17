@@ -20,9 +20,16 @@ to ComfyUI.
   the GPU at once; starting takes ~4 s plus the first model load (5–40 s).
 - **Workflows are files plus a mapping.** `workflows/<name>.json` is a graph in API format, and
   `[image.workflows.<name>]` names the node inputs that receive the prompt, negative prompt,
-  seed (sometimes several nodes), size and input image, with a description that says what the
+  seed (sometimes several nodes) and size, with a description that says what the
   workflow is good at and how to write its prompt. Prompt style matters more than the model:
   each model wants its own (short sentences, long captions, tags).
+- **Editing is a variant of a workflow, not a workflow of its own.** A workflow whose model can
+  edit also has `workflows/<name>-edit.json` and `[image.workflows.<name>.edit]`; a request with
+  an input image runs that graph instead. Callers keep picking by style, and an input image
+  given to a model that can't edit fails loudly. A single graph can't do both: the editing
+  graph encodes the input as a reference latent and takes its size from it. Of the four models
+  only FLUX.2 klein edits; img2img by partial denoising would work with any of them but
+  doesn't follow instructions, so it isn't offered as editing.
 - **No model names in config: availability comes from the files.** A workflow can run when every
   model file its graph names is under `$COMFYUI_DIR/models`. Whoever calls picks the workflow
   per request from the descriptions; `[image] default_workflow` covers requests that name none.
@@ -51,7 +58,7 @@ nothing.
 
 | Workflow | Style | s/image |
 |---|---|---|
-| `flux2-klein-4b` (fp8) | general, quick drafts | 2 |
+| `flux2-klein-4b` (fp8) | general, quick drafts; edits | 2 |
 | `z-image-turbo` (bf16) | general, legible text | 7.5 |
 | `wai-illustrious` (SDXL, hires fix) | anime and illustration, tag prompts | 29 |
 | `chroma1-hd` (fp8, cfg 6, 35 steps) | photorealistic, long captions, negative prompt | ~50 |

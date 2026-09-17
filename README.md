@@ -141,6 +141,7 @@ den image                           # list workflows (* = default) and whether t
 den image "A red fox reading a book under a lamp" --seed 7
 den image "masterpiece, best quality, fox, forest" -w wai-illustrious -n "bad quality" --size 832x1216
 den image "…" -o ~/project/assets/fox.png --switch-back
+den image "Make the fox's fur blue, keep the rest" -w flux2-klein-4b --image ~/Pictures/den/…/fox.png
 ```
 
 - **Results** go to `~/Pictures/den/YYYY-MM-DD/<time>-<slug>.png` (`DEN_IMAGES` overrides), plus
@@ -164,15 +165,18 @@ den image "…" -o ~/project/assets/fox.png --switch-back
 | Workflow | Good for | Prompt |
 |---|---|---|
 | `z-image-turbo` (default) | fast general images, legible text | a few short concrete sentences |
-| `flux2-klein-4b` | the fastest drafts and simple assets | a plain description |
+| `flux2-klein-4b` | the fastest drafts and simple assets; **edits** an input image (`--image`) | a plain description, or an edit instruction |
 | `chroma1-hd` | slow, highest-quality photorealism (cfg 6, 35 steps) | a long detailed caption, plus a negative prompt |
 | `wai-illustrious` | anime and illustration, with a hires-fix pass | Danbooru tags, positive and negative |
 
 Each is `workflows/<name>.json` (a graph in API format) plus `[image.workflows.<name>]` in
 `config.toml`, which says where the prompt, negative prompt, seed and size go. To add one, build
 it in the web UI, export it with Workflow → Export (API), save it under `workflows/` and add
-its mapping. A workflow can run once the model files its graph names are in
-`~/ComfyUI/models` (`COMFYUI_DIR` overrides the location).
+its mapping. If the model can edit, add the editing graph as `workflows/<name>-edit.json` with
+its mapping under `[image.workflows.<name>.edit]` (including the LoadImage input); requests with
+an input image use it. Of the four, only klein edits; the others generate from text only.
+A workflow can run once the model files its graphs name are in `~/ComfyUI/models`
+(`COMFYUI_DIR` overrides the location).
 
 ### Image models
 
@@ -269,6 +273,7 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 | `den image "<prompt>"` | Generate with the default workflow; prints the saved path, then seed and time on stderr |
 | `-w <workflow>` / `-n "<negative>"` | Pick a workflow / give a negative prompt (workflows that take one) |
 | `--seed N` / `--size 832x1216` | Fix the seed (default random) / override the workflow's size |
+| `--image <file>` | Edit this image (workflows whose model edits; the size follows the input) |
 | `-o <file or dir/>` | Also copy the result there |
 | `--switch-back` | Stop ComfyUI afterwards so the LLM can load right away |
 

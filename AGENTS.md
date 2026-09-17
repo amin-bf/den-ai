@@ -67,7 +67,9 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   by the caps in `[broker]` ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **Workflows, not model names:** a workflow is available when its graph's model files are in
   ComfyUI's models folder. Add one as `workflows/<name>.json` (API format) plus
-  `[image.workflows.<name>]`. Descriptions say style and prompt format only.
+  `[image.workflows.<name>]`. A model that can edit gets an edit variant too
+  (`<name>-edit.json`, `[image.workflows.<name>.edit]`). Descriptions say style and prompt
+  format only.
 - **Delegation is opt-in per task.** Only enabled tasks appear in the tool's `task` enum,
   and the tool description tells Claude to delegate nothing else. Add tasks in
   `config.toml`; toggle them with `den task <name> on|off`.

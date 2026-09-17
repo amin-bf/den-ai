@@ -27,8 +27,13 @@ def _describe(r):
 
 def cmd_status(args):
     config, state = _load()
-    on = core.MODES[state["mode"]]
-    print(f"mode     {state['mode']}  (llm: {'on' if 'llm' in on else 'off'}, image: {'on' if 'image' in on else 'off'})")
+    if core.is_on(state):
+        # The reason a side isn't ready belongs on its own line below, which already carries it.
+        sides = {"llm": core.llm_unavailable(config, state), "image": image.unavailable(config, state)}
+        ready = ", ".join(f"{side}: {'ready' if why is None else 'not ready'}" for side, why in sides.items())
+        print(f"mode     on  ({ready})")
+    else:
+        print(f"mode     off  ({core.OFF_MESSAGE})")
 
     model = state["llm_model"] or "(none selected: den model)"
     client = core.broker(config, "cli")
@@ -90,8 +95,8 @@ def cmd_mode(args):
     if args.mode is None:
         print(state["mode"])
         return
-    # The broker does the switch: it refuses new LLM requests, waits for the running ones and
-    # unloads the model before saving the mode. Ctrl+C drops the switch.
+    # The broker does the switch: turning den off refuses new requests, waits for the running
+    # ones and unloads both sides before saving the mode. Ctrl+C drops the switch.
     try:
         for msg in core.broker(config, "cli").switch_mode(args.mode, args.now):
             if "waiting" in msg or "cancelling" in msg:
@@ -100,7 +105,7 @@ def cmd_mode(args):
                 print(
                     f"cancelling {requests} for the side being turned off:"
                     if "cancelling" in msg
-                    else f"waiting for {requests} to finish before turning their side off "
+                    else f"waiting for {requests} to finish before turning den off "
                     "(--now cancels them); new ones are refused meanwhile:",
                     flush=True,
                 )
@@ -192,7 +197,14 @@ def cmd_image(args):
         default = image.settings(config).get("default_workflow")
         flows = image.available(config)
         spec = image.request_spec(config, flows, default) if flows else {"description": None, "parameters": None}
-        listing = {"broker": core.broker_url(config), "mode": state["mode"], "image_on": core.image_on(state), "default": default}
+        unavailable = image.unavailable(config, state)
+        listing = {
+            "broker": core.broker_url(config),
+            "mode": state["mode"],
+            "image_on": unavailable is None,
+            "unavailable": unavailable,
+            "default": default,
+        }
         print(json.dumps({**listing, "workflows": list(flows), "edits": [n for n, wf in flows.items() if "edit" in wf], **spec}))
         return
     if args.prompt is None:
@@ -385,7 +397,7 @@ def main(argv=None):
 
     sub.add_parser("status", help="show mode, active model, GPU use and tasks").set_defaults(func=cmd_status)
 
-    p = sub.add_parser("mode", help="show or switch mode (turning the LLM off frees its GPU memory)")
+    p = sub.add_parser("mode", help="show or switch the kill switch: off keeps every caller off the GPU")
     p.add_argument("mode", nargs="?", choices=list(core.MODES))
     p.add_argument("--now", action="store_true", help="cancel running requests instead of waiting for them")
     p.set_defaults(func=cmd_mode)

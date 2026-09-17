@@ -142,6 +142,15 @@ def available(config):
     return {name: wf for name, (wf, problem) in check_workflows(config).items() if problem is None}
 
 
+def unavailable(config, state):
+    """Why an image request can't run now, or None."""
+    if not core.is_on(state):
+        return core.OFF_MESSAGE
+    if not settings(config) or not available(config):
+        return "no image workflow can run (none configured, or model files missing); see: den image"
+    return None
+
+
 def _refs(value):
     return [value] if isinstance(value, str) else list(value or [])
 

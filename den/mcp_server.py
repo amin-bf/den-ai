@@ -105,12 +105,12 @@ def list_tools():
     config = core.load_config()
     state = core.load_state(config)
     tools = []
-    if core.llm_on(state):
+    if core.llm_unavailable(config, state) is None:
         tasks = core.enabled_tasks(config, state)
-        if tasks and state["llm_model"]:
+        if tasks:
             tools.append(local_llm_tool(state["llm_model"], tasks))
             tools.append(feedback_tool())
-    if core.image_on(state):
+    if image.unavailable(config, state) is None:
         # Availability follows the model files, so a finished download adds its workflow.
         flows = image.available(config)
         if flows:

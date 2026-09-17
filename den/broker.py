@@ -11,11 +11,12 @@ loaded side starts new requests only until a cap (time or count) is reached, so 
 together without starving either side. ComfyUI stays up after an image until the next LLM
 request, a `switch_back`, or `[image] keep_alive` of idle time.
 
-The broker owns mode switches too: a switch that turns a side off refuses its new requests,
-waits for the running ones (or cancels them with `now`), unloads that side and only then saves
-the new mode. POST /unload does the same unloading without touching the mode, so the GPU is
-empty while both sides stay available and the next request loads its side again. It re-reads
-config.toml and state.json on every request; only the listen address needs a restart.
+A request runs when its side can: an LLM model is selected, or a workflow can run. Otherwise
+the broker says why, and nothing else gates it. The mode is only the kill switch
+`den mode off`, which refuses new requests, waits for the running ones (or cancels them with
+`now`) and unloads both sides. POST /unload does that unloading alone, leaving the mode on, so
+the GPU is empty and the next request loads its side again. The broker re-reads config.toml
+and state.json on every request; only the listen address needs a restart.
 
 Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"} and
 POST /image (all but /status stream NDJSON progress lines).
@@ -77,10 +78,11 @@ def _is_unload(body):
     )
 
 
-def _off_message(side, mode):
+def _unavailable(side, config, state):
+    """Why side can't run now, or None: what's installed and selected decides, not a mode."""
     if side == "llm":
-        return f"the local LLM is off (mode: {mode}); turn it on with: den mode llm"
-    return f"image generation is off (mode: {mode}); turn it on with: den mode image (or both)"
+        return core.llm_unavailable(config, state)
+    return image.unavailable(config, state)
 
 
 def _no_emit(msg):
@@ -108,7 +110,7 @@ class Broker:
         self.starts = {side: [] for side in SIDES}  # recent start times, for the batch count cap
         self.loaded = None  # the side holding the GPU, as far as the broker knows
         self.loaded_since = time.time()
-        self.swapping = None  # "llm" / "image" while swapping to that side, "mode" or "idle" while unloading
+        self.swapping = None  # "llm"/"image" while swapping to that side; "mode", "unload" or "idle" while unloading
         self.pending_mode = None
         self.last_image = time.time()
         self.ids = itertools.count(1)
@@ -128,14 +130,12 @@ class Broker:
                 self.loaded = None
         return self.loaded
 
-    def _check_mode(self, side, state):
-        if side not in core.MODES[state["mode"]]:
-            raise DenError(_off_message(side, state["mode"]))
-        if self.pending_mode is not None and side not in core.MODES[self.pending_mode]:
-            raise DenError(
-                f"the {side} side is being turned off (switching to mode {self.pending_mode}); "
-                "no new requests for it until the mode allows it again"
-            )
+    def _check_available(self, side, config, state):
+        unavailable = _unavailable(side, config, state)
+        if unavailable:
+            raise DenError(unavailable)
+        if self.pending_mode == "off":
+            raise DenError("den is being turned off; no new requests until: den mode on")
 
     def _batch_open(self, side, config, now):
         """Whether the loaded side may start another request while the other side waits.
@@ -197,7 +197,7 @@ class Broker:
                 config = core.load_config()
                 state = core.load_state(config)
                 with self.cond:
-                    self._check_mode(side, state)
+                    self._check_available(side, config, state)
                     now = time.time()
                     if self._can_start(side, config, now):
                         self.waiting.pop(info["id"], None)
@@ -294,7 +294,7 @@ class Broker:
             if (
                 self.loaded != "image"
                 or self.swapping is not None
-                or not core.llm_on(state)
+                or _unavailable("llm", config, state)
                 or any(i["side"] == "image" for i in [*self.inflight.values(), *self.waiting.values()])
             ):
                 return False
@@ -435,6 +435,7 @@ class Broker:
             "uptime_s": round(time.time() - self.started),
             "mode": state["mode"],
             "pending_mode": self.pending_mode,
+            "unavailable": {side: _unavailable(side, config, state) for side in SIDES},
             "loaded": self.loaded,
             "loaded_s": round(time.time() - self.loaded_since),
             "swapping": self.swapping,
@@ -459,15 +460,13 @@ class Broker:
         config = core.load_config()
         if mode not in core.MODES:
             raise DenError(f"unknown mode {mode!r}; use one of: {', '.join(core.MODES)}")
-        if "image" in core.MODES[mode] and not image.available(config):
-            raise DenError("no image workflow can run (none configured, or model files missing); see: den image")
         with self.cond:
             if self.pending_mode is not None:
                 raise DenError(f"a switch to mode {self.pending_mode} is already waiting")
             self.pending_mode = mode
             self.cond.notify_all()  # waiting requests for a side being turned off give up
         try:
-            off = [side for side in SIDES if side not in core.MODES[mode]]
+            off = list(SIDES) if mode == "off" else []
             self._drain(off, now, emit, caller_gone)
             unloaded = []
             try:

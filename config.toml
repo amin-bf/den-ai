@@ -2,15 +2,16 @@
 # Runtime switches (mode, active model, task on/off) live in state.json and are
 # changed with the `den` CLI; the values here are only their defaults.
 
-# llm | image | both | off
-default_mode = "llm"
+# on | off — the kill switch: off keeps every caller off the GPU. Whether a request's side can
+# run follows what's installed and selected (an LLM model, a workflow), not the mode.
+default_mode = "on"
 
 # The GPU broker (`den serve`, a user systemd service). Everything that uses the GPU
 # goes through it: the CLI, Claude's MCP server and pi. Nothing else talks to Ollama.
 # Changing the address needs: systemctl --user restart den
 [broker]
 base_url = "http://127.0.0.1:11435"
-# Batching when both sides are wanted (mode both): while one side waits, the loaded side starts
+# Batching when both sides want the GPU: while one side waits, the loaded side starts
 # new requests only until either cap is reached, counted from when the other side started
 # waiting. Running requests always finish before the swap (ADR 0002, ADR 0003).
 batch_seconds = 120

@@ -26,8 +26,12 @@ _STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/sta
 LOG_PATH = Path(os.environ.get("DEN_LOG", _STATE_HOME / "den/delegations.jsonl"))
 VERDICTS = ("ok", "partly", "wrong", "unchecked")
 
-# Which capabilities each mode keeps switched on.
-MODES = {"llm": {"llm"}, "image": {"image"}, "both": {"llm", "image"}, "off": set()}
+# The mode is a kill switch, not a router: `off` keeps every caller off the GPU. Whether a
+# request's side can run is decided by what's installed and selected, not by the mode.
+MODES = ("on", "off")
+# state.json written when a mode still picked a side.
+LEGACY_MODES = {"llm": "on", "image": "on", "both": "on"}
+OFF_MESSAGE = "den is off; turn it on with: den mode on"
 
 # Rough bytes-per-token used to refuse inputs that would overflow num_ctx: Ollama
 # truncates an oversized prompt silently, which yields a confident answer about
@@ -65,7 +69,7 @@ def load_config():
 
 def load_state(config):
     state = {
-        "mode": config.get("default_mode", "llm"),
+        "mode": config.get("default_mode", "on"),
         "llm_model": None,
         "tasks": {},
     }
@@ -75,6 +79,7 @@ def load_state(config):
         pass
     except (OSError, json.JSONDecodeError) as e:
         raise DenError(f"cannot read {STATE_PATH}: {e}") from e
+    state["mode"] = LEGACY_MODES.get(state["mode"], state["mode"])
     if state["mode"] not in MODES:
         raise DenError(f"unknown mode {state['mode']!r} in {STATE_PATH}")
     return state
@@ -86,8 +91,21 @@ def save_state(state):
     tmp.replace(STATE_PATH)
 
 
-def llm_on(state):
-    return "llm" in MODES[state["mode"]]
+def is_on(state):
+    return state["mode"] != "off"
+
+
+def llm_unavailable(config, state):
+    """Why an LLM request can't run now, or None.
+
+    Only what den itself knows: Ollama being down or a model missing is reported by the
+    request that goes out, not guessed at here.
+    """
+    if not is_on(state):
+        return OFF_MESSAGE
+    if not state["llm_model"]:
+        return "no LLM model is selected; pick one with: den model"
+    return None
 
 
 def all_tasks(config, state):
@@ -113,8 +131,6 @@ def broker_url(config):
     return config.get("broker", {}).get("base_url", "http://127.0.0.1:11435")
 
 
-def image_on(state):
-    return "image" in MODES[state["mode"]]
 
 
 def duration_s(value):
@@ -267,8 +283,9 @@ def build_prompt(instructions, text=None, files=()):
 
 def run_task(config, state, task, instructions, text=None, files=(), caller="cli"):
     """Run one delegated task on the active LLM model. Returns (answer, stats)."""
-    if not llm_on(state):
-        raise DenError(f"the local LLM is off (mode: {state['mode']}); turn it on with: den mode llm")
+    unavailable = llm_unavailable(config, state)
+    if unavailable:
+        raise DenError(unavailable)
     tasks = enabled_tasks(config, state)
     if task not in tasks:
         raise DenError(f"task {task!r} is not enabled; enabled: {', '.join(tasks) or 'none'}")

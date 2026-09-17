@@ -197,6 +197,10 @@ def _control_arg(args):
     control = {"image": str(args.control.expanduser().resolve()), "type": args.control_type}
     if args.control_strength is not None:
         control["strength"] = args.control_strength
+    if args.control_start is not None:
+        control["start"] = args.control_start
+    if args.control_end is not None:
+        control["end"] = args.control_end
     return control
 
 
@@ -282,7 +286,7 @@ def cmd_image(args):
                 extra = "".join(f", {k} {g[k]}" for k in image.SETTINGS if k in g)
                 extra += "".join(f", lora {l['name']} {l['strength']}" for l in g.get("loras", []))
                 extra += f", {g['references']} reference(s)" if g.get("references") else ""
-                extra += f", control {g['control']['type']} {g['control']['strength']}" if g.get("control") else ""
+                extra += f", control {image.control_summary(g['control'])}" if g.get("control") else ""
                 extra += f", upscale {g['upscale']['name']} x{g['upscale']['factor']:g}" if g.get("upscale") else ""
                 print(f"{what} with {g['workflow']} (seed {g['seed']}{size}{extra}) ...", flush=True)
             elif "result" in msg:
@@ -471,6 +475,8 @@ def main(argv=None):
     p.add_argument("--control", type=Path, help="ControlNet guide image, for workflows that list control")
     p.add_argument("--control-type", help="what the guide image is: canny (a photo), pose, depth, … (den image lists them)")
     p.add_argument("--control-strength", type=float, help="how strongly the guide image steers (default: the workflow's)")
+    p.add_argument("--control-start", type=float, help="fraction of the sampling where the guide starts acting (default 0)")
+    p.add_argument("--control-end", type=float, help="fraction where it stops; end early to fix only the composition (default 1)")
     p.add_argument("--upscale", metavar="NAME[:FACTOR]", help="upscale the result with this model (default factor 2)")
     p.set_defaults(func=cmd_image)
 

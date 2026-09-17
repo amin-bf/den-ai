@@ -233,7 +233,7 @@ def generate_image(args, progress_token):
     size += "".join(f" · {k} {result[k]}" for k in image.SETTINGS if k in result)
     size += "".join(f" · lora {l['name']} {l['strength']}" for l in result.get("loras", []))
     size += f" · {result['references']} reference(s)" if result.get("references") else ""
-    size += f" · control {result['control']['type']} {result['control']['strength']}" if result.get("control") else ""
+    size += f" · control {image.control_summary(result['control'])}" if result.get("control") else ""
     size += f" · upscale {result['upscale']['name']} x{result['upscale']['factor']:g}" if result.get("upscale") else ""
     waited = f", waited {result['waited_s']:.0f}s" if result["waited_s"] >= 1 else ""
     lines.append(f"[{result['workflow']} · seed {result['seed']}{size} · {result['seconds']}s{waited}]")

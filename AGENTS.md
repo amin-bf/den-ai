@@ -25,6 +25,10 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   chats or mail, credentials, or delegation logs. Test results describe inputs generically.
 - **No content notes about what image models will or won't generate,** in code, config, tool
   descriptions or docs. Describe models by style and prompt format only.
+- **Nothing machine-specific in code, config or scripts:** no absolute paths. Derive the repo
+  location from the script or module (`dirname "${BASH_SOURCE[0]}"`, `Path(__file__)`), and user
+  paths from `$HOME` / `XDG_*` (`%h` in systemd units), with an environment override where a
+  user might want another location. Anyone who clones the repo must be able to run it as is.
 - **Working notes stay in git-ignored places** (`.branch-artifacts/`), which may be as
   detailed as needed. Check `git diff --cached` for anything above before each commit.
 

@@ -20,7 +20,7 @@ COMFYUI_REF="${COMFYUI_REF:-v0.36.0}"
 COMFYUI_PY="${COMFYUI_PY:-3.13}"
 TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu130}"
 BROKER_URL="http://127.0.0.1:11435"
-UNIT_DIR="$HOME/.config/systemd/user"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 with_pi=1
 with_comfyui=1

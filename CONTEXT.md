@@ -92,3 +92,10 @@ _Avoid_: hint, control image
 **Pose reference**:
 A reference image passed as `pose:PATH`: den draws the photo's pose as a map and passes the map as that reference, so a klein model takes the pose and framing without the photo's face or clothing. The prompt names it by its number in the order given.
 _Avoid_: pose ControlNet (klein has none)
+
+**Saved pose**:
+A pose map den keeps under a name, with the photo it was drawn from, so later requests can use it by name as a reference or a guide image without the photo.
+_Avoid_: preset, template, pose (alone: that is the pose in a photo)
+
+**Pose library**:
+The saved poses den keeps. A model adds to it; a human renames and deletes.

@@ -157,6 +157,9 @@ It talks only to the broker and the `den` CLI.
   with kitty's Unicode placeholders; that needs kitty and `set -g allow-passthrough on`. Links need
   `set -as terminal-features ',xterm-kitty:hyperlinks'` and a tmux client attached after that line
   was loaded. `PI_IMAGE_PROTOCOL=none` turns the images off.
+- **Pose library:** `list_poses` and `save_pose` tools next to `generate_image` (see
+  [The pose library](#the-pose-library)). `save_pose` shows the skeleton and, like the image tool,
+  ends the turn. `/imagine` completes saved pose names after `--reference pose:` and `--control pose:`.
 - **Footer:** while pi works or `/imagine` runs, the footer says when a request waits for the other
   side or the GPU is swapping (`den: pi llm waits for claude image to finish`).
 
@@ -287,6 +290,25 @@ never clamped. The recommended ranges are starting points, not tested limits.
 - **Not included, since there are no custom nodes:** IP-Adapter (ComfyUI has no built-in node for
   it; klein's references do that job) and preprocessors for depth, line or segment maps.
 
+### The pose library
+
+den keeps **saved poses**: a pose skeleton drawn once from a photo and kept under a name, so later
+images take that pose without the photo. Use one as `pose:NAME`, as a klein reference or as the
+guide image of a `pose` ControlNet (`--control pose:NAME --control-type pose`).
+
+- **Saving** draws the photo's pose on the GPU for a few seconds, through the broker:
+  `den pose save PHOTO NAME -d "one line on the pose and framing"`, or the `save_pose` tool for
+  Claude and pi. Names are lower-case words joined by hyphens (up to 80 characters); a taken name
+  needs `--replace`. One person per pose, and a photo where no one is found is refused.
+- **Finding them:** `den pose list`, or the `list_poses` tool, which gives a model the table of
+  contents (name, description, aspect) to keep for the conversation. The image tool only says the
+  library exists, so saving a pose never changes that tool's text (see ADR 0003).
+- **Curating** is yours: `den pose mv OLD NEW` and `den pose rm NAME`.
+- **Files:** `~/.local/share/den/poses/` (`DEN_POSES` overrides it) holds per pose the skeleton
+  (`NAME.png`), a copy of the photo (`NAME.source.<ext>`) and its description (`NAME.json`).
+- **Two things to get right in the prompt:** give the image the pose's aspect (the list shows it),
+  and say which way the body faces, since a skeleton doesn't show front from back.
+
 ### Image models
 
 ComfyUI doesn't come with models. See the
@@ -398,12 +420,18 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 | `--steps N` / `--cfg X` | Override the workflow's steps / guidance, within its allowed range |
 | `--sampler NAME` / `--scheduler NAME` | Any ComfyUI sampler or scheduler the workflow has a setting for |
 | `--lora NAME[:STRENGTH]` | Add a LoRA the workflow offers; repeatable |
-| `--reference [pose:]<file>` | A reference image (person, style, object) for klein workflows; `pose:` draws the photo's pose as a skeleton and passes that; repeatable |
-| `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo and the SDXL workflows): `canny` for a photo, or a ready-made `pose`, `depth`, … map |
+| `--reference [pose:]<file>` | A reference image (person, style, object) for klein workflows; `pose:` draws the photo's pose as a skeleton and passes that; `pose:NAME` takes a saved pose; repeatable |
+| `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo and the SDXL workflows): `canny` or `pose` for a photo, a ready-made `depth`, … map, or `pose:NAME` (a saved pose) with type `pose` |
 | `--upscale NAME[:FACTOR]` | Enlarge the result with an upscale model (default factor 2), any workflow |
 | `--save-maps` | Also save the maps den draws (pose skeleton, canny edges) beside the image |
 
 Ctrl+C cancels the request, in ComfyUI too.
+
+| Command | What it does |
+|---|---|
+| `den pose` / `den pose list [--json]` | The saved poses: name, description, aspect and size |
+| `den pose save <photo> <name> -d "…" [--replace]` | Draw the photo's pose and save it (GPU, a few seconds) |
+| `den pose mv <old> <new>` / `den pose rm <name>` | Rename / delete a saved pose (its skeleton, photo and description) |
 
 ### Reviewing delegations
 
@@ -432,6 +460,7 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 | `~/.local/state/den/delegations.jsonl` | Delegation log (outside git). `DEN_LOG=<path>` uses a different one |
 | `~/.local/state/den/images.jsonl` | Image log. `DEN_IMAGE_LOG=<path>` uses a different one |
 | `DEN_IMAGES=<dir>` / `COMFYUI_DIR=<dir>` | Where images are saved / where ComfyUI and its models live |
+| `~/.local/share/den/poses/` | The pose library (outside git). `DEN_POSES=<dir>` uses a different one |
 
 ## Ollama cheatsheet
 

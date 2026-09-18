@@ -104,6 +104,38 @@ save its skeleton. Who the figure is doesn't matter; only its skeleton is kept.
 3. `save_pose` it under a name that says the pose (next section), and show the skeleton.
 4. Use it as `pose:NAME` in the combine step.
 
+Need the same pose facing the other way? Mirror the stand-in photo left to right and save that:
+the pose detector finds the joints again, so left and right come out right.
+
+## A place that fits the pose
+
+The place reference must share the pose's camera, or the combined image breaks: a counter seen
+diagonally in the foreground cut the body in two at the waist, and a whole room seen from far
+away made the figure a giant. The surest way is to edit the pose's own stand-in photo:
+
+```json
+{"workflow": "klein9b-realism", "image": "/path/pose-stand-in.png",
+ "prompt": "Remove the woman completely, leaving the space where she stood empty. Turn the plain studio into a cozy apartment kitchen at night: the grey counter becomes a kitchen counter with a wooden top and white cabinets, in exactly the same place and at the same size. Behind it … In front of it a rug on a wooden floor. Keep the camera and framing exactly as they are."}
+```
+
+The edit keeps the camera, the counter's height and the room's scale. Every pose shot the same
+way can then share this place.
+
+## Change the expression in a finished scene
+
+Combine the scene with a neutral face first, get it approved, then edit the expression in:
+
+```json
+{"workflow": "klein9b-realism", "image": "/path/scene.png",
+ "prompt": "Change her expression to fear: eyes wide open, brows raised and pulled together, lips parted. Keep her face and features, her pose, her clothes and everything else as it is."}
+```
+
+In an edit the person is the input, so their features stay while the expression changes. Asking
+for the expression in the combine prompt loses the features, and an expression portrait passed
+as the face reference barely changes anything (references carry the look, not the expression).
+In a full-body shot the face is small, so the expression reads only faintly; frame tighter when it
+matters.
+
 ## Save a pose for later
 
 `save_pose` with:

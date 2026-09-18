@@ -34,10 +34,14 @@ user's approval before the next:
    generate a stand-in figure in that pose (any person, fitted clothes, plain background, whole
    body in frame), get it approved, then `save_pose` it. Show the skeleton and confirm it's the
    pose they mean (recipes.md, "Create a pose").
-4. **Place.** The location, empty. Iterate until approved.
+4. **Place.** The location, empty, **seen from the pose's camera**: the same angle, height and
+   scale, or the body splits along furniture or comes out giant. Best made by editing the pose's
+   stand-in photo: remove the person, turn the set into the place (recipes.md, "A place that
+   fits the pose"). Iterate until approved.
 5. **Combine** in one call on a workflow that takes references: pose, face, outfit, place, in
    that order (recipes.md, "Recurring character").
-6. **Refine** from the user's feedback: same seed, one change at a time.
+6. **Refine** from the user's feedback: same seed, one change at a time. Add an expression
+   last, by editing the finished image (recipes.md, "Change the expression").
 
 Rules for the stages:
 - **Stop after every stage and ask** whether it's right. Don't start the next stage in the same
@@ -105,3 +109,10 @@ Why each holds, with the tests behind it: [references/lessons.md](references/les
    twice the time. Reword the prompt first. Negatives don't fix anatomy.
 8. **Keep what you learn about a workflow in its seed.** When a result is close, reuse the seed
    and change one thing; a new seed is a new image.
+9. **Put a colour on the exact part it belongs to.** "Eyes red from crying" painted the eyes
+   themselves red; "only the eyelids slightly pink, the eyes still grey-blue" didn't. Restate
+   the colours that must not change.
+10. **An edit adds; it doesn't move.** Asked to move a leg, an edit drew a third one. Change
+   limbs by regenerating with a different pose, not by editing.
+11. **Name the action, not the angles.** "She kneels on the counter with one leg" worked where
+   "knee up, shin along the edge" and "shin flat, pointing right" didn't.

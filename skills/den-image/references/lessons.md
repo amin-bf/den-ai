@@ -24,6 +24,12 @@ to do, what happens otherwise, and how it was found.
 - **Describe what's physically possible.** Asking for a chest flat on a counter *and* the head
   held up looking back got neither, over several seeds; letting the cheek rest on the forearms,
   turned to the camera, got both at once.
+- **Nor a limb pointing toward the camera.** A shin lying on a counter, seen from behind, points
+  at the lens: on the map it's a short line going down from the knee, the same as a foot hanging.
+  Every image made from it hung the foot, whatever the prompt said. Shoot the stand-in from an
+  angle where the limb lies across the frame.
+- **A mirrored stand-in gives the other side.** Flipping the photo and saving it again gives a
+  correct skeleton for the mirrored pose; the detector reassigns left and right.
 - **Canny copies clothing.** A canny guide from a photo in leggings turned prompted tailored
   trousers skin-tight. A pose guide or pose reference carries no clothing.
 - **One person per saved pose.** Without a body detector den finds one figure; a photo with no
@@ -40,6 +46,18 @@ to do, what happens otherwise, and how it was found.
 - **A place reference gives the actual place** (its tiles, plants, skyline) when the prompt says
   "on the terrace from image 4"; without a reference you get a plausible place in its style.
 
+## Places
+
+- **The place must be seen from the pose's camera.** A place image with its counter diagonal in
+  the foreground cut the body in two along the counter's edge; the same pose with a counter
+  straight across the frame came out whole. A whole room seen from three metres away, under a
+  skeleton filling the frame, made the figure a giant.
+- **Editing the pose's stand-in into the place fixes both at once**: remove the person, dress the
+  set. It keeps the camera, the furniture's height and the scale exactly.
+- **A fine-tuned workflow's own tendencies can override a reference.** An outfit reference was
+  ignored in one framing and kept in another, on the same workflow and seed. When a reference is
+  ignored, try the framing or a workflow without the fine-tune before rewording.
+
 ## Faces
 
 - **References carry a face's features only when it's large and frontal.** A seated figure seen
@@ -55,6 +73,19 @@ to do, what happens otherwise, and how it was found.
   input and only what's named changes.
 - **So today:** for a recurring face at hard angles, expect the right look, not the exact
   features. A character LoRA would be the fix; den doesn't have one yet.
+- **Expressions go in last, by editing the finished image.** Fear, pain, a scream and crying
+  edited into a portrait all kept her features. The same expressions asked for in a combine
+  prompt, or passed as an expression portrait for reference, don't keep them.
+
+## Prompt wording
+
+- **Colour words land on the nearest noun.** "Eyes red and wet" coloured the eyes themselves;
+  "the eyes still their clear grey-blue, only the eyelids slightly pink" gave crying eyes.
+- **Name the action.** "She kneels on the counter with one leg" got the pose in one round after
+  two rounds of describing the knee and shin failed; the first wording that named angles made the
+  leg stretch out straight instead.
+- **An edit adds; it doesn't move.** "Move her raised leg onto the counter; keep her standing leg
+  and pose" drew a third leg on the counter and kept the old one.
 
 ## Settings
 

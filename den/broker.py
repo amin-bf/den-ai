@@ -146,12 +146,15 @@ class Broker:
                 f"den is releasing the CPU, RAM and GPU the {side} side holds (den unload); "
                 "retry once it's done"
             )
-        # Serving from a loaded side is cheap; loading one on a machine that is already busy is
-        # not, and it's the caller's own test run or build that's usually busy (ADR 0004).
-        if self.loaded != side and (busy := core.too_busy(config)):
+        # Loading onto a machine that is already busy is what's gated, and only against work that
+        # isn't den's own (ADR 0004). A loaded side is den's own: swapping to the other one stops it
+        # first and hands back the RAM and CPU it held, so gating that would refuse the very request
+        # that frees the machine — and leave the caller stuck until the idle timeout.
+        if self.loaded is None and (busy := core.too_busy(config)):
             raise DenError(
-                f"the machine is busy: {busy}. The {side} side isn't loaded and den won't load it "
-                "now — retry when the machine settles, or raise the limits in [limits] of config.toml"
+                f"the machine is busy: {busy}. den has nothing loaded and won't load the {side} "
+                "side now — retry when the machine settles, or raise the limits in [limits] of "
+                "config.toml"
             )
 
     def _batch_open(self, side, config, now):

@@ -23,7 +23,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-from den import core
+from den import core, poses
 from den.core import DenError
 
 WORKFLOWS_DIR = core.ROOT / "workflows"
@@ -231,10 +231,25 @@ def _load_image(graph, node):
 
 
 def parse_reference(ref):
-    """(type, path) of a reference. `pose:/path/photo.png` asks den to draw that map from the
-    photo and pass the map instead; a plain path (type None) goes in as it is."""
+    """(type, value) of a reference. `pose:/path/photo.png` asks den to draw that map from the
+    photo and pass the map instead, `pose:NAME` takes a saved pose's map, and a plain path
+    (type None) goes in as it is."""
     match = re.fullmatch(r"([a-z]+):(.+)", ref)
     return (match[1], match[2]) if match else (None, ref)
+
+
+def saved_pose(value):
+    """The saved pose's name when a reference or guide value is pose:NAME, else None."""
+    if not isinstance(value, str):
+        return None
+    kind, rest = parse_reference(value)
+    return rest if kind == "pose" and poses.is_name(rest) else None
+
+
+def input_path(value):
+    """The file a reference or guide image value reads: a saved pose's map, or the path."""
+    name = saved_pose(value)
+    return poses.get(name)["map"] if name else parse_reference(value)[1]
 
 
 def _draw_pose(graph, pre, hint, extract, draw):
@@ -282,7 +297,10 @@ def _add_references(config, name, wf, graph, refs, save_maps=False):
     loads, types, maps = [], [], []
     for i in range(count):
         kind, path = parse_reference(refs[i])
-        if kind is not None and kind not in drawable:
+        saved = saved_pose(refs[i])
+        if saved:  # a map den drew before: nothing to draw
+            path = poses.get(saved)["map"]
+        elif kind is not None and kind not in drawable:
             raise DenError(
                 f"reference type {kind!r} isn't available; den draws: {', '.join(drawable) or 'none'} "
                 "(or pass a plain path)"
@@ -290,11 +308,11 @@ def _add_references(config, name, wf, graph, refs, save_maps=False):
         load, scale, encode, pos, neg = (str(950 + 5 * i + k) for k in range(5))
         _load_image(graph, load)
         image = [load, 0]
-        if kind is not None:
+        if kind is not None and not saved:
             image = _draw_pose(graph, drawable[kind], image, str(930 + 2 * i), str(931 + 2 * i))
             if save_maps:
                 _keep_map(graph, str(940 + i), image, f"ref{i + 1}-{kind}", maps)
-        types.append(kind)
+        types.append(f"{kind} {saved}" if saved else kind)
         graph[scale] = {
             "class_type": "ImageScaleToTotalPixels",
             "inputs": {"image": image, "upscale_method": "lanczos", "megapixels": ref.get("megapixels", 1), "resolution_steps": 1},
@@ -350,7 +368,14 @@ def _add_control(config, name, wf, graph, request, save_maps=False):
         )
     load = _load_image(graph, "980")
     hint = [load, 0]
-    if kind_type == "canny":  # a photo: den draws the edges
+    guide, saved = request.get("image"), saved_pose(request.get("image"))
+    if saved:  # a map den drew before: nothing to draw
+        if kind_type != "pose":
+            raise DenError(f"a saved pose is a pose map: pass type pose with pose:{saved}, got {kind_type!r}")
+        guide = poses.get(saved)["map"]
+    elif isinstance(guide, str) and parse_reference(guide)[0]:
+        raise DenError(f"a guide image is a path, or pose:NAME for a saved pose; got {guide!r}")
+    elif kind_type == "canny":  # a photo: den draws the edges
         graph["981"] = {"class_type": "Canny", "inputs": {"image": hint, "low_threshold": 0.4, "high_threshold": 0.8}}
         hint = ["981", 0]
     elif kind_type in preprocessors(config):  # a photo: den finds the pose and draws the map
@@ -380,9 +405,11 @@ def _add_control(config, name, wf, graph, request, save_maps=False):
         }
         _rewire(graph, model, ["984", 0], skip={"984"})
     used = {"type": kind_type, "strength": strength}
+    if saved:
+        used["saved"] = saved
     if (start, end) != (0.0, 1.0):  # only when asked for, so the usual summary line stays short
         used.update(start=start, end=end)
-    return used, [(load, request.get("image"))], maps
+    return used, [(load, guide)], maps
 
 
 def preprocessors(config):
@@ -394,6 +421,79 @@ def preprocessors(config):
         for kind, pre in settings(config).get("preprocessors", {}).items()
         if any(p.endswith("/" + pre["file"]) for p in installed)
     }
+
+
+def pose_graph(config):
+    """(graph, the photo's LoadImage node): draw a photo's pose and hand the map back, to save it."""
+    pre = preprocessors(config).get("pose")
+    if not pre:
+        raise DenError(
+            "den can't draw poses: the pose preprocessor isn't downloaded "
+            "(./setup.sh fetches it; see [image.preprocessors] in config.toml)"
+        )
+    graph = {}
+    _load_image(graph, "1")
+    graph["4"] = {"class_type": "PreviewImage", "inputs": {"images": _draw_pose(graph, pre, ["1", 0], "2", "3")}}
+    return graph, "1"
+
+
+# For Claude's MCP tools and pi's: the pose library's two tools, and the fixed pointer to them
+# in the image tool. The library's contents never go into a tool's text, which would change on
+# every save and make pi reread its conversation (ADR 0003).
+POSE_LIBRARY_NOTE = (
+    "den keeps a pose library: call list_poses once for its table of contents (name, description, "
+    "aspect) and keep it, then pass a saved pose as pose:NAME — as a reference, or as a control "
+    "image with type pose. Give the image the pose's aspect (size), or its framing shifts, and "
+    "say in the prompt which way the body faces: a skeleton doesn't show front from back."
+)
+
+
+def pose_tool_specs(config):
+    """{tool name: {description, parameters}} for list_poses and, when den can draw poses, save_pose."""
+    specs = {
+        "list_poses": {
+            "description": (
+                "The pose library's table of contents: each saved pose's name, one-line description "
+                "and aspect. Call it once per conversation and keep the list; save_pose returns an "
+                "updated one. Use a saved pose in generate_image as pose:NAME."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        }
+    }
+    if "pose" in preprocessors(config):
+        specs["save_pose"] = {
+            "description": (
+                "Draw the pose of the person in a photo as a skeleton and keep it in den's pose "
+                "library under a name, so later images can take that pose (pose:NAME) without the "
+                "photo. One person per pose: den finds one figure, and refuses a photo with none. "
+                "Name the pose by what it is, lower-case words joined by hyphens "
+                "(e.g. standing-look-back-over-shoulder-hand-on-hip), and describe the pose and the "
+                "framing in one line, since that's what the name will be picked by later. The "
+                "result shows the skeleton: check that it has every limb before relying on it. It "
+                "uses the GPU for a few seconds, like an image."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image": {"type": "string", "description": "Absolute path of the photo."},
+                    "name": {
+                        "type": "string",
+                        "description": f"Lower-case words joined by hyphens, at most {poses.NAME_MAX} characters.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "One line: the pose and the framing, e.g. \"full body, three-quarter from "
+                        "behind, looking back over the shoulder, one hand on the hip\".",
+                    },
+                    "replace": {
+                        "type": "boolean",
+                        "description": "Overwrite a saved pose of the same name; without it, a taken name is refused.",
+                    },
+                },
+                "required": ["image", "name", "description"],
+            },
+        }
+    return specs
 
 
 def upscalers(config):
@@ -570,7 +670,8 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False,
 def control_summary(control):
     """A control's type and strength, plus its window when a request narrowed it."""
     window = f" {control['start']:g}-{control['end']:g}" if "start" in control else ""
-    return f"{control['type']} {control['strength']}{window}"
+    saved = f" {control['saved']}" if "saved" in control else ""
+    return f"{control['type']}{saved} {control['strength']}{window}"
 
 
 def summary_parts(params):
@@ -720,6 +821,8 @@ def request_spec(config, flows, default):
     has_references = any("references" in wf or "references" in (wf.get("edit") or {}) for wf in flows.values())
     has_strength = any((wf.get("edit") or {}).get("blend") for wf in flows.values())
     reference_types = list(preprocessors(config)) if has_references else []
+    # A saved pose goes in as a reference or a pose guide; either is enough to point to the library.
+    takes_poses = has_references or "pose" in control_types
     # Maps den draws: a typed reference, or a control guide it draws from a photo (canny, pose…).
     draws_maps = bool(reference_types) or any(
         kind == "canny" or kind in preprocessors(config) for kind in control_types
@@ -751,6 +854,7 @@ def request_spec(config, flows, default):
         "The image is saved in a dated folder on this machine; the result gives its path, seed, "
         "workflow and every setting used. Pass `out` to also copy it somewhere, e.g. into a "
         "project."
+        + (f"\n{POSE_LIBRARY_NOTE}" if takes_poses else "")
     )
     parameters = {
         "type": "object",
@@ -841,6 +945,7 @@ def request_spec(config, flows, default):
                                 if reference_types
                                 else ""
                             )
+                            + " pose:NAME passes a saved pose's skeleton (list_poses)."
                         ),
                     }
                 }
@@ -881,7 +986,10 @@ def request_spec(config, flows, default):
                     "control": {
                         "type": "object",
                         "properties": {
-                            "image": {"type": "string", "description": "Absolute path of the guide image."},
+                            "image": {
+                                "type": "string",
+                                "description": "Absolute path of the guide image, or pose:NAME for a saved pose (type pose).",
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": sorted(control_types),

@@ -3,7 +3,8 @@
 Two sides share the GPU, one loaded at a time: the LLM (Ollama) and image generation
 (ComfyUI, a systemd user service the broker starts and stops). LLM requests (Ollama's native
 /api/… and OpenAI-style /v1/…) are passed through to Ollama, streamed as they arrive. Image
-requests (POST /image) fill in a workflow, run it on ComfyUI and save the result.
+requests (POST /image) fill in a workflow, run it on ComfyUI and save the result; POST /pose
+draws a photo's pose on ComfyUI and keeps it in the pose library.
 
 A request for the side that isn't loaded waits for a swap: the loaded side finishes its running
 requests, then the broker unloads it and loads the other. While the other side waits, the
@@ -20,8 +21,8 @@ runs, because whoever asked for the machine back is about to use it, and afterwa
 request loads its side again. The broker re-reads config.toml and state.json on every request;
 only the listen address needs a restart.
 
-Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"} and
-POST /image (all but /status stream NDJSON progress lines).
+Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"},
+POST /image and POST /pose (all but /status stream NDJSON progress lines).
 """
 
 import http.client
@@ -38,7 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from den import core, image
+from den import core, image, poses
 from den.core import DenError, Ollama
 from den.image import ComfyUI
 
@@ -676,6 +677,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._unload(json.loads(self._read_body() or b"{}"))
             elif path == "/image" and self.command == "POST":
                 self._image(json.loads(self._read_body() or b"{}"))
+            elif path == "/pose" and self.command == "POST":
+                self._pose(json.loads(self._read_body() or b"{}"))
             else:
                 self._proxy(path)
         except DenError as e:
@@ -733,9 +736,12 @@ class Handler(BaseHTTPRequestHandler):
         Streams progress lines (waiting, unloading, starting, generating, stopping) and ends
         with {"result": {...}} or {"error": "..."}. Paths must be absolute.
         """
+        self._stream_request(self._generate, body)
+
+    def _stream_request(self, run, body):
         emit, started = self._ndjson()
         try:
-            self._generate(body, emit)
+            run(body, emit)
         except DenError as e:
             if not started():
                 raise
@@ -744,6 +750,18 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             return
         self.wfile.write(b"0\r\n\r\n")
+
+    def _checker(self, info, comfy, prompt_id):
+        """What ComfyUI's wait calls between polls: stop on a cancel or a caller that hung up."""
+
+        def check():
+            if info.get("cancelled"):
+                raise DenError(info["cancelled"])
+            if self._caller_gone():
+                comfy.cancel(prompt_id)
+                raise ConnectionResetError("the caller hung up while generating")
+
+        return check
 
     def _generate(self, body, emit):
         config = core.load_config()
@@ -754,8 +772,10 @@ class Handler(BaseHTTPRequestHandler):
         if not name:
             raise DenError("no workflow given and no [image] default_workflow in config.toml")
         references = body.get("references") or []
-        reference_paths = [image.parse_reference(r)[1] for r in references]
-        control_image = (body.get("control") or {}).get("image")
+        # A saved pose (pose:NAME) reads its map; an unknown name fails here, before any wait.
+        reference_paths = [image.input_path(r) for r in references]
+        control = body.get("control") or {}
+        control_image = image.input_path(control["image"]) if control.get("image") else None
         paths = [("image", body.get("image")), ("out", body.get("out")), ("control image", control_image)]
         for key, path in paths + [("references", r) for r in reference_paths]:
             if path and not Path(path).is_absolute():
@@ -784,15 +804,7 @@ class Handler(BaseHTTPRequestHandler):
             began = time.time()
             prompt_id = comfy.submit(graph)
             info["cancel"] = lambda: comfy.cancel(prompt_id)
-
-            def check():
-                if info.get("cancelled"):
-                    raise DenError(info["cancelled"])
-                if self._caller_gone():
-                    comfy.cancel(prompt_id)
-                    raise ConnectionResetError("the caller hung up while generating")
-
-            outputs, drawn = image.split_outputs(comfy.wait(prompt_id, check), map_nodes)
+            outputs, drawn = image.split_outputs(comfy.wait(prompt_id, self._checker(info, comfy, prompt_id)), map_nodes)
             paths, copies = image.save([comfy.view(o) for o in outputs], prompt, body.get("out"))
             maps = [image.save_map(paths[0], label, comfy.view(img)) for label, img in drawn]
             seconds = round(time.time() - began, 1)
@@ -822,7 +834,7 @@ class Handler(BaseHTTPRequestHandler):
                 "negative": body.get("negative"),
                 "image": body.get("image"),
                 "references": references or None,
-                "control_image": control_image,
+                "control_image": control.get("image"),
                 "paths": result["paths"],
                 "copies": result["copies"],
                 "maps": result.get("maps"),
@@ -833,6 +845,62 @@ class Handler(BaseHTTPRequestHandler):
         log(f"#{req_id} {info['caller']} POST /image {name} seed {params['seed']} -> {paths[0]} in {seconds}s")
         if body.get("switch_back"):
             result["switched_back"] = self.broker.switch_back(config, emit)
+        emit({"result": result})
+
+    def _pose(self, body):
+        """POST /pose {image, name, description, replace?, preview?}: draw the photo's pose and
+        keep it in the pose library. Streams progress lines like /image and ends with
+        {"result": {name, description, width, height, aspect, map, source, toc, seconds,
+        waited_s, preview?}} or {"error": "..."}."""
+        self._stream_request(self._save_pose, body)
+
+    def _save_pose(self, body, emit):
+        config = core.load_config()
+        settings = image.settings(config)
+        if not settings:
+            raise DenError("image generation is not configured ([image] in config.toml)")
+        name, description, photo = body.get("name"), body.get("description"), body.get("image")
+        replace = bool(body.get("replace"))
+        # Refuse a bad name, a taken one or a missing photo before waiting for the GPU.
+        poses.check_new(name, description, replace)
+        if not photo or not Path(photo).is_absolute():
+            raise DenError(f"image must be an absolute path, got {photo!r}")
+        if not Path(photo).is_file():
+            raise DenError(f"input image not found: {photo}")
+        graph, load = image.pose_graph(config)
+
+        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/pose", "model": "pose"}
+        req_id = self.broker.admit(info, emit, self._caller_gone)
+        comfy = ComfyUI(settings["base_url"])
+        try:
+            image.fill_uploads(graph, [(load, photo)], [comfy.upload(photo)])
+            emit({"drawing": {"name": name}})
+            began = time.time()
+            prompt_id = comfy.submit(graph)
+            info["cancel"] = lambda: comfy.cancel(prompt_id)
+            drawn = comfy.wait(prompt_id, self._checker(info, comfy, prompt_id))
+            if not drawn:
+                raise DenError("comfyui finished without a pose map")
+            data = comfy.view(drawn[0])
+            if poses.is_blank(data):
+                raise DenError("no person found in the photo: the pose map is blank, so nothing was saved")
+            entry = poses.save(name, description, photo, data, replace)
+            seconds = round(time.time() - began, 1)
+            shown = image.preview(comfy, drawn[0]) if body.get("preview") else None
+        except (DenError, ConnectionResetError, BrokenPipeError) as e:
+            log(f"#{req_id} {info['caller']} POST /pose {name} -> failed: {e}")
+            raise
+        finally:
+            self.broker.finish(req_id)
+        log(f"#{req_id} {info['caller']} POST /pose {name} -> {entry['map']} in {seconds}s")
+        result = {
+            **entry,
+            "aspect": poses.aspect(entry["width"], entry["height"]),
+            "toc": poses.toc(),
+            "seconds": seconds,
+            "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
+            **({"preview": shown} if shown else {}),
+        }
         emit({"result": result})
 
     def _proxy(self, path):

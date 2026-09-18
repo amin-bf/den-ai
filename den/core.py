@@ -340,6 +340,10 @@ class BrokerClient(Ollama):
         """Progress lines of one image request; the last one carries "result"."""
         return self._stream("/image", request)
 
+    def save_pose(self, **request):
+        """Progress lines of drawing and saving a pose; the last one carries "result"."""
+        return self._stream("/pose", request)
+
 
 def broker(config, caller):
     return BrokerClient(broker_url(config), caller)

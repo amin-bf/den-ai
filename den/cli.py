@@ -7,7 +7,7 @@ import sys
 import time
 from pathlib import Path
 
-from den import core, image
+from den import core, image, poses
 from den.core import DenError
 
 
@@ -190,7 +190,10 @@ def _lora_arg(value):
 
 
 def _reference_arg(value):
-    """PATH or TYPE:PATH (e.g. pose:photo.png), with the path made absolute and the type kept."""
+    """PATH, TYPE:PATH (e.g. pose:photo.png) with the path made absolute and the type kept, or
+    pose:NAME for a saved pose, as it is."""
+    if image.saved_pose(value):
+        return value
     kind, path = image.parse_reference(value)
     path = str(Path(path).expanduser().resolve())
     return f"{kind}:{path}" if kind else path
@@ -201,7 +204,8 @@ def _control_arg(args):
         return None
     if not args.control_type:
         raise DenError("--control needs --control-type (den image lists each workflow's types)")
-    control = {"image": str(args.control.expanduser().resolve()), "type": args.control_type}
+    guide = args.control if image.saved_pose(args.control) else str(Path(args.control).expanduser().resolve())
+    control = {"image": guide, "type": args.control_type}
     if args.control_strength is not None:
         control["strength"] = args.control_strength
     if args.control_start is not None:
@@ -221,6 +225,50 @@ def _upscale_arg(value):
         raise DenError(f"--upscale takes NAME or NAME:FACTOR, got {value!r}") from None
 
 
+def cmd_pose(args):
+    command = args.pose_command or "list"
+    if command == "list":
+        entries = poses.entries()
+        if args.json:
+            print(json.dumps([{**e, "aspect": poses.aspect(e["width"], e["height"])} for e in entries], indent=2))
+        elif entries:
+            print(poses.toc())
+        else:
+            print(f"no saved poses yet (in {poses.POSES_DIR}); save one with: den pose save PHOTO NAME -d '…'")
+        return
+    if command == "rm":
+        poses.remove(args.name)
+        print(f"deleted saved pose {args.name}")
+        return
+    if command == "mv":
+        entry = poses.rename(args.old, args.new, args.replace)
+        print(f"renamed {args.old} to {entry['name']}")
+        return
+    config, _ = _load()
+    request = {
+        "image": str(args.photo.expanduser().resolve()),
+        "name": args.name,
+        "description": args.description,
+        "replace": args.replace,
+    }
+    try:
+        for msg in core.broker(config, "cli").save_pose(**request):
+            if "waiting" in msg:
+                print(f"waiting: {msg['waiting']['reason']}", flush=True)
+            elif _print_swap_step(msg):
+                pass
+            elif "drawing" in msg:
+                print(f"drawing the pose for {msg['drawing']['name']} ...", flush=True)
+            elif "result" in msg:
+                r = msg["result"]
+                print(f"saved pose {r['name']} ({r['aspect']}, {r['width']}x{r['height']}) in {r['seconds']}s")
+                print(r["map"])
+                print(r["source"])
+    except KeyboardInterrupt:
+        print("\npose request cancelled", file=sys.stderr)
+        return 130
+
+
 def cmd_image(args):
     config, state = _load()
     if args.json:
@@ -237,7 +285,10 @@ def cmd_image(args):
             "unavailable": unavailable,
             "default": default,
         }
-        print(json.dumps({**listing, "workflows": list(flows), "edits": [n for n, wf in flows.items() if "edit" in wf], **spec}))
+        # The pose tools and the saved names (for completions) sit apart from the image tool's
+        # description and schema, so a new saved pose doesn't change that tool (ADR 0003).
+        extra = {"poses": poses.names(), "pose_tools": image.pose_tool_specs(config)}
+        print(json.dumps({**listing, "workflows": list(flows), "edits": [n for n, wf in flows.items() if "edit" in wf], **spec, **extra}))
         return
     if args.prompt is None:
         default = image.settings(config).get("default_workflow")
@@ -477,11 +528,11 @@ def main(argv=None):
     p.add_argument("--scheduler", help="ComfyUI scheduler name, e.g. simple, karras")
     p.add_argument("--lora", action="append", default=[], metavar="NAME[:STRENGTH]", help="add a LoRA the workflow offers; repeatable")
     p.add_argument(
-        "--reference", action="append", default=[], metavar="[TYPE:]PATH",
+        "--reference", action="append", default=[], metavar="[TYPE:]PATH|pose:NAME",
         help="reference image, for workflows that take them; repeatable. pose:PATH draws the "
-        "photo's pose as a skeleton and passes that instead",
+        "photo's pose as a skeleton and passes that instead; pose:NAME takes a saved pose",
     )
-    p.add_argument("--control", type=Path, help="ControlNet guide image, for workflows that list control")
+    p.add_argument("--control", metavar="PATH|pose:NAME", help="ControlNet guide image, or a saved pose, for workflows that list control")
     p.add_argument("--control-type", help="what the guide image is: canny (a photo), pose, depth, … (den image lists them)")
     p.add_argument("--control-strength", type=float, help="how strongly the guide image steers (default: the workflow's)")
     p.add_argument("--control-start", type=float, help="fraction of the sampling where the guide starts acting (default 0)")
@@ -490,6 +541,23 @@ def main(argv=None):
     p.add_argument("--strength", type=float, metavar="0-1", help="with --image: how much of the edit to keep, blended back over the input")
     p.add_argument("--save-maps", action="store_true", help="also save the maps den draws (pose skeleton, canny edges) beside the image")
     p.set_defaults(func=cmd_image)
+
+    p = sub.add_parser("pose", help="the pose library: list, save a photo's pose, rename or delete saved poses")
+    pose_sub = p.add_subparsers(dest="pose_command")
+    p.set_defaults(func=cmd_pose, json=False)
+    q = pose_sub.add_parser("list", help="the saved poses (default)")
+    q.add_argument("--json", action="store_true", help="print them as JSON")
+    q = pose_sub.add_parser("save", help="draw the pose in a photo and save it under a name (uses the GPU briefly)")
+    q.add_argument("photo", type=Path)
+    q.add_argument("name", help="lower-case words joined by hyphens, e.g. look-back-hand-on-hip")
+    q.add_argument("-d", "--description", required=True, help="one line: the pose and the framing")
+    q.add_argument("--replace", action="store_true", help="overwrite a saved pose of the same name")
+    q = pose_sub.add_parser("rm", help="delete a saved pose (its map, photo and description)")
+    q.add_argument("name")
+    q = pose_sub.add_parser("mv", help="rename a saved pose")
+    q.add_argument("old")
+    q.add_argument("new")
+    q.add_argument("--replace", action="store_true", help="overwrite a saved pose that has the new name")
 
     p = sub.add_parser("log", help="review delegations by Claude: per-task stats, verdicts and problem notes")
     p.add_argument("--notes", type=int, default=10, help="how many recent problem notes to show")

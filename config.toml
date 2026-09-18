@@ -268,6 +268,16 @@ cfg = { input = "5.cfg", recommended = [3, 6], allowed = [1, 12] }
 sampler = { input = "5.sampler_name", recommended = ["dpmpp_2m", "dpmpp_2m_sde"] }
 scheduler = { input = "5.scheduler", recommended = ["karras"] }
 
+# Guide-image preprocessors: a control type den can derive from an ordinary photo itself,
+# instead of the caller bringing a ready-made map. `canny` is built into ComfyUI and always
+# works; the ones here need a model file, and a workflow offers the type as "from a photo"
+# only once that file is downloaded — otherwise the type still takes a ready-made map.
+#   file         the file name in models/checkpoints
+#   description  what the map is good for, for whoever picks a guide type
+[image.preprocessors.pose]
+file = "sdpose_wholebody_fp16.safetensors"
+description = "SDPose wholebody: body, hands, feet and face keypoints drawn as an OpenPose skeleton."
+
 # Upscale models a request may run the finished image through (upscale = {name, factor}), with
 # any workflow, once the file is in ComfyUI's models/upscale_models folder.
 #   file         the file name in models/upscale_models

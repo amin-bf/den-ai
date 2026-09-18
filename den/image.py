@@ -301,6 +301,22 @@ def _add_control(config, name, wf, graph, request):
     if kind_type == "canny":  # a photo: den draws the edges
         graph["981"] = {"class_type": "Canny", "inputs": {"image": hint, "low_threshold": 0.4, "high_threshold": 0.8}}
         hint = ["981", 0]
+    elif kind_type in preprocessors(config):  # a photo: den finds the pose and draws the map
+        pre = preprocessors(config)[kind_type]
+        graph["985"] = {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": pre["file"]}}
+        graph["986"] = {
+            "class_type": "SDPoseKeypointExtractor",
+            "inputs": {"model": ["985", 0], "vae": ["985", 2], "image": hint, "batch_size": 16},
+        }
+        graph["987"] = {
+            "class_type": "SDPoseDrawKeypoints",
+            "inputs": {
+                "keypoints": ["986", 0], "draw_body": True, "draw_hands": True, "draw_face": True,
+                "draw_feet": True, "draw_head": True, "stick_width": 4, "face_point_size": 2,
+                "score_threshold": 0.5,
+            },
+        }
+        hint = ["987", 0]
     if kind == "controlnet":
         graph["982"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": control["file"]}}
         graph["983"] = {"class_type": "SetUnionControlNetType", "inputs": {"control_net": ["982", 0], "type": kind_types[kind_type]}}
@@ -326,6 +342,17 @@ def _add_control(config, name, wf, graph, request):
     if (start, end) != (0.0, 1.0):  # only when asked for, so the usual summary line stays short
         used.update(start=start, end=end)
     return used, [(load, request.get("image"))]
+
+
+def preprocessors(config):
+    """{type: preprocessor config} whose model file is downloaded — the guide types den can
+    draw itself from a photo, on top of the built-in canny."""
+    installed = installed_models()
+    return {
+        kind: pre
+        for kind, pre in settings(config).get("preprocessors", {}).items()
+        if any(p.endswith("/" + pre["file"]) for p in installed)
+    }
 
 
 def upscalers(config):
@@ -584,9 +611,15 @@ def describe_options(config, name, wf):
     if control:
         strength = control.get("strength", {})
         rec, allowed = strength.get("recommended"), strength.get("allowed")
+        offered = control.get("types", CONTROL_TYPES[control["kind"]])
+        # canny is built into ComfyUI; the rest den can only draw where its preprocessor is downloaded.
+        drawn = [kind for kind in offered if kind == "canny" or kind in preprocessors(config)]
+        ready = [kind for kind in offered if kind not in drawn]
+        how = f"den draws {', '.join(drawn)} from an ordinary photo" if drawn else ""
+        how += ("; " if how and ready else "") + (f"{', '.join(ready)} take a ready-made map" if ready else "")
         lines.append(
-            f"control: guide image types {', '.join(control.get('types', CONTROL_TYPES[control['kind']]))}"
-            f" (canny takes a photo and den draws the edges; the others take a ready-made map);"
+            f"control: guide image types {', '.join(offered)}"
+            f" ({how});"
             f" strength default {strength.get('default', 1.0)}"
             + (f", recommended {rec[0]}–{rec[1]}" if rec else "")
             + (f", allowed {allowed[0]}–{allowed[1]}" if allowed else "")

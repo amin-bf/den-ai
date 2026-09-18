@@ -66,11 +66,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   (`den model`), or a workflow's model files are there. An unavailable side answers with what
   is missing, never with silence. `llm`, `image` and `both` are gone; an old `state.json`
   reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
-- **A side that isn't loaded isn't loaded onto a busy machine.** Above `[limits]`
+- **A side isn't loaded onto a machine busy with work that isn't den's own.** Above `[limits]`
   `max_load_per_cpu` (1-minute load average) or below `min_free_ram_gb` (`MemAvailable`), a
-  request whose side would have to load is refused with the numbers and the limit; a side that
-  is loaded keeps serving, so den never gates out its own generation load. The tools stay
-  listed and the call fails, rather than the tool list flapping with the load
+  request whose side would have to load is refused with the numbers and the limit — but only
+  while den holds nothing. A side that is loaded keeps serving, and a swap to the other side
+  goes ahead and frees it first, so den never gates out its own load: keying the gate on the
+  requested side instead deadlocked it against its own ComfyUI until the idle timeout. The tools
+  stay listed and the call fails, rather than the tool list flapping with the load
   ([ADR 0004](docs/adr/0004-releasing-the-machine.md)).
 - **The mode is only a kill switch,** `on | off`, enforced by the broker. `den mode off` goes
   through the broker: it refuses new requests, waits for in-flight ones (`--now` cancels them),
@@ -92,7 +94,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   ComfyUI's models folder. Add one as `workflows/<name>.json` (API format) plus
   `[image.workflows.<name>]`. A model that can edit gets an edit variant too
   (`<name>-edit.json`, `[image.workflows.<name>.edit]`). Descriptions say style and prompt
-  format only.
+  format only. An edit takes `strength` too: it blends the result back over its input, because a
+  klein edit re-renders the whole frame and repaints colours the instruction never mentioned.
+- **A guide image can be an ordinary photo where den has the preprocessor.** `canny` is built
+  into ComfyUI; the rest are `[image.preprocessors]` entries naming a model file, and a type is
+  offered as drawn from a photo once that file is downloaded — otherwise it still takes a
+  ready-made map. Prefer `pose` over `canny` for a person: canny carries the guide's clothing
+  outline along with the pose ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **An image result is paths, plus a small copy when asked for.** `POST /image` takes
   `preview`, and only Claude's MCP tool sets it: ComfyUI re-encodes the output as a small JPEG
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and

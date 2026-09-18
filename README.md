@@ -338,6 +338,20 @@ Models tested on a 12 GB card (warm, ~1024² per image):
 
 Each one fills the card, so only one model runs at a time.
 
+## Skills
+
+`skills/` holds den's own agent skills, in the [Agent Skills](https://agentskills.io) format that
+Claude Code and pi both read. `setup.sh` links each one into `~/.claude/skills/` and
+`~/.agents/skills/`, so they're available in every project, like den's tools.
+
+| Skill | What it teaches |
+|---|---|
+| `den-image` | Using den's image tools well: the working loop (defaults, one change per step, same seed), which recipe fits which goal (edit, references, pose reference, the pose library, a recurring character in one call), and the traps found in tests (a skeleton shows neither facing nor which limb is in front, faces at hard angles, negative prompts on distilled models) |
+
+A skill carries strategy; the tool descriptions carry the options, which change as models are
+added. An agent reads a skill's `SKILL.md` when a task matches, and its `references/` only when
+it needs the detail. In pi, `/skill:den-image` loads it by hand.
+
 ## `den` cheatsheet
 
 Changes take effect immediately. The broker, the CLI and the MCP server re-read

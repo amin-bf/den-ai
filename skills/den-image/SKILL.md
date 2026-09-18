@@ -1,6 +1,6 @@
 ---
 name: den-image
-description: Make and refine images with den's local image tools (generate_image, save_pose, list_poses) — single images, edits, and multi-step work such as a recurring character in chosen poses, outfits and places. Use when asked to create or edit an image, iterate on one, keep a person consistent across images, or put someone into a pose taken from a photo.
+description: Make and refine images with den's local image tools (generate_image, save_pose, list_poses) — single images, edits, and multi-step work such as a recurring character in chosen poses, outfits and places, built in stages the user approves. Use when asked to create or edit an image, iterate on one, keep a person consistent across images, or put someone into a pose taken from a photo.
 ---
 
 # den-image: images with den, one call or many
@@ -19,6 +19,33 @@ can't carry: how to reach a goal in one call or several, and the traps that were
   under a name, used later as `pose:NAME`. Call `list_poses` once per conversation and keep the
   list.
 - **`release_resources`** (Claude): hand the machine back when the image work is done.
+
+## A person, an outfit, a pose and a place: build it in stages, with the user
+
+When the request is a specific person (a named character, "her", "this person") in a given
+outfit, pose or place, **don't write one long prompt and generate once.** A description in words
+gives a different person every time. Build each part as its own image, show it, and wait for the
+user's approval before the next:
+
+1. **Face.** A portrait of the person: frontal, neutral, large, plain background. Iterate with
+   the user until they say it's right. This image is now the person.
+2. **Outfit.** The clothing alone (a flat lay or on a plain mannequin). Iterate until approved.
+3. **Pose.** From a photo the user gives (`save_pose`), or one from `list_poses`. Show the
+   skeleton and confirm it's the pose they mean.
+4. **Place.** The location, empty. Iterate until approved.
+5. **Combine** in one call on a workflow that takes references: pose, face, outfit, place, in
+   that order (recipes.md, "Recurring character").
+6. **Refine** from the user's feedback: same seed, one change at a time.
+
+Rules for the stages:
+- **Stop after every stage and ask** whether it's right. Don't start the next stage in the same
+  turn, and don't combine anything the user hasn't approved.
+- **Keep the approved image paths** and say them back ("face: /path/…"), so later steps and later
+  turns use exactly those files.
+- **Skip a stage only when the user already has that part**: an approved image from earlier, a
+  saved pose, a photo they pass.
+- **Use a workflow that takes references** for the combine step. Workflows without them can only
+  describe the person in words.
 
 ## The working loop
 
@@ -46,7 +73,8 @@ and in pi write your reply first and call the tool last.
 | Light, colour or grade only | edit with `strength` 0.3–0.5 | 1 |
 | Carry a person, garment or place into a new image, pose free | **references** | 1 |
 | A person in a given pose or framing | **pose reference** (`pose:` photo or saved pose) | 1 |
-| Recurring character: person + outfit + place + pose | **four references** | 1 |
+| Recurring character, parts not made yet | **stages with the user** (above) | 4–5 + 1 |
+| Recurring character, parts approved | **four references** | 1 |
 | The same person at another angle or expression, as a portrait | **edit the canonical portrait** | 1 each |
 | A pose you'll use again | `save_pose` once, then `pose:NAME` | 1 + uses |
 

@@ -56,7 +56,8 @@ The skeleton goes first, so it's image 1:
 
 ## Recurring character: person + outfit + place + pose, one call
 
-The pose reference plus up to three more references (klein's limit is 4):
+Once the face, outfit and place images are approved and the pose is chosen (SKILL.md, "build it in
+stages"): the pose reference plus up to three more references (klein's limit is 4).
 
 ```json
 {"workflow": "klein9b-realism", "size": "832x1216",

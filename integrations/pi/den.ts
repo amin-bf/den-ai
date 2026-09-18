@@ -67,6 +67,8 @@ type ImageResult = {
   summary?: string[];
   paths: string[];
   copies: string[];
+  /** The maps den drew from photos (a pose skeleton, canny edges), when save_maps asked for them. */
+  maps?: string[];
   seconds: number;
   waited_s: number;
   [key: string]: unknown;
@@ -221,6 +223,7 @@ function summary(r: ImageResult): string {
 
 function resultText(g: Generation): string {
   const lines = [...g.result.paths.map((p) => `saved: ${p}`), ...g.result.copies.map((p) => `copied to: ${p}`)];
+  lines.push(...(g.result.maps ?? []).map((p) => `map: ${p}`));
   lines.push(`[${summary(g.result)}]`);
   return lines.join("\n");
 }
@@ -269,6 +272,15 @@ function generations(ctx: ExtensionContext): Generation[] {
   return found;
 }
 
+/** A reference as den takes it: PATH or TYPE:PATH (pose:photo.png), the path made absolute. */
+function referencePath(value: string, cwd: string, last?: () => string | undefined): string {
+  const match = /^([a-z]+):(.+)$/.exec(value.trim());
+  const [kind, raw] = match ? [match[1], match[2]] : [undefined, value];
+  const path = raw.trim() === "last" && last ? last() : absolutePath(raw, cwd);
+  if (!path) throw new Error("reference last: no image was generated in this session yet");
+  return kind ? `${kind}:${path}` : path;
+}
+
 function lastImage(ctx: ExtensionContext): string | undefined {
   return generations(ctx).at(-1)?.result.paths[0];
 }
@@ -285,7 +297,7 @@ function toBrokerRequest(params: Record<string, any>, ctx: ExtensionContext): Re
     }
   }
   if (typeof request.out === "string") request.out = absolutePath(request.out, ctx.cwd);
-  if (Array.isArray(request.references)) request.references = request.references.map((p: string) => absolutePath(p, ctx.cwd));
+  if (Array.isArray(request.references)) request.references = request.references.map((p: string) => referencePath(p, ctx.cwd));
   if (request.control?.image) request.control = { ...request.control, image: absolutePath(request.control.image, ctx.cwd) };
   delete request.switch_back; // pi's next step is always an LLM request, which swaps back anyway
   return request;
@@ -409,7 +421,7 @@ class ImageView implements Component {
 function generationView(g: Generation, theme: Theme, views: Map<string, ImageView>, showImage = true): Component {
   const box = new Container();
   box.addChild(new Text(theme.fg("muted", summary(g.result)), 0, 0));
-  for (const path of [...g.result.paths, ...g.result.copies]) {
+  for (const path of [...g.result.paths, ...g.result.copies, ...(g.result.maps ?? [])]) {
     if (showImage && g.result.paths.includes(path)) {
       let view = views.get(path);
       if (!view) {
@@ -581,8 +593,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("imagine", {
     description:
       "Generate an image from the conversation: /imagine [hint] [--yes] [--workflow NAME] " +
-      "[--image [PATH]] [--negative TEXT] [--reference PATH] [--seed N] [--size WxH] [--lora NAME[:STRENGTH]] " +
-      "[--strength 0-1] [--control PATH --control-type TYPE] [--upscale NAME[:FACTOR]] — quote values with spaces",
+      "[--image [PATH]] [--negative TEXT] [--reference [pose:]PATH] [--seed N] [--size WxH] [--lora NAME[:STRENGTH]] " +
+      "[--strength 0-1] [--control PATH --control-type TYPE] [--upscale NAME[:FACTOR]] [--save-maps] — quote values with spaces",
     getArgumentCompletions(prefix: string) {
       const words = prefix.split(/\s+/);
       const current = words.at(-1) ?? "";
@@ -713,7 +725,8 @@ export default function (pi: ExtensionAPI) {
     const singular: Record<string, string> = { references: "reference", loras: "lora" };
     const own = Object.keys(properties).filter((name) => name !== "prompt" && name !== "switch_back" && name !== "control");
     const control = ["--control", "--control-type", "--control-strength", "--control-start", "--control-end"];
-    return ["--yes", ...own.map((name) => `--${singular[name] ?? name}`), ...("control" in properties ? control : [])].sort();
+    const flag = (name: string) => `--${singular[name] ?? name.replace(/_/g, "-")}`;
+    return ["--yes", ...own.map(flag), ...("control" in properties ? control : [])].sort();
   }
 
   /**
@@ -776,9 +789,7 @@ export default function (pi: ExtensionAPI) {
       }
       if (name === "reference" || name === "references") {
         const raw = value("reference", words[++i]);
-        const path = raw === "last" ? lastImage(ctx) : absolutePath(raw, ctx.cwd);
-        if (!path) throw new Error("--reference last: no image was generated in this session yet");
-        (options.extras.references ??= []).push(path);
+        (options.extras.references ??= []).push(referencePath(raw, ctx.cwd, () => lastImage(ctx)));
         continue;
       }
       if (name === "lora" || name === "loras") {
@@ -801,11 +812,14 @@ export default function (pi: ExtensionAPI) {
         control[name.slice("control-".length)] = number(name, words[++i]);
         continue;
       }
-      const schema = properties[name];
+      // den's names use underscores (save_maps); the flags read better with hyphens (--save-maps).
+      const key = name in properties ? name : name.replace(/-/g, "_");
+      const schema = properties[key];
       if (!schema) throw new Error(`unknown option --${name}; /imagine takes: ${imagineFlags(properties).join(" ")}`);
-      if (schema.type === "number" || schema.type === "integer") options.extras[name] = number(name, words[++i]);
-      else if (schema.type === "array") (options.extras[name] ??= []).push(value(name, words[++i]));
-      else options.extras[name] = value(name, words[++i]);
+      if (schema.type === "boolean") options.extras[key] = true;
+      else if (schema.type === "number" || schema.type === "integer") options.extras[key] = number(name, words[++i]);
+      else if (schema.type === "array") (options.extras[key] ??= []).push(value(name, words[++i]));
+      else options.extras[key] = value(name, words[++i]);
     }
 
     if (control.image || control.type) {

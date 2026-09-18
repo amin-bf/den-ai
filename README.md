@@ -346,7 +346,7 @@ Claude Code and pi both read. `setup.sh` links each one into `~/.claude/skills/`
 
 | Skill | What it teaches |
 |---|---|
-| `den-image` | Using den's image tools well: the working loop (defaults, one change per step, same seed), which recipe fits which goal (edit, references, pose reference, the pose library, a recurring character in one call), and the traps found in tests (a skeleton shows neither facing nor which limb is in front, faces at hard angles, negative prompts on distilled models) |
+| `den-image` | Using den's image tools well: the working loop (defaults, one change per step, same seed), a recurring character built in stages the user approves (face, outfit, pose, place, then one combined call), which recipe fits which goal (edit, references, pose reference, the pose library, a recurring character in one call), and the traps found in tests (a skeleton shows neither facing nor which limb is in front, faces at hard angles, negative prompts on distilled models) |
 
 A skill carries strategy; the tool descriptions carry the options, which change as models are
 added. An agent reads a skill's `SKILL.md` when a task matches, and its `references/` only when

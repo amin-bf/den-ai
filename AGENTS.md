@@ -43,12 +43,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `den/core.py` | Config and state loading, Ollama and broker clients, `run_task` (with a guard against overflowing the context window), the machine's load and free RAM (`pressure`, `too_busy`). |
 | `den/broker.py` | `den serve`: streaming pass-through to Ollama (`/api`, `/v1`), `/image`, swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, the busy gate, `/status`, `/mode` and `/unload` (both wait, `now` cancels, and both refuse meanwhile). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
+| `den/poses.py` | The pose library: saved poses (skeleton, photo copy, description) in `~/.local/share/den/poses/`, names, the table of contents, rename and delete. |
 | `workflows/` | ComfyUI graphs in API format, one per workflow; their mappings live in `config.toml`. |
-| `den/cli.py` | `den status / mode / unload / model / task / ask / image / log / serve`. |
+| `den/cli.py` | `den status / mode / unload / model / task / ask / image / pose / log / serve`. |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
-| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow, preprocessor, map, pose reference. |
-| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image) and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow, preprocessor, map, pose reference, saved pose, pose library. |
+| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
@@ -107,6 +108,12 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   reference: `pose:PATH` makes den draw the skeleton and pass it in the caller's order, and the
   prompt names it by number. `save_maps` keeps every map den draws beside the result, listed apart
   from `paths` ([ADR 0003](docs/adr/0003-image-generation.md)).
+- **Saved poses live outside the repo, and no tool text lists them.** The pose library is in
+  `~/.local/share/den/poses/` (`DEN_POSES`), with a copy of each source photo, so nothing of it is
+  versioned. A model finds poses with `list_poses`; the image tool only says the library exists,
+  because a tool whose text changes on every save makes pi reread its conversation. A model
+  saves (a taken name needs `replace`); only `den pose mv` / `rm` rename or delete
+  ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **An image result is paths, plus a small copy when asked for.** `POST /image` takes
   `preview`, and only Claude's MCP tool sets it: ComfyUI re-encodes the output as a small JPEG
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and

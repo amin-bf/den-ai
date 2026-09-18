@@ -71,8 +71,8 @@ nothing.
 ## Request settings, LoRAs and references
 
 The caller's model can tune a request instead of only picking a workflow: `steps`, `cfg`,
-`sampler`, `scheduler`, `loras` and `references` are optional request fields, mapped per workflow
-in `config.toml` like the prompt and seed.
+`sampler`, `scheduler`, `loras`, `references` and, on an edit, `strength` are optional request
+fields, mapped per workflow in `config.toml` like the prompt and seed.
 
 - **Ranges are enforced.** Each numeric setting has a `recommended` range (shown to the model)
   and an `allowed` one (refused outside, never clamped). Advice written for another model family,
@@ -82,15 +82,44 @@ in `config.toml` like the prompt and seed.
   runs the negative pass, so klein's graphs carry an unwired negative encoder, and a
   `with_negative` mapping wires it in and raises cfg to 2 only when a negative is given. Requests
   without one produce pixel-identical images to before. An explicit cfg wins.
+- **The raised cfg belongs with the negative, and a graph must not ship it alone.** Two klein9b
+  edit graphs were exported at cfg 2 while every sibling shipped 1, so `with_negative` had nothing
+  left to raise and every edit ran with the guidance up and the negative branch still zeroed. On
+  an edit that branch is `ConditioningZeroOut` chained onto the input image's own reference
+  latent, so the sampler extrapolates away from the input image itself: colour posterises, skin
+  goes plastic, and it compounds over a chain of edits at twice the time. With a real negative at
+  the same cfg 2 the images improve instead. Keep a distilled graph at cfg 1 and let
+  `with_negative` raise it.
+- **An edit's `strength` blends it back over its input.** A klein edit re-renders the whole frame
+  conditioned on the input rather than changing part of it, so nothing is preserved by
+  construction and a small instruction repaints colours it was never about — one that only asked
+  to warm the light rotated a saturated garment 46 degrees in hue and turned black trousers
+  brown. The model has no notion of magnitude, so gentler wording doesn't help. `strength`
+  inserts an `ImageBlend` between the decode and the save, over the scaled input the result takes
+  its size from, so untouched pixels come back exactly and the rest scales down; at 0.3 the same
+  edit held the hue within 8 degrees. It ghosts when an edit moves something, so it is described
+  as being for light, colour and grade.
 - **Extras are graph insertions, not new workflows,** built only from ComfyUI's built-in nodes
   (no custom nodes): LoRAs as `LoraLoaderModelOnly` nodes after the workflow's model node
   (matched by model family), klein reference images as chained `ReferenceLatent` nodes,
   ControlNet as `ControlNetApplyAdvanced` on the prompt conditioning (SDXL union) or the
-  `ZImageFunControlnet` model patch (Z-Image), with the built-in Canny node when the guide is a
-  photo, and upscale models before `SaveImage`. IP-Adapter and pose or depth preprocessors exist
-  only as custom nodes, so they're left out; klein's references cover what IP-Adapter would do.
+  `ZImageFunControlnet` model patch (Z-Image), a blend against the input for an edit's
+  `strength`, and upscale models before `SaveImage`. IP-Adapter is still custom-node only and
+  left out; klein's references cover what it would do.
+- **A guide image may be an ordinary photo, for the types den can preprocess.** Canny has always
+  been derived with ComfyUI's built-in `Canny` node; pose now is too, since ComfyUI ships
+  `SDPoseKeypointExtractor` and `SDPoseDrawKeypoints` as built-ins — den inserts them between the
+  guide image and the ControlNet, and `[image.preprocessors]` names the model file each needs.
+  Availability follows the file, as everywhere else: a type is offered as drawn from a photo once
+  its model is downloaded, and otherwise still takes a ready-made map. This matters because canny
+  imports the outline of whatever the guide is wearing — a source in leggings turned a prompted
+  blazer and tailored trousers into skin-tight ones, and only a hand-tuned control window got the
+  clothes back, while pose at its default strength kept the pose and left the clothing free.
 - **When to use them is the caller's call**, from feedback on an earlier image. The tool
   description says to start from the defaults, reword before adding a negative, and reuse the seed.
+- **Every setting a request ran with comes back in the result,** not only the ones the caller
+  passed. A setting that came from the graph is the one nobody chose, so it is the one worth
+  seeing; the cfg above hid for exactly that reason.
 
 ## Callers: Claude's tool and pi's extension
 

@@ -23,7 +23,7 @@ again while that work runs.
 - **The refusal ends with the release, unlike `den mode off`.** The mode stays on, the tools stay
   listed, and the next request loads its side again. `den mode off` remains the kill switch that
   keeps refusing until `den mode on`. Nothing new is needed for "off until I say so".
-- **A side that isn't loaded isn't loaded while the machine is busy** (`[limits]` in
+- **A side isn't loaded onto a machine busy with work that isn't den's own** (`[limits]` in
   `config.toml`): the 1-minute load average per CPU above `max_load_per_cpu`, or available RAM
   (`MemAvailable`) below `min_free_ram_gb`, and the request is refused with the numbers and the
   limit in the message. Defaults: 0.8 per CPU and 4 GB.
@@ -31,6 +31,16 @@ again while that work runs.
   memory costs what it always costs, and cutting a conversation off mid-way to protect the
   machine helps nobody. It also means den can't gate itself out: while the LLM generates, the
   load is high but its side is loaded, so the limits never see its own work.
+- **The gate asks whether den holds anything, not whether *this* side is loaded.** Keying it on
+  the requested side meant it fired on every swap, and a swap is the case where den itself is the
+  load: with ComfyUI up holding ~19 GB, available RAM sat under the limit and every LLM request
+  was refused over memory that the swap would have freed by stopping it. den refused the one
+  request that fixes the condition it was reporting, and stayed that way until ComfyUI's 30-minute
+  idle timeout — after nothing stranger than a batch of images followed by a conversation. So the
+  limits apply when den has nothing loaded; when a side is loaded, the swap unloads it first and
+  proceeds. The cost is that an outside job hogging RAM *while* a side is loaded no longer blocks
+  the swap, which den can't measure apart from its own use anyway — and a guaranteed deadlock is
+  worse than occasionally being tight.
 - **The 1-minute load average, not instantaneous CPU use.** It ignores a short spike (a compile,
   a page load) and catches the sustained load that matters. No hysteresis beyond that: the
   average is already smoothed.

@@ -159,6 +159,35 @@ fields, mapped per workflow in `config.toml` like the prompt and seed.
   the extension uses kitty's Unicode placeholders: tmux moves them like text, and the graphics
   command (kitty reads the file itself) reaches kitty through tmux's passthrough.
 
+## The pose library
+
+A pose worth using again is kept: `save_pose` (and `den pose save`) draws a photo's skeleton once
+and saves it under a name, and a request takes it as `pose:NAME`, as a klein reference or a pose
+ControlNet's guide image, without the photo or the drawing.
+
+- **Outside the repo, in den's data folder** (`~/.local/share/den/poses/`, `DEN_POSES`): the
+  skeleton, a byte-for-byte copy of the photo, and a JSON line of description and size. The photo
+  is kept so a human curating the library sees what each pose came from, and so a pose can be
+  redrawn with a better preprocessor later; it's often a real person's photo, which is why none
+  of this is versioned.
+- **The library is a separate tool, not a list in the image tool.** Listing the saved poses in
+  `generate_image`'s description would keep them in front of the model with no call, but every
+  save would change that tool's text, and pi re-registers a changed tool and rereads the
+  conversation (15–45 s on the local model). So `list_poses` returns the table of contents (name,
+  description, aspect) for a conversation to keep, `save_pose` returns it updated, and the image
+  tool carries one fixed sentence that the library exists. Neither pose tool's text names a pose.
+- **A model adds, a human curates.** `save_pose` refuses a taken name unless `replace` is set;
+  renaming and deleting are only `den pose mv` and `den pose rm`.
+- **A saved pose is one figure, and never a blank one.** Without a body detector, which core
+  ComfyUI lacks, `SDPoseKeypointExtractor` finds one person; with no one in the photo it draws
+  an empty canvas, which den detects from the PNG's bytes and refuses rather than saving a pose
+  that would guide nothing.
+- **A name is lower-case words joined by hyphens, up to 80 characters**, so `pose:NAME` never
+  reads as `pose:PATH`, which still means "draw this photo".
+- **A skeleton doesn't show which way the body faces.** A pose saved from a figure seen from
+  behind came out facing the camera under a prompt that didn't say otherwise, so the image tool
+  asks for the facing in the prompt, along with the pose's aspect as the image size.
+
 ## Consequences
 
 - **A mode switch, an unload or a swap waits for running images**, which can take a minute with

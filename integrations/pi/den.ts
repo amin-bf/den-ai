@@ -37,6 +37,8 @@ import {
 } from "@earendil-works/pi-tui";
 
 const TOOL = "generate_image";
+/** The pose library's tools, listed alongside the image tool; their text never lists the library. */
+const POSE_TOOLS = ["list_poses", "save_pose"];
 const MESSAGE_TYPE = "den-image";
 const CALLER = "pi";
 const DEN = process.env.DEN_BIN || "den";
@@ -56,6 +58,21 @@ type Spec = {
   edits: string[];
   description: string | null;
   parameters: { type: "object"; properties: Record<string, any>; required: string[] } | null;
+  /** Saved pose names, for /imagine's completions. */
+  poses?: string[];
+  pose_tools?: Record<string, { description: string; parameters: Record<string, any> }>;
+};
+
+type PoseResult = {
+  name: string;
+  description: string;
+  width: number;
+  height: number;
+  aspect: string;
+  map: string;
+  source: string | null;
+  toc: string;
+  seconds: number;
 };
 
 type ImageResult = {
@@ -131,28 +148,29 @@ function getStatus(broker: string): Promise<BrokerStatus> {
 }
 
 /**
- * POST /image and hand each progress line to onLine; resolves with the result line.
+ * POST /image or /pose and hand each progress line to onLine; resolves with the result line.
  * Uses node:http rather than fetch, whose body timeout would cut long generations off.
  * Aborting closes the connection, and the broker cancels the request.
  */
-function requestImage(
+function requestBroker<T = ImageResult>(
   broker: string,
   request: Record<string, unknown>,
   signal: AbortSignal | undefined,
   onLine: (msg: Record<string, any>) => void,
-): Promise<ImageResult> {
+  path = "/image",
+): Promise<T> {
   return new Promise((done, fail) => {
     if (signal?.aborted) return fail(new Error("cancelled"));
     const body = JSON.stringify(request);
     let settled = false;
-    const finish = (err: Error | null, result?: ImageResult) => {
+    const finish = (err: Error | null, result?: T) => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener("abort", onAbort);
       err ? fail(err) : done(result!);
     };
     const req = http.request(
-      `${broker}/image`,
+      `${broker}${path}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), "X-Den-Caller": CALLER },
@@ -183,7 +201,7 @@ function requestImage(
             } catch {}
             return finish(new Error(message.startsWith("den:") ? message : `den broker: HTTP ${res.statusCode}: ${message}`));
           }
-          finish(new Error("the broker ended the image request without a result"));
+          finish(new Error(`the broker ended the ${path.slice(1)} request without a result`));
         });
         res.on("error", (e) => finish(e));
       },
@@ -205,6 +223,7 @@ function progressText(msg: Record<string, any>): string | null {
   }
   if (msg.unloading) return `unloading the LLM (${msg.unloading.join(", ")})`;
   if (msg.starting) return "starting ComfyUI";
+  if (msg.drawing) return `drawing the pose for ${msg.drawing.name}`;
   if (msg.stopping) return "stopping ComfyUI";
   if (msg.generating) {
     const g = msg.generating;
@@ -272,8 +291,23 @@ function generations(ctx: ExtensionContext): Generation[] {
   return found;
 }
 
-/** A reference as den takes it: PATH or TYPE:PATH (pose:photo.png), the path made absolute. */
+/** A saved pose's name after pose:, as den tells it from a path: no dot, no slash. */
+const POSE_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+function isSavedPose(value: string): boolean {
+  const match = /^pose:(.+)$/.exec(value.trim());
+  return !!match && POSE_NAME.test(match[1]);
+}
+
+/** A guide image as den takes it: a path made absolute, or pose:NAME for a saved pose. */
+function guidePath(value: string, cwd: string): string {
+  return isSavedPose(value) ? value.trim() : absolutePath(value, cwd);
+}
+
+/** A reference as den takes it: PATH or TYPE:PATH (pose:photo.png), the path made absolute, or
+ *  pose:NAME for a saved pose. */
 function referencePath(value: string, cwd: string, last?: () => string | undefined): string {
+  if (isSavedPose(value)) return value.trim();
   const match = /^([a-z]+):(.+)$/.exec(value.trim());
   const [kind, raw] = match ? [match[1], match[2]] : [undefined, value];
   const path = raw.trim() === "last" && last ? last() : absolutePath(raw, cwd);
@@ -298,7 +332,7 @@ function toBrokerRequest(params: Record<string, any>, ctx: ExtensionContext): Re
   }
   if (typeof request.out === "string") request.out = absolutePath(request.out, ctx.cwd);
   if (Array.isArray(request.references)) request.references = request.references.map((p: string) => referencePath(p, ctx.cwd));
-  if (request.control?.image) request.control = { ...request.control, image: absolutePath(request.control.image, ctx.cwd) };
+  if (request.control?.image) request.control = { ...request.control, image: guidePath(request.control.image, ctx.cwd) };
   delete request.switch_back; // pi's next step is always an LLM request, which swaps back anyway
   return request;
 }
@@ -437,8 +471,8 @@ function generationView(g: Generation, theme: Theme, views: Map<string, ImageVie
 
 export default function (pi: ExtensionAPI) {
   let spec: Spec | null = null;
-  let registered = ""; // the description and schema last registered, to skip identical updates
-  let hiddenByUs = false;
+  const registered: Record<string, string> = {}; // per tool, the text last registered, to skip identical updates
+  const hiddenByUs = new Set<string>();
   const views = new Map<string, ImageView>(); // for /imagine messages, which have no row state
 
   // --- the tool follows den's mode and the downloaded models ---
@@ -449,25 +483,127 @@ export default function (pi: ExtensionAPI) {
     } catch {
       spec = null; // den missing or failing: no tool; /imagine reports the error
     }
+    const s = spec;
+    const ready = !!(s?.image_on && s.workflows.length && s.description && s.parameters);
+    syncTool(TOOL, ready ? JSON.stringify([s!.description, s!.parameters]) : null, () => toolDefinition(s!));
+    for (const name of POSE_TOOLS) {
+      const def = ready ? s!.pose_tools?.[name] : undefined;
+      syncTool(name, def ? JSON.stringify(def) : null, () => poseToolDefinition(name, def!));
+    }
+    return spec;
+  }
+
+  /** Register a tool when its text changed (key), and hide it while den can't serve it (null). */
+  function syncTool(name: string, key: string | null, define: () => any) {
     const active = pi.getActiveTools();
-    if (!spec?.image_on || !spec.workflows.length || !spec.description || !spec.parameters) {
-      if (active.includes(TOOL)) {
-        pi.setActiveTools(active.filter((name) => name !== TOOL));
-        hiddenByUs = true;
+    if (key === null) {
+      if (active.includes(name)) {
+        pi.setActiveTools(active.filter((n) => n !== name));
+        hiddenByUs.add(name);
       }
-      return spec;
+      return;
     }
     // Only a real change re-registers: a new tool list makes the model reread the conversation.
-    const key = JSON.stringify([spec.description, spec.parameters]);
-    if (key !== registered) {
-      pi.registerTool(toolDefinition(spec));
-      registered = key;
+    if (registered[name] !== key) {
+      pi.registerTool(define());
+      registered[name] = key;
     }
-    if (hiddenByUs && !pi.getActiveTools().includes(TOOL)) {
-      pi.setActiveTools([...pi.getActiveTools(), TOOL]);
+    if (hiddenByUs.has(name) && !pi.getActiveTools().includes(name)) {
+      pi.setActiveTools([...pi.getActiveTools(), name]);
     }
-    hiddenByUs = false;
-    return spec;
+    hiddenByUs.delete(name);
+  }
+
+  function poseToolDefinition(name: string, def: { description: string; parameters: Record<string, any> }) {
+    if (name === "list_poses") {
+      return {
+        name,
+        label: "List saved poses",
+        description: def.description,
+        promptSnippet: "List the saved poses in den's pose library",
+        parameters: def.parameters,
+        async execute() {
+          const run = await pi.exec(DEN, ["pose", "list"], { timeout: 15000 });
+          if (run.code !== 0) throw new Error((run.stderr || run.stdout).trim() || `${DEN} pose list failed (exit ${run.code})`);
+          return { content: [{ type: "text", text: run.stdout.trim() }], details: {} };
+        },
+      };
+    }
+    const properties = { ...def.parameters.properties };
+    properties.image = {
+      ...properties.image,
+      description: `${properties.image.description} A path relative to the working directory, or "last" for the last image generated in this session, works too.`,
+    };
+    return {
+      name,
+      label: "Save pose",
+      description:
+        `${def.description}\n` +
+        "The GPU holds either you (the chat model) or the image model, so this call unloads you, like " +
+        "generate_image: write your text reply first and call save_pose last. Your turn ends when the pose is " +
+        "saved, and the user sees the skeleton.",
+      promptSnippet: "Save the pose in a photo to den's pose library under a name",
+      parameters: { ...def.parameters, properties },
+
+      async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
+        const s = spec;
+        if (!s) throw new Error(`den isn't available: ${DEN} image --json failed`);
+        const photo = String(params.image ?? "").trim();
+        const image = photo === "last" ? lastImage(ctx) : absolutePath(photo, ctx.cwd);
+        if (!image) throw new Error('image "last": no image was generated in this session yet');
+        const result = await requestBroker<PoseResult>(
+          s.broker,
+          { ...params, image },
+          signal,
+          (msg) => {
+            const text = progressText(msg);
+            if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
+          },
+          "/pose",
+        );
+        // For /imagine's completions until the next refresh.
+        s.poses = [...new Set([...(s.poses ?? []), result.name])].sort();
+        const text = [
+          `saved pose ${result.name} (${result.aspect}, ${result.width}x${result.height}), use it as pose:${result.name}`,
+          `map: ${result.map}`,
+          `photo: ${result.source}`,
+          "",
+          "Pose library, updated:",
+          result.toc,
+          "The user sees the skeleton.",
+        ].join("\n");
+        // Like generate_image, the model wrote its reply first: end the turn instead of reloading it now.
+        return { content: [{ type: "text", text }], details: { pose: result }, terminate: true };
+      },
+
+      renderCall(args: Record<string, any>, theme: Theme) {
+        return new Text(
+          `${theme.fg("toolTitle", theme.bold("save_pose "))}${theme.fg("muted", String(args.name ?? ""))}${theme.fg("dim", `: ${String(args.description ?? "")}`)}`,
+          0,
+          0,
+        );
+      },
+
+      renderResult(result: any, options: { isPartial: boolean }, theme: Theme, context: any) {
+        const text = result.content?.find((c: any) => c.type === "text")?.text ?? "";
+        if (options.isPartial) return new Text(theme.fg("muted", text || "sending to the broker"), 0, 0);
+        const pose = result.details?.pose as PoseResult | undefined;
+        if (context.isError || !pose) return new Text(theme.fg("error", text), 0, 0);
+        const box = new Container();
+        box.addChild(new Text(theme.fg("muted", `pose:${pose.name} · ${pose.aspect} · ${pose.width}x${pose.height} · ${pose.seconds}s`), 0, 0));
+        if (context.showImages) {
+          const views: Map<string, ImageView> = (context.state.views ??= new Map());
+          let view = views.get(pose.map);
+          if (!view) {
+            view = new ImageView(pose.map);
+            views.set(pose.map, view);
+          }
+          box.addChild(view);
+        }
+        box.addChild(new Text(theme.fg("accent", fileLink(pose.map)), 0, 0));
+        return box;
+      },
+    };
   }
 
   function toolDefinition(s: Spec) {
@@ -493,7 +629,7 @@ export default function (pi: ExtensionAPI) {
       async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
         const broker = (spec ?? s).broker;
         const request = toBrokerRequest(params, ctx);
-        const result = await requestImage(broker, request, signal, (msg) => {
+        const result = await requestBroker(broker, request, signal, (msg) => {
           const text = progressText(msg);
           if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
         });
@@ -593,7 +729,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("imagine", {
     description:
       "Generate an image from the conversation: /imagine [hint] [--yes] [--workflow NAME] " +
-      "[--image [PATH]] [--negative TEXT] [--reference [pose:]PATH] [--seed N] [--size WxH] [--lora NAME[:STRENGTH]] " +
+      "[--image [PATH]] [--negative TEXT] [--reference [pose:]PATH|pose:NAME] [--seed N] [--size WxH] [--lora NAME[:STRENGTH]] " +
       "[--strength 0-1] [--control PATH --control-type TYPE] [--upscale NAME[:FACTOR]] [--save-maps] — quote values with spaces",
     getArgumentCompletions(prefix: string) {
       const words = prefix.split(/\s+/);
@@ -601,6 +737,10 @@ export default function (pi: ExtensionAPI) {
       if (words.at(-2) === "--workflow" || words.at(-2) === "-w") {
         const items = (spec?.workflows ?? []).filter((w) => w.startsWith(current));
         return items.length ? items.map((w) => ({ value: [...words.slice(0, -1), w].join(" "), label: w })) : null;
+      }
+      if (["--reference", "-r", "--control"].includes(words.at(-2) ?? "") && current.startsWith("pose:")) {
+        const items = (spec?.poses ?? []).map((name) => `pose:${name}`).filter((p) => p.startsWith(current));
+        return items.length ? items.map((p) => ({ value: [...words.slice(0, -1), p].join(" "), label: p })) : null;
       }
       if (!current.startsWith("-")) return null;
       const flags = ["--yes", "--workflow", "--image"].filter((f) => f.startsWith(current));
@@ -801,7 +941,7 @@ export default function (pi: ExtensionAPI) {
         continue;
       }
       if (name === "control") {
-        control.image = absolutePath(value(name, words[++i]), ctx.cwd);
+        control.image = guidePath(value(name, words[++i]), ctx.cwd);
         continue;
       }
       if (name === "control-type") {
@@ -1086,7 +1226,7 @@ export default function (pi: ExtensionAPI) {
   /** Send the request with a progress box; Esc cancels (returns null). */
   async function generate(ctx: ExtensionContext, s: Spec, request: Record<string, unknown>): Promise<ImageResult | null> {
     return withLoader(ctx, "sending the image request to the broker", (signal, progress) =>
-      requestImage(s.broker, request, signal, (msg) => {
+      requestBroker(s.broker, request, signal, (msg) => {
         const text = progressText(msg);
         if (text) progress(text);
       }),

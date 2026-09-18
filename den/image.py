@@ -444,7 +444,9 @@ POSE_LIBRARY_NOTE = (
     "den keeps a pose library: call list_poses once for its table of contents (name, description, "
     "aspect) and keep it, then pass a saved pose as pose:NAME — as a reference, or as a control "
     "image with type pose. Give the image the pose's aspect (size), or its framing shifts, and "
-    "say in the prompt which way the body faces: a skeleton doesn't show front from back."
+    "say in the prompt which way the body faces: a skeleton doesn't show front from back. Nor "
+    "which limb is nearer: in a side view, where the shoulders overlap, say that each arm hangs "
+    "from its own shoulder and which one is in front, or both arms may grow from one shoulder."
 )
 
 

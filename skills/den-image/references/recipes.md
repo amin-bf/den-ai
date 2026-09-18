@@ -82,6 +82,28 @@ Profiles, three-quarter views, a laugh: each keeps the person, about 9 s each. U
 portraits in their own right. (They don't fix the face inside a larger scene: used there as a
 reference, they carry as little as the frontal one.)
 
+## Create a pose when there's no photo
+
+When no saved pose fits and the user has no photo, generate a stand-in figure in the pose, then
+save its skeleton. Who the figure is doesn't matter; only its skeleton is kept.
+
+1. Generate the stand-in on a fast workflow, in the aspect the final image will have:
+
+   ```json
+   {"workflow": "z-image-turbo", "size": "832x1216",
+    "prompt": "Full body photograph of a woman in a fitted grey t-shirt and black leggings, crouching low with one knee on the ground, left arm raised to shield her face, looking up to the right. Whole body in frame, plain light grey studio background, even lighting."}
+   ```
+
+   Fitted clothes and a plain background let the pose detector find every limb; loose clothing,
+   props and clutter hide joints. One person only. Keep the whole body in frame even when the
+   final image will be cropped: a figure cut at the thighs loses its hips and legs, and then its
+   torso, in the skeleton. For an unusual pose, spell out where the camera is and what touches
+   what ("the camera is behind her; her chest lies flat on the countertop"), and try a workflow
+   that follows spatial wording closely (klein) if the fast one keeps misreading it.
+2. Show it and ask whether that's the pose. Iterate the prompt (same seed) until it is.
+3. `save_pose` it under a name that says the pose (next section), and show the skeleton.
+4. Use it as `pose:NAME` in the combine step.
+
 ## Save a pose for later
 
 `save_pose` with:

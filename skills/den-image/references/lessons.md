@@ -13,6 +13,17 @@ to do, what happens otherwise, and how it was found.
   hangs from its own shoulder fixed it in three of four seeds (it tended to swap which arm). A
   negative prompt ("extra arms, both arms from one shoulder") changed nothing and doubled the
   time.
+- **Nor the curve of the spine, nor a limb hidden behind the body.** The skeleton draws the spine
+  as a straight neck-to-hip line, so an arched back barely changes it; an arm behind the torso
+  comes out as a stump or is missing. Say both in the prompt ("her lower back arched", "both
+  forearms on the counter").
+- **Keep a stand-in full-body, even if the final image will be cropped.** A stand-in bent over a
+  counter, seen from above and cut at the thighs, gave a skeleton of head and shoulders only; the
+  same pose with head to feet in frame gave a complete one. Crop the final image through its
+  prompt and size instead.
+- **Describe what's physically possible.** Asking for a chest flat on a counter *and* the head
+  held up looking back got neither, over several seeds; letting the cheek rest on the forearms,
+  turned to the camera, got both at once.
 - **Canny copies clothing.** A canny guide from a photo in leggings turned prompted tailored
   trousers skin-tight. A pose guide or pose reference carries no clothing.
 - **One person per saved pose.** Without a body detector den finds one figure; a photo with no

@@ -30,8 +30,10 @@ user's approval before the next:
 1. **Face.** A portrait of the person: frontal, neutral, large, plain background. Iterate with
    the user until they say it's right. This image is now the person.
 2. **Outfit.** The clothing alone (a flat lay or on a plain mannequin). Iterate until approved.
-3. **Pose.** From a photo the user gives (`save_pose`), or one from `list_poses`. Show the
-   skeleton and confirm it's the pose they mean.
+3. **Pose.** One from `list_poses` if it fits; else a photo the user gives; else **create one**:
+   generate a stand-in figure in that pose (any person, fitted clothes, plain background, whole
+   body in frame), get it approved, then `save_pose` it. Show the skeleton and confirm it's the
+   pose they mean (recipes.md, "Create a pose").
 4. **Place.** The location, empty. Iterate until approved.
 5. **Combine** in one call on a workflow that takes references: pose, face, outfit, place, in
    that order (recipes.md, "Recurring character").
@@ -86,9 +88,10 @@ Why each holds, with the tests behind it: [references/lessons.md](references/les
 
 1. **References are numbered in the order you pass them.** Name them in the prompt: "the woman
    from image 2, wearing the jacket from image 3, on the terrace from image 4".
-2. **A pose skeleton carries pose and framing, nothing else.** No face, no clothing, and no
-   depth: say which way the body faces ("seen from behind") and, in a side view, which arm is
-   in front. Make the image the pose's aspect (the library lists it).
+2. **A pose skeleton carries pose and framing, nothing else.** No face, no clothing, no depth,
+   no spine curve: say which way the body faces ("seen from behind"), which arm is in front in a
+   side view, an arched back, and where a hidden arm goes. Make the image the pose's aspect (the
+   library lists it).
 3. **Use `pose`, not `canny`, for people.** Canny edges copy the guide's clothing outline.
 4. **A face comes through references only when it's large and frontal.** In profile, small in
    the frame, or with a strong expression, you get the person's colouring but not their

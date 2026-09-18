@@ -79,5 +79,16 @@ _Avoid_: parameter (too broad), option
 An image a request brings for the model to draw on (a person, style or object), chained into the conditioning next to the prompt. Unlike an input image, it isn't edited.
 
 **Guide image**:
-The image a ControlNet follows for composition, pose or outlines: a photo (edges drawn by den) or a ready-made pose, depth or line map.
+The image a ControlNet follows for composition, pose or outlines: a photo (den draws its edges or pose) or a ready-made pose, depth or line map.
 _Avoid_: control image, hint
+
+**Preprocessor**:
+A model den runs on a photo to draw a map from it, such as a person's pose as a skeleton. A map type is offered as drawn from a photo once its preprocessor's file is downloaded; canny needs none.
+
+**Map**:
+What a preprocessor (or ComfyUI's Canny node) draws from a photo: a pose skeleton, canny edges. It guides the image and is saved beside it only when a request asks (`save_maps`).
+_Avoid_: hint, control image
+
+**Pose reference**:
+A reference image passed as `pose:PATH`: den draws the photo's pose as a map and passes the map as that reference, so a klein model takes the pose and framing without the photo's face or clothing. The prompt names it by its number in the order given.
+_Avoid_: pose ControlNet (klein has none)

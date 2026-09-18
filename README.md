@@ -254,19 +254,27 @@ never clamped. The recommended ranges are starting points, not tested limits.
   fits, a description and a strength range. A workflow with that `family` offers it unless its
   graph already loads it.
 - **Reference images** (klein) are chained into the conditioning as extra reference latents,
-  klein's own way to carry a person, style or object into a new image: up to 3, or 2 when
-  editing. Klein needs no
-  IP-Adapter for this.
+  klein's own way to carry a person, style or object into a new image: up to 4 (klein's own
+  limit), or 2 when editing. Klein needs no IP-Adapter for this.
+- **A pose reference** is a photo passed as `pose:PATH`: den draws the person's pose as a skeleton
+  and passes the skeleton as that reference, and the prompt says which image it is ("apply the pose
+  from image 1 to the person from image 2"). The model numbers the references in the order given.
+  This is klein's pose control: it carries pose and framing but none of the photo's face or
+  clothing, and with a person, a garment and a place as the other references it puts all four in
+  one image.
 - **Control (ControlNet)** locks composition, pose or outlines to a guide image.
   The SDXL workflows (`wai-illustrious`, `realvisxl`, `juggernaut-xl`) use the SDXL union
   ControlNet (xinsir promax, `models/controlnet`) with the
   types `canny`, `lineart`, `scribble`, `pose`, `depth`, `normal`, `segment` and `tile`.
   `z-image-turbo` uses the Z-Image Fun ControlNet Union 2.1 lite (`models/model_patches`) with
-  `canny`, `hed`, `depth`, `pose` and `mlsd`. For `canny`, pass a photo and den draws the edges
-  with ComfyUI's built-in Canny node. Every other type needs a ready-made map (a pose skeleton, a
-  depth image): making those from a photo takes preprocessor custom nodes, which aren't
-  installed. Strength defaults to 0.7–0.75. Klein and Chroma have no ControlNet among ComfyUI's
-  built-in nodes; use klein's references instead.
+  `canny`, `hed`, `depth`, `pose` and `mlsd`. For `canny` and `pose`, pass a photo and den draws
+  the map (ComfyUI's built-in Canny and SDPose nodes; pose needs the preprocessor model below).
+  Every other type needs a ready-made map (a depth image, a line drawing). Strength defaults to
+  0.7–0.75. Klein and Chroma have no ControlNet among ComfyUI's built-in nodes; for klein, pass
+  the pose as a reference instead.
+- **Saving the maps:** `save_maps` (`--save-maps`) also saves each map den draws, a pose skeleton
+  or canny edges, next to the image as `<image>-ref1-pose.png` or `<image>-control-canny.png`, to
+  see what guided it. They're listed in the result, not copied with `out`.
 - **Upscalers** run the finished image through an upscale model (`models/upscale_models`), with
   any workflow: `ultrasharp` (4x-UltraSharp, photos and general), `realesrgan` (Real-ESRGAN
   x4plus, photos, smoother) and `realesrgan-anime` (anime and illustration). They're native 4x;
@@ -277,7 +285,7 @@ never clamped. The recommended ranges are starting points, not tested limits.
   only the SDXL workflows (`wai-illustrious`, `realvisxl`, `juggernaut-xl`) respond to them
   reliably.
 - **Not included, since there are no custom nodes:** IP-Adapter (ComfyUI has no built-in node for
-  it; klein's references do that job) and preprocessors that make pose or depth maps from a photo.
+  it; klein's references do that job) and preprocessors for depth, line or segment maps.
 
 ### Image models
 
@@ -390,9 +398,10 @@ den ask summarize "Compare these" --file a.md --file b.md 2>/dev/null   # hide t
 | `--steps N` / `--cfg X` | Override the workflow's steps / guidance, within its allowed range |
 | `--sampler NAME` / `--scheduler NAME` | Any ComfyUI sampler or scheduler the workflow has a setting for |
 | `--lora NAME[:STRENGTH]` | Add a LoRA the workflow offers; repeatable |
-| `--reference <file>` | A reference image (person, style, object) for klein workflows; repeatable |
+| `--reference [pose:]<file>` | A reference image (person, style, object) for klein workflows; `pose:` draws the photo's pose as a skeleton and passes that; repeatable |
 | `--control <file> --control-type T [--control-strength X]` | Guide the image with a ControlNet (z-image-turbo and the SDXL workflows): `canny` for a photo, or a ready-made `pose`, `depth`, … map |
 | `--upscale NAME[:FACTOR]` | Enlarge the result with an upscale model (default factor 2), any workflow |
+| `--save-maps` | Also save the maps den draws (pose skeleton, canny edges) beside the image |
 
 Ctrl+C cancels the request, in ComfyUI too.
 

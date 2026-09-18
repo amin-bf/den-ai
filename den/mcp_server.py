@@ -221,7 +221,7 @@ def release_resources(args, progress_token):
 
 def generate_image(args, progress_token):
     config = core.load_config()
-    keys = ("prompt", "workflow", "negative", "seed", "size", "image", "out", "switch_back", *image.SETTINGS, "loras", "references", "control", "upscale", "strength")
+    keys = ("prompt", "workflow", "negative", "seed", "size", "image", "out", "switch_back", *image.SETTINGS, "loras", "references", "control", "upscale", "strength", "save_maps")
     # Ask for a small copy of the image: a text path can't be judged, and the next call's
     # prompt, seed or settings depend on what came out (the saved file stays a full-size PNG).
     request = {k: args[k] for k in keys if args.get(k) is not None} | {"preview": True}
@@ -235,6 +235,7 @@ def generate_image(args, progress_token):
     if result is None:
         raise DenError("the broker ended the image request without a result")
     lines = [f"saved: {p}" for p in result["paths"]] + [f"copied to: {p}" for p in result["copies"]]
+    lines += [f"map: {p}" for p in result.get("maps", [])]
     waited = f", waited {result['waited_s']:.0f}s" if result["waited_s"] >= 1 else ""
     parts = [*result["summary"], f"{result['seconds']}s{waited}"]
     lines.append(f"[{' · '.join(parts)}]")

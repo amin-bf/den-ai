@@ -726,8 +726,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _image(self, body):
         """POST /image {prompt, workflow?, negative?, seed?, size?, image?, out?, switch_back?,
-        steps?, cfg?, sampler?, scheduler?, loras? [{name, strength?}], references? [path],
-        control? {image, type, strength?, start?, end?}, upscale? {name, factor?}, preview?}.
+        steps?, cfg?, sampler?, scheduler?, loras? [{name, strength?}], references? [path or
+        type:path], control? {image, type, strength?, start?, end?}, upscale? {name, factor?},
+        save_maps?, preview?}.
 
         Streams progress lines (waiting, unloading, starting, generating, stopping) and ends
         with {"result": {...}} or {"error": "..."}. Paths must be absolute.
@@ -753,19 +754,21 @@ class Handler(BaseHTTPRequestHandler):
         if not name:
             raise DenError("no workflow given and no [image] default_workflow in config.toml")
         references = body.get("references") or []
+        reference_paths = [image.parse_reference(r)[1] for r in references]
         control_image = (body.get("control") or {}).get("image")
         paths = [("image", body.get("image")), ("out", body.get("out")), ("control image", control_image)]
-        for key, path in paths + [("references", r) for r in references]:
+        for key, path in paths + [("references", r) for r in reference_paths]:
             if path and not Path(path).is_absolute():
                 raise DenError(f"{key} must be an absolute path, got {path!r}")
         if body.get("control") and not control_image:
             raise DenError("control needs a guide image")
-        for path in filter(None, [body.get("image"), control_image, *references]):
+        for path in filter(None, [body.get("image"), control_image, *reference_paths]):
             if not Path(path).is_file():
                 raise DenError(f"input image not found: {path}")
         prompt = body.get("prompt") or ""
-        options = {key: body.get(key) for key in (*image.SETTINGS, "loras", "references", "control", "upscale", "strength")}
-        graph, params, uploads = image.build(
+        extras = ("loras", "references", "control", "upscale", "strength", "save_maps")
+        options = {key: body.get(key) for key in (*image.SETTINGS, *extras)}
+        graph, params, uploads, map_nodes = image.build(
             config, name, prompt, body.get("negative"), body.get("seed"), body.get("size"),
             edit=bool(body.get("image")), options=options,
         )
@@ -789,8 +792,9 @@ class Handler(BaseHTTPRequestHandler):
                     comfy.cancel(prompt_id)
                     raise ConnectionResetError("the caller hung up while generating")
 
-            outputs = comfy.wait(prompt_id, check)
+            outputs, drawn = image.split_outputs(comfy.wait(prompt_id, check), map_nodes)
             paths, copies = image.save([comfy.view(o) for o in outputs], prompt, body.get("out"))
+            maps = [image.save_map(paths[0], label, comfy.view(img)) for label, img in drawn]
             seconds = round(time.time() - began, 1)
             # A small copy for a caller whose model can look at the image; the saved file is
             # always the full-size PNG (ADR 0003, ADR 0004).
@@ -805,6 +809,7 @@ class Handler(BaseHTTPRequestHandler):
             "summary": image.summary_parts(params),
             "paths": [str(p) for p in paths],
             "copies": [str(p) for p in copies],
+            **({"maps": [str(p) for p in maps]} if maps else {}),
             "seconds": seconds,
             "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
             **({"preview": shown} if shown else {}),
@@ -820,6 +825,7 @@ class Handler(BaseHTTPRequestHandler):
                 "control_image": control_image,
                 "paths": result["paths"],
                 "copies": result["copies"],
+                "maps": result.get("maps"),
                 "seconds": seconds,
                 "waited_s": result["waited_s"],
             }

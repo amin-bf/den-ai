@@ -230,31 +230,82 @@ def _load_image(graph, node):
     return node
 
 
-def _add_references(name, wf, graph, paths):
-    """Chain one ReferenceLatent per reference image into the guider's positive and negative."""
+def parse_reference(ref):
+    """(type, path) of a reference. `pose:/path/photo.png` asks den to draw that map from the
+    photo and pass the map instead; a plain path (type None) goes in as it is."""
+    match = re.fullmatch(r"([a-z]+):(.+)", ref)
+    return (match[1], match[2]) if match else (None, ref)
+
+
+def _draw_pose(graph, pre, hint, extract, draw):
+    """Find the pose in a photo and draw it as an OpenPose skeleton; returns the map's output."""
+    graph["985"] = {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": pre["file"]}}
+    graph[extract] = {
+        "class_type": "SDPoseKeypointExtractor",
+        "inputs": {"model": ["985", 0], "vae": ["985", 2], "image": hint, "batch_size": 16},
+    }
+    graph[draw] = {
+        "class_type": "SDPoseDrawKeypoints",
+        "inputs": {
+            "keypoints": [extract, 0], "draw_body": True, "draw_hands": True, "draw_face": True,
+            "draw_feet": True, "draw_head": True, "stick_width": 4, "face_point_size": 2,
+            "score_threshold": 0.5,
+        },
+    }
+    return [draw, 0]
+
+
+def _keep_map(graph, node, image, label, maps):
+    """Have ComfyUI hand back a map den drew, so the broker saves it beside the result."""
+    graph[node] = {"class_type": "PreviewImage", "inputs": {"images": image}}
+    maps.append((node, label))
+
+
+def _add_references(config, name, wf, graph, refs, save_maps=False):
+    """Chain one ReferenceLatent per reference image into the guider's positive and negative.
+
+    A reference typed `pose:` is a photo den draws the skeleton of first: klein follows a pose
+    passed as a reference image when the prompt names it ("the pose from image 1"), so no
+    ControlNet is needed, and a skeleton carries none of the photo's clothing or face. The
+    order is the caller's, since the prompt refers to the images by number.
+    Returns (uploads, the types in order, maps to keep).
+    """
     ref = wf.get("references")
     if not ref:
         raise DenError(f"workflow {name} takes no reference images")
-    count = len(paths)
+    count = len(refs)
     if count > ref.get("max", 1):
         raise DenError(f"at most {ref.get('max', 1)} reference images, got {count}")
+    drawable = preprocessors(config)
     pos_node, _, pos_key = ref["positive"].partition(".")
     neg_node, _, neg_key = ref["negative"].partition(".")
-    loads = []
+    loads, types, maps = [], [], []
     for i in range(count):
+        kind, path = parse_reference(refs[i])
+        if kind is not None and kind not in drawable:
+            raise DenError(
+                f"reference type {kind!r} isn't available; den draws: {', '.join(drawable) or 'none'} "
+                "(or pass a plain path)"
+            )
         load, scale, encode, pos, neg = (str(950 + 5 * i + k) for k in range(5))
         _load_image(graph, load)
+        image = [load, 0]
+        if kind is not None:
+            image = _draw_pose(graph, drawable[kind], image, str(930 + 2 * i), str(931 + 2 * i))
+            if save_maps:
+                _keep_map(graph, str(940 + i), image, f"ref{i + 1}-{kind}", maps)
+        types.append(kind)
         graph[scale] = {
             "class_type": "ImageScaleToTotalPixels",
-            "inputs": {"image": [load, 0], "upscale_method": "lanczos", "megapixels": ref.get("megapixels", 1), "resolution_steps": 1},
+            "inputs": {"image": image, "upscale_method": "lanczos", "megapixels": ref.get("megapixels", 1), "resolution_steps": 1},
         }
         graph[encode] = {"class_type": "VAEEncode", "inputs": {"pixels": [scale, 0], "vae": [ref["vae"], 0]}}
         graph[pos] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": graph[pos_node]["inputs"][pos_key], "latent": [encode, 0]}}
         graph[neg] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": graph[neg_node]["inputs"][neg_key], "latent": [encode, 0]}}
         graph[pos_node]["inputs"][pos_key] = [pos, 0]
         graph[neg_node]["inputs"][neg_key] = [neg, 0]
-        loads.append((load, paths[i]))
-    return loads
+        loads.append((load, path))
+    return loads, types, maps
 
 
 def controls(config, wf):
@@ -274,8 +325,9 @@ def _rewire(graph, old, new, skip=()):
                 spec["inputs"][key] = new
 
 
-def _add_control(config, name, wf, graph, request):
-    """Guide the image with a ControlNet: a guide image, its type and a strength."""
+def _add_control(config, name, wf, graph, request, save_maps=False):
+    """Guide the image with a ControlNet: a guide image, its type and a strength.
+    Returns (what was used, uploads, maps to keep)."""
     control = controls(config, wf)
     if not control:
         raise DenError(f"workflow {name} takes no guide image (no ControlNet configured or downloaded)")
@@ -302,21 +354,10 @@ def _add_control(config, name, wf, graph, request):
         graph["981"] = {"class_type": "Canny", "inputs": {"image": hint, "low_threshold": 0.4, "high_threshold": 0.8}}
         hint = ["981", 0]
     elif kind_type in preprocessors(config):  # a photo: den finds the pose and draws the map
-        pre = preprocessors(config)[kind_type]
-        graph["985"] = {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": pre["file"]}}
-        graph["986"] = {
-            "class_type": "SDPoseKeypointExtractor",
-            "inputs": {"model": ["985", 0], "vae": ["985", 2], "image": hint, "batch_size": 16},
-        }
-        graph["987"] = {
-            "class_type": "SDPoseDrawKeypoints",
-            "inputs": {
-                "keypoints": ["986", 0], "draw_body": True, "draw_hands": True, "draw_face": True,
-                "draw_feet": True, "draw_head": True, "stick_width": 4, "face_point_size": 2,
-                "score_threshold": 0.5,
-            },
-        }
-        hint = ["987", 0]
+        hint = _draw_pose(graph, preprocessors(config)[kind_type], hint, "986", "987")
+    maps = []
+    if save_maps and hint != [load, 0]:
+        _keep_map(graph, "988", hint, f"control-{kind_type}", maps)
     if kind == "controlnet":
         graph["982"] = {"class_type": "ControlNetLoader", "inputs": {"control_net_name": control["file"]}}
         graph["983"] = {"class_type": "SetUnionControlNetType", "inputs": {"control_net": ["982", 0], "type": kind_types[kind_type]}}
@@ -341,7 +382,7 @@ def _add_control(config, name, wf, graph, request):
     used = {"type": kind_type, "strength": strength}
     if (start, end) != (0.0, 1.0):  # only when asked for, so the usual summary line stays short
         used.update(start=start, end=end)
-    return used, [(load, request.get("image"))]
+    return used, [(load, request.get("image"))], maps
 
 
 def preprocessors(config):
@@ -426,13 +467,15 @@ def _add_upscale(config, graph, request):
 
 
 def build(config, name, prompt, negative=None, seed=None, size=None, edit=False, options=None):
-    """(graph, parameters used, uploads). Raises DenError on bad input.
+    """(graph, parameters used, uploads, maps). Raises DenError on bad input.
 
     options holds the optional settings (steps, cfg, sampler, scheduler) and extras: loras
-    ([{name, strength}]), references ([path]), control ({image, type, strength, start, end})
-    and upscale ({name, factor}). With edit, it's the edit variant's graph. uploads lists
-    (LoadImage node, path) pairs for the reference and control images; the broker uploads them
-    and sets the names (fill_uploads), as it does for the input image (fill_image).
+    ([{name, strength}]), references ([path or type:path]), control ({image, type, strength,
+    start, end}), upscale ({name, factor}) and save_maps. With edit, it's the edit variant's
+    graph. uploads lists (LoadImage node, path) pairs for the reference and control images; the
+    broker uploads them and sets the names (fill_uploads), as it does for the input image
+    (fill_image). maps lists (node, label) for the maps den draws when save_maps asks to keep
+    them; split_outputs tells them from the result.
     """
     options = options or {}
     flows = check_workflows(config)
@@ -501,18 +544,27 @@ def build(config, name, prompt, negative=None, seed=None, size=None, edit=False,
             params[key] = graph[node]["inputs"][field]
     if options.get("loras"):
         params["loras"] = _add_loras(config, name, base, graph, options["loras"])
-    uploads = []
+    uploads, maps = [], []
+    save_maps = bool(options.get("save_maps"))
     if options.get("references"):
-        uploads += _add_references(name, wf if "references" in wf else base, graph, options["references"])
+        ref_wf = wf if "references" in wf else base
+        ref_uploads, types, ref_maps = _add_references(config, name, ref_wf, graph, options["references"], save_maps)
+        uploads += ref_uploads
+        maps += ref_maps
         params["references"] = len(options["references"])
+        if any(types):
+            params["reference_types"] = types
     if options.get("control"):
-        params["control"], control_uploads = _add_control(config, name, base, graph, options["control"])
+        params["control"], control_uploads, control_maps = _add_control(
+            config, name, base, graph, options["control"], save_maps
+        )
         uploads += control_uploads
+        maps += control_maps
     if options.get("strength") is not None:
         params["strength"] = _add_blend(name, wf, graph, options["strength"], edit)
     if options.get("upscale"):
         params["upscale"] = _add_upscale(config, graph, options["upscale"])
-    return graph, params, uploads
+    return graph, params, uploads, maps
 
 
 def control_summary(control):
@@ -537,7 +589,8 @@ def summary_parts(params):
     if params.get("strength") is not None:
         parts.append(f"strength {params['strength']:g}")
     if params.get("references"):
-        parts.append(f"{params['references']} reference(s)")
+        drawn = [f"image {i + 1} {kind}" for i, kind in enumerate(params.get("reference_types", [])) if kind]
+        parts.append(f"{params['references']} reference(s)" + (f" ({', '.join(drawn)})" if drawn else ""))
     if params.get("control"):
         parts.append(f"control {control_summary(params['control'])}")
     if params.get("upscale"):
@@ -606,7 +659,12 @@ def describe_options(config, name, wf):
             counts.append(f"up to {edit_refs.get('max', 1)} with an input image")
         elif not edit_refs and edit is not None:
             counts.append("none with an input image")
-        lines.append(f"references: {', '.join(counts)} (a person, style or object to carry over)")
+        drawn = ", ".join(f"{kind}:PATH" for kind in preprocessors(config))
+        lines.append(
+            f"references: {', '.join(counts)} (a person, style or object to carry over"
+            + (f"; a photo passed as {drawn} goes in as the map den draws from it" if drawn else "")
+            + ")"
+        )
     control = controls(config, wf)
     if control:
         strength = control.get("strength", {})
@@ -661,6 +719,11 @@ def request_spec(config, flows, default):
             control_types.update(control.get("types", CONTROL_TYPES[control["kind"]]))
     has_references = any("references" in wf or "references" in (wf.get("edit") or {}) for wf in flows.values())
     has_strength = any((wf.get("edit") or {}).get("blend") for wf in flows.values())
+    reference_types = list(preprocessors(config)) if has_references else []
+    # Maps den draws: a typed reference, or a control guide it draws from a photo (canny, pose…).
+    draws_maps = bool(reference_types) or any(
+        kind == "canny" or kind in preprocessors(config) for kind in control_types
+    )
     workflow_lines = "\n".join(lines)
     ups = describe_upscalers(config)
     description = (
@@ -767,10 +830,34 @@ def request_spec(config, flows, default):
                             "Absolute paths of reference images — a person, style or object to carry "
                             "over into the new image — up to the count the workflow lists. They "
                             "guide the image; they are not edited. Works together with `image`."
+                            + (
+                                f" Prefix a photo with {' or '.join(t + ':' for t in reference_types)} "
+                                "(e.g. pose:/abs/photo.png) and den draws that map from it — for pose, "
+                                "the person's skeleton — and passes the map instead: it carries the "
+                                "pose and framing, none of the photo's face or clothing. The model "
+                                "numbers the images in the order given, so say in the prompt which "
+                                "one is which, e.g. \"apply the pose from image 1 to the person from "
+                                "image 2, wearing the jacket from image 3\"."
+                                if reference_types
+                                else ""
+                            )
                         ),
                     }
                 }
                 if has_references
+                else {}
+            ),
+            **(
+                {
+                    "save_maps": {
+                        "type": "boolean",
+                        "description": (
+                            "Also save the maps den draws from photos (a pose skeleton, canny edges) "
+                            "next to the image, to see what guided it. Default false."
+                        ),
+                    }
+                }
+                if draws_maps
                 else {}
             ),
             **(
@@ -911,7 +998,8 @@ class ComfyUI:
         return self._json("POST", "/prompt", {"prompt": graph, "client_id": "den"})["prompt_id"]
 
     def wait(self, prompt_id, check):
-        """Poll until the prompt is done; returns its output images. check() may raise to stop."""
+        """Poll until the prompt is done; returns every image it produced, each with the node that
+        produced it (split_outputs sorts them). check() may raise to stop."""
         while True:
             check()
             entry = self._json("GET", f"/history/{prompt_id}").get(prompt_id)
@@ -919,11 +1007,11 @@ class ComfyUI:
             if status.get("status_str") == "error":
                 raise DenError(f"comfyui failed: {_execution_error(status)}")
             if entry and status.get("completed", True):
-                images = [img for out in entry.get("outputs", {}).values() for img in out.get("images", [])]
-                saved = [img for img in images if img.get("type") == "output"]
-                if not (saved or images):
-                    raise DenError("comfyui finished without an output image")
-                return saved or images
+                return [
+                    {**img, "node": node}
+                    for node, out in entry.get("outputs", {}).items()
+                    for img in out.get("images", [])
+                ]
             time.sleep(POLL_S)
 
     def view(self, img, preview=None):
@@ -938,6 +1026,18 @@ class ComfyUI:
         """Drop the prompt from ComfyUI's queue, or interrupt it when it's running."""
         self._json("POST", "/queue", {"delete": [prompt_id]})
         self._json("POST", "/interrupt", {"prompt_id": prompt_id})
+
+
+def split_outputs(images, maps):
+    """(results, [(label, image)]) of a finished prompt's images. maps are the (node, label) pairs
+    build returned for save_maps; results are the rest, the saved ones where there are any."""
+    labels = dict(maps)
+    kept = [(labels[img["node"]], img) for img in images if img.get("node") in labels]
+    rest = [img for img in images if img.get("node") not in labels]
+    saved = [img for img in rest if img.get("type") == "output"]
+    if not (saved or rest):
+        raise DenError("comfyui finished without an output image")
+    return saved or rest, kept
 
 
 def _comfy_error(raw):
@@ -1021,6 +1121,13 @@ def save(images, prompt, out=None):
                 raise DenError(f"saved {path} but cannot copy it to {target}: {e}") from e
             copies.append(target)
     return paths, copies
+
+
+def save_map(result, label, data):
+    """Write a map den drew beside the image it guided, as <image>-<label>.png."""
+    path = result.with_name(f"{result.stem}-{label}.png")
+    path.write_bytes(data)
+    return path
 
 
 def log(entry):

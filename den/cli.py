@@ -189,6 +189,13 @@ def _lora_arg(value):
         raise DenError(f"--lora takes NAME or NAME:STRENGTH, got {value!r}") from None
 
 
+def _reference_arg(value):
+    """PATH or TYPE:PATH (e.g. pose:photo.png), with the path made absolute and the type kept."""
+    kind, path = image.parse_reference(value)
+    path = str(Path(path).expanduser().resolve())
+    return f"{kind}:{path}" if kind else path
+
+
 def _control_arg(args):
     if not args.control:
         return None
@@ -267,10 +274,11 @@ def cmd_image(args):
         "sampler": args.sampler,
         "scheduler": args.scheduler,
         "loras": [_lora_arg(value) for value in args.lora] or None,
-        "references": [str(path.expanduser().resolve()) for path in args.reference] or None,
+        "references": [_reference_arg(value) for value in args.reference] or None,
         "control": _control_arg(args),
         "upscale": _upscale_arg(args.upscale),
         "strength": args.strength,
+        "save_maps": args.save_maps or None,
     }
     try:
         for msg in core.broker(config, "cli").generate_image(**{k: v for k, v in request.items() if v is not None}):
@@ -287,7 +295,7 @@ def cmd_image(args):
                 print(f"{what} with {workflow} ({', '.join(rest)}) ...", flush=True)
             elif "result" in msg:
                 r = msg["result"]
-                for path in r["paths"] + r["copies"]:
+                for path in r["paths"] + r["copies"] + r.get("maps", []):
                     print(path, flush=True)
                 waited = f", waited {r['waited_s']:.0f}s" if r["waited_s"] >= 1 else ""
                 back = "; ComfyUI stopped" if r.get("switched_back") else ""
@@ -468,7 +476,11 @@ def main(argv=None):
     p.add_argument("--sampler", help="ComfyUI sampler name, e.g. euler, dpmpp_2m")
     p.add_argument("--scheduler", help="ComfyUI scheduler name, e.g. simple, karras")
     p.add_argument("--lora", action="append", default=[], metavar="NAME[:STRENGTH]", help="add a LoRA the workflow offers; repeatable")
-    p.add_argument("--reference", action="append", default=[], type=Path, help="reference image, for workflows that take them; repeatable")
+    p.add_argument(
+        "--reference", action="append", default=[], metavar="[TYPE:]PATH",
+        help="reference image, for workflows that take them; repeatable. pose:PATH draws the "
+        "photo's pose as a skeleton and passes that instead",
+    )
     p.add_argument("--control", type=Path, help="ControlNet guide image, for workflows that list control")
     p.add_argument("--control-type", help="what the guide image is: canny (a photo), pose, depth, … (den image lists them)")
     p.add_argument("--control-strength", type=float, help="how strongly the guide image steers (default: the workflow's)")
@@ -476,6 +488,7 @@ def main(argv=None):
     p.add_argument("--control-end", type=float, help="fraction where it stops; end early to fix only the composition (default 1)")
     p.add_argument("--upscale", metavar="NAME[:FACTOR]", help="upscale the result with this model (default factor 2)")
     p.add_argument("--strength", type=float, metavar="0-1", help="with --image: how much of the edit to keep, blended back over the input")
+    p.add_argument("--save-maps", action="store_true", help="also save the maps den draws (pose skeleton, canny edges) beside the image")
     p.set_defaults(func=cmd_image)
 
     p = sub.add_parser("log", help="review delegations by Claude: per-task stats, verdicts and problem notes")

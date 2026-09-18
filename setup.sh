@@ -146,6 +146,26 @@ open(path, "w").write(json.dumps({"providers": {"ollama": provider}}, indent=2) 
   fi
 fi
 
+step "skills"
+# den's own skills (skills/<name>/SKILL.md), linked where agents find global skills: pi reads
+# ~/.agents/skills, Claude Code ~/.claude/skills.
+for skill in "$REPO"/skills/*/; do
+  skill="${skill%/}"
+  name="$(basename "$skill")"
+  for dir in "$HOME/.agents/skills" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"; do
+    target="$dir/$name"
+    if [ "$(readlink -f "$target" 2>/dev/null)" = "$skill" ]; then
+      ok "skill $name in $dir"
+    elif [ -e "$target" ] || [ -L "$target" ]; then
+      todo "$target exists and isn't a link to this repo; remove it and re-run"
+    else
+      mkdir -p "$dir"
+      ln -s "$skill" "$target"
+      did "linked the skill $name into $dir"
+    fi
+  done
+done
+
 if [ "$with_comfyui" = 1 ]; then
   step "ComfyUI"
   if [ -d "$COMFYUI_DIR/.git" ]; then

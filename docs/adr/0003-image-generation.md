@@ -115,6 +115,24 @@ fields, mapped per workflow in `config.toml` like the prompt and seed.
   imports the outline of whatever the guide is wearing — a source in leggings turned a prompted
   blazer and tailored trousers into skin-tight ones, and only a hand-tuned control window got the
   clothes back, while pose at its default strength kept the pose and left the clothing free.
+- **On klein, a pose is a reference, not a guide.** No ControlNet for FLUX.2 klein loads in core
+  ComfyUI: its Flux ControlNet class is built for FLUX.1's block layout, the model-patch loader has
+  no FLUX.2 branch, and the FLUX.2 control models published so far target FLUX.2 dev's wider
+  hidden size or need another runtime. klein doesn't need one: given the skeleton as a reference
+  image and a prompt that names it ("apply the pose from image 1 to the person from image 2"), it
+  follows the pose. So a reference may be typed, `pose:PATH`, and den draws the skeleton from the
+  photo with the same SDPose nodes and passes it in the caller's order, since the prompt refers to
+  the images by number. Tested on the 9B realism workflow: a skeleton plus a person, a garment
+  and a place as four references put all four in one image in 26 s, where the SDXL-ControlNet
+  route took three calls and 41 s and only prompted the place; a pose-reference LoRA trained for
+  this changed the result by about 1 % on den's distilled model and was left out. The face is
+  the weak part with four references, and a klein identity edit afterwards restores it. The
+  reference limit on the klein generation workflows went from 3 to 4, klein's own maximum.
+- **The maps den draws can be kept.** A skeleton or canny edges only exist inside the graph, so a
+  caller never saw what guided an image, and a canny map that copies the guide's clothing is
+  obvious once seen. `save_maps` adds a `PreviewImage` after each map, and the broker saves those
+  beside the result as `<image>-<label>.png` and lists them apart from `paths`: the image a caller
+  shows or gets a copy of stays the result. Off by default.
 - **When to use them is the caller's call**, from feedback on an earlier image. The tool
   description says to start from the defaults, reword before adding a negative, and reuse the seed.
 - **Every setting a request ran with comes back in the result,** not only the ones the caller

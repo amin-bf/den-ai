@@ -47,13 +47,14 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `workflows/` | ComfyUI graphs in API format, one per workflow; their mappings live in `config.toml`. |
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / pose / log / serve`. |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
-| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
+| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow, preprocessor, map, pose reference, saved pose, pose library. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `skills/` | den's own agent skills (Agent Skills format), versioned: `den-image` teaches the image tools' recipes and measured traps. `setup.sh` links each into `~/.claude/skills/` and `~/.agents/skills/`. |
 | `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
-| `.agents/skills/` | Agent-agnostic skills, local only (git-ignored); `.claude/skills` is a symlink to it. |
+| `.agents/skills/` | Third-party skills for working on this repo, local only (git-ignored); `.claude/skills` is a symlink to it. Not den's own skills, which are in `skills/`. |
 
 ## Design rules
 
@@ -119,6 +120,10 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and
   pi don't ask for a copy, and an unsupported `/view?preview` falls back to the text result
   ([ADR 0004](docs/adr/0004-releasing-the-machine.md)).
+- **A skill teaches strategy, a tool description the options.** `skills/den-image` holds the
+  recipes and the measured traps; the workflows, settings and ranges stay in the tool text,
+  built from `config.toml`, so the skill never lists what changes when a model is added. A new
+  lesson from a test goes into the skill's `references/lessons.md` with the test behind it.
 - **Delegation is opt-in per task.** Only enabled tasks appear in the tool's `task` enum,
   and the tool description tells Claude to delegate nothing else. Add tasks in
   `config.toml`; toggle them with `den task <name> on|off`.

@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 
-from den import core, image
+from den import core, image, poses
 from den.core import DenError
 
 SERVER_INFO = {"name": "den", "version": "0.1.0"}
@@ -150,6 +150,9 @@ def list_tools():
         flows = image.available(config)
         if flows:
             tools.append(generate_image_tool(config, flows, image.settings(config).get("default_workflow")))
+            # The pose tools' text never lists the library, so a save doesn't change the tools.
+            for name, spec in image.pose_tool_specs(config).items():
+                tools.append({"name": name, "description": spec["description"], "inputSchema": spec["parameters"]})
     return tools
 
 
@@ -170,6 +173,8 @@ def progress_text(msg):
         return f"unloading the LLM ({', '.join(msg['unloading'])})"
     if "starting" in msg or "stopping" in msg:
         return f"{'starting' if 'starting' in msg else 'stopping'} ComfyUI"
+    if "drawing" in msg:
+        return f"drawing the pose for {msg['drawing']['name']}"
     if "generating" in msg:
         g = msg["generating"]
         return f"{'editing' if g.get('edit') else 'generating'} with {g['workflow']} (seed {g['seed']})"
@@ -248,6 +253,35 @@ def generate_image(args, progress_token):
     return content
 
 
+def save_pose(args, progress_token):
+    config = core.load_config()
+    request = {k: args[k] for k in ("image", "name", "description", "replace") if args.get(k) is not None}
+    # A small copy of the skeleton, so a missing limb shows before the pose is relied on.
+    result, step = None, 0
+    for msg in core.broker(config, "claude").save_pose(**request, preview=True):
+        if "result" in msg:
+            result = msg["result"]
+        elif progress_token is not None and (text := progress_text(msg)):
+            step += 1
+            notify(progress_token, step, text)
+    if result is None:
+        raise DenError("the broker ended the pose request without a result")
+    lines = [
+        f"saved pose {result['name']} ({result['aspect']}, {result['width']}x{result['height']}), "
+        f"use it as pose:{result['name']}",
+        f"map: {result['map']}",
+        f"photo: {result['source']}",
+        "",
+        "Pose library, updated:",
+        result["toc"],
+    ]
+    content = [{"type": "text", "text": "\n".join(lines)}]
+    shown = result.get("preview")
+    if shown:
+        content.append({"type": "image", "data": shown["base64"], "mimeType": shown["mime"]})
+    return content
+
+
 def call_tool(req_id, params):
     name, args = params.get("name"), params.get("arguments") or {}
     try:
@@ -271,6 +305,10 @@ def call_tool(req_id, params):
             text = release_resources(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_image":
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
+        elif name == "save_pose":
+            text = save_pose(args, (params.get("_meta") or {}).get("progressToken"))
+        elif name == "list_poses":
+            text = poses.toc()
         else:
             raise DenError(f"unknown tool {name!r}")
         content = text if isinstance(text, list) else [{"type": "text", "text": text}]

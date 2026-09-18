@@ -47,7 +47,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / log / serve`. |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
-| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow. |
+| `CONTEXT.md` | Glossary: broker, side, mode, swap, batch cap, switch back, available, release, unload, pressure, caller, task, delegation, workflow, preprocessor, map, pose reference. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image) and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
@@ -103,7 +103,10 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   into ComfyUI; the rest are `[image.preprocessors]` entries naming a model file, and a type is
   offered as drawn from a photo once that file is downloaded — otherwise it still takes a
   ready-made map. Prefer `pose` over `canny` for a person: canny carries the guide's clothing
-  outline along with the pose ([ADR 0003](docs/adr/0003-image-generation.md)).
+  outline along with the pose. klein has no ControlNet in core ComfyUI, so there a pose is a
+  reference: `pose:PATH` makes den draw the skeleton and pass it in the caller's order, and the
+  prompt names it by number. `save_maps` keeps every map den draws beside the result, listed apart
+  from `paths` ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **An image result is paths, plus a small copy when asked for.** `POST /image` takes
   `preview`, and only Claude's MCP tool sets it: ComfyUI re-encodes the output as a small JPEG
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and

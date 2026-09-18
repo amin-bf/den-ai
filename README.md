@@ -306,8 +306,10 @@ guide image of a `pose` ControlNet (`--control pose:NAME --control-type pose`).
 - **Curating** is yours: `den pose mv OLD NEW` and `den pose rm NAME`.
 - **Files:** `~/.local/share/den/poses/` (`DEN_POSES` overrides it) holds per pose the skeleton
   (`NAME.png`), a copy of the photo (`NAME.source.<ext>`) and its description (`NAME.json`).
-- **Two things to get right in the prompt:** give the image the pose's aspect (the list shows it),
-  and say which way the body faces, since a skeleton doesn't show front from back.
+- **Three things to get right in the prompt:** give the image the pose's aspect (the list shows it),
+  say which way the body faces, since a skeleton doesn't show front from back, and in a side view
+  say which arm is in front: where the shoulders overlap, the model may grow both arms from one
+  shoulder. Describing the depth fixed that in three of four seeds in a test, not every time.
 
 ### Image models
 

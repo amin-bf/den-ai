@@ -184,9 +184,13 @@ ControlNet's guide image, without the photo or the drawing.
   that would guide nothing.
 - **A name is lower-case words joined by hyphens, up to 80 characters**, so `pose:NAME` never
   reads as `pose:PATH`, which still means "draw this photo".
-- **A skeleton doesn't show which way the body faces.** A pose saved from a figure seen from
-  behind came out facing the camera under a prompt that didn't say otherwise, so the image tool
-  asks for the facing in the prompt, along with the pose's aspect as the image size.
+- **A skeleton doesn't show which way the body faces, nor which limb is in front.** A pose saved
+  from a figure seen from behind came out facing the camera under a prompt that didn't say
+  otherwise. In a side view the two shoulders nearly coincide on the map, and the model grew both
+  arms from the near one. Saying in the prompt which arm is in front gave each arm its own
+  shoulder in three of four seeds (though it tended to swap which arm), while a negative prompt
+  changed nothing and doubled the time (cfg 2). So the image tool asks for the facing and, in a
+  side view, the limb depth in the prompt, along with the pose's aspect as the image size.
 
 ## Consequences
 

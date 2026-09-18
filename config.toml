@@ -278,10 +278,15 @@ scheduler = { input = "5.scheduler", recommended = ["karras"] }
 # instead of the caller bringing a ready-made map. `canny` is built into ComfyUI and always
 # works; the ones here need a model file, and a workflow offers the type as "from a photo"
 # only once that file is downloaded — otherwise the type still takes a ready-made map.
-#   file         the file name in models/checkpoints
+#   file         the model file it needs
+#   dir          the folder under ComfyUI's models/ that file goes in (default: checkpoints)
+#   url          where setup.sh fetches it from, if it's missing (optional: without one, setup
+#                only says which file to download)
 #   description  what the map is good for, for whoever picks a guide type
 [image.preprocessors.pose]
 file = "sdpose_wholebody_fp16.safetensors"
+dir = "checkpoints"
+url = "https://huggingface.co/Comfy-Org/SDPose/resolve/main/checkpoints/sdpose_wholebody_fp16.safetensors"
 description = "SDPose wholebody: body, hands, feet and face keypoints drawn as an OpenPose skeleton."
 
 # Upscale models a request may run the finished image through (upscale = {name, factor}), with

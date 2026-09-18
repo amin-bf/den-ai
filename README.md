@@ -287,6 +287,12 @@ ComfyUI doesn't come with models. See the
 `~/ComfyUI/models/`. The quickest way: open a template in the web UI (Workflow → Browse
 Templates); it lists the files it's missing, with download links.
 
+One model isn't a matter of taste and `setup.sh` fetches it for you: the preprocessor that turns
+an ordinary photo into a guide map, so a request can steer an image by `pose` without you making
+a skeleton somewhere else. `[image.preprocessors]` in `config.toml` says which file each guide
+type needs and where it comes from, and the type is offered as drawn from a photo once the file
+is there. Skip it with `./setup.sh --no-preprocessors`.
+
 Models tested on a 12 GB card (warm, ~1024² per image):
 
 | Model | Time | Prompt style |

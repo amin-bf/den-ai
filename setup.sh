@@ -3,9 +3,10 @@
 # existing config. It doesn't use sudo; system-level steps (Ollama, GPU drivers) are printed
 # for you to run.
 #
-#   ./setup.sh                  den, pi and ComfyUI
-#   ./setup.sh --no-pi          skip pi
-#   ./setup.sh --no-comfyui     skip ComfyUI
+#   ./setup.sh                     den, pi and ComfyUI
+#   ./setup.sh --no-pi             skip pi
+#   ./setup.sh --no-comfyui        skip ComfyUI
+#   ./setup.sh --no-preprocessors  skip downloading guide-map models (pose, …)
 #
 # Environment overrides:
 #   COMFYUI_DIR    where ComfyUI lives               (default: ~/ComfyUI)
@@ -24,10 +25,12 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 
 with_pi=1
 with_comfyui=1
+with_preprocessors=1
 for arg in "$@"; do
   case "$arg" in
     --no-pi) with_pi=0 ;;
     --no-comfyui) with_comfyui=0 ;;
+    --no-preprocessors) with_preprocessors=0 ;;
     -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
@@ -181,6 +184,32 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload
     did "wrote comfyui.service (not enabled: the broker starts and stops it)"
+  fi
+  if [ "$with_preprocessors" = 1 ]; then
+    # A preprocessor lets a request guide an image with an ordinary photo instead of a map it
+    # had to make elsewhere. config.toml lists each one with the file it needs and where that
+    # comes from, so this covers any added later without a change here.
+    while IFS="$(printf '\t')" read -r name file dir url; do
+      [ -n "$file" ] || continue
+      target="$COMFYUI_DIR/models/$dir/$file"
+      if [ -f "$target" ]; then
+        ok "$name preprocessor ($file)"
+      elif [ -z "$url" ] || ! have curl; then
+        todo "download $file into $COMFYUI_DIR/models/$dir, for guiding an image by $name"
+      else
+        mkdir -p "$COMFYUI_DIR/models/$dir"
+        printf '  ...   downloading %s for the %s guide type\n' "$file" "$name"
+        curl -fL --progress-bar -o "$target.part" "$url" || die "downloading $file failed"
+        mv "$target.part" "$target"
+        did "downloaded $file"
+      fi
+    done < <(python3 - "$REPO/config.toml" <<'PY'
+import sys, tomllib
+
+for name, pre in tomllib.load(open(sys.argv[1], "rb")).get("image", {}).get("preprocessors", {}).items():
+    print("\t".join([name, pre.get("file", ""), pre.get("dir", "checkpoints"), pre.get("url", "")]))
+PY
+    )
   fi
   if ! find "$COMFYUI_DIR/models" -name '*.safetensors' -size +100M 2>/dev/null | grep -q .; then
     todo "download an image model: see 'Image models' in README.md"

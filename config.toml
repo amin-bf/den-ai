@@ -27,6 +27,12 @@ batch_requests = 4
 max_load_per_cpu = 0.8
 # Refuse to load while less than this much RAM is available (MemAvailable), in GB.
 min_free_ram_gb = 4.0
+# How long a request waits for a busy machine to settle before it's refused. A build or a test
+# run ends, and everything else in den waits rather than failing, so a short wait usually turns
+# an error the caller has to notice and repeat into a slightly slower answer. It's bounded
+# because the caller may be the one keeping the machine busy, and then waiting never helps.
+# 0 refuses at once.
+busy_wait = "60s"
 
 [llm]
 backend = "ollama"

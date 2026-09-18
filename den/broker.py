@@ -146,16 +146,6 @@ class Broker:
                 f"den is releasing the CPU, RAM and GPU the {side} side holds (den unload); "
                 "retry once it's done"
             )
-        # Loading onto a machine that is already busy is what's gated, and only against work that
-        # isn't den's own (ADR 0004). A loaded side is den's own: swapping to the other one stops it
-        # first and hands back the RAM and CPU it held, so gating that would refuse the very request
-        # that frees the machine — and leave the caller stuck until the idle timeout.
-        if self.loaded is None and (busy := core.too_busy(config)):
-            raise DenError(
-                f"the machine is busy: {busy}. den has nothing loaded and won't load the {side} "
-                "side now — retry when the machine settles, or raise the limits in [limits] of "
-                "config.toml"
-            )
 
     def _batch_open(self, side, config, now):
         """Whether the loaded side may start another request while the other side waits.
@@ -212,6 +202,7 @@ class Broker:
         side = info["side"]
         info["id"] = next(self.ids)
         last_reason, last_report = None, 0.0
+        busy_since = None
         try:
             while True:
                 config = core.load_config()
@@ -219,7 +210,22 @@ class Broker:
                 with self.cond:
                     self._check_available(side, config, state)
                     now = time.time()
-                    if self._can_start(side, config, now):
+                    # Loading onto a machine busy with work that isn't den's own (ADR 0004). A
+                    # loaded side is den's own and a swap frees it, so only look while den holds
+                    # nothing. Busy is usually a build or a test run and ends, so wait it out the
+                    # way everything else here waits — but bounded, because the caller may be the
+                    # one that made the machine busy, and then no wait would ever help.
+                    busy = core.too_busy(config) if self.loaded is None else None
+                    if busy:
+                        busy_since = now if busy_since is None else busy_since
+                        if now - busy_since >= core.busy_wait_s(config):
+                            waited = f" after waiting {now - busy_since:.0f}s" if busy_since < now else ""
+                            raise DenError(
+                                f"the machine is busy: {busy}. den has nothing loaded and won't "
+                                f"load the {side} side{waited} — retry when the machine settles, "
+                                "or raise the limits in [limits] of config.toml"
+                            )
+                    if not busy and self._can_start(side, config, now):
                         self.waiting.pop(info["id"], None)
                         info["started"] = now
                         self.inflight[info["id"]] = info
@@ -230,11 +236,11 @@ class Broker:
                     if info["id"] not in self.waiting:
                         info["queued"] = now
                         self.waiting[info["id"]] = info
-                    swap = self._can_swap(side, config, now)
+                    swap = not busy and self._can_swap(side, config, now)
                     if swap:
                         self.swapping = side
                     else:
-                        reason = self._wait_reason(side, config, now)
+                        reason = {"reason": f"the machine is busy: {busy}"} if busy else self._wait_reason(side, config, now)
                 if swap:
                     self._swap(side, config, emit)
                     continue

@@ -136,6 +136,7 @@ def broker_url(config):
 # already busy with other work; a side that is loaded keeps serving ([limits], ADR 0004).
 DEFAULT_MAX_LOAD_PER_CPU = 0.8
 DEFAULT_MIN_FREE_RAM_GB = 4.0
+DEFAULT_BUSY_WAIT = "60s"
 MEMINFO_PATH = Path("/proc/meminfo")
 
 
@@ -183,6 +184,16 @@ def limits(config):
         float(section.get("max_load_per_cpu", DEFAULT_MAX_LOAD_PER_CPU) or 0),
         float(section.get("min_free_ram_gb", DEFAULT_MIN_FREE_RAM_GB) or 0),
     )
+
+
+def busy_wait_s(config, section=None):
+    """How long a request waits for a busy machine to settle before it's refused ([limits]).
+
+    Busy is usually a build or a test run, which ends; refusing at once turns a wait into an
+    error the caller has to notice and repeat. 0 refuses immediately, as den did before.
+    """
+    section = config.get("limits", {}) if section is None else section
+    return duration_s(section.get("busy_wait", DEFAULT_BUSY_WAIT))
 
 
 def too_busy(config, now=None):

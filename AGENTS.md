@@ -68,8 +68,11 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
 - **A side isn't loaded onto a machine busy with work that isn't den's own.** Above `[limits]`
   `max_load_per_cpu` (1-minute load average) or below `min_free_ram_gb` (`MemAvailable`), a
-  request whose side would have to load is refused with the numbers and the limit — but only
-  while den holds nothing. A side that is loaded keeps serving, and a swap to the other side
+  request whose side would have to load waits `busy_wait` (60 s) for the machine to settle and is
+  then refused with the numbers and the limit — but only while den holds nothing. Busy is usually
+  a build or a test run and ends, and everything else in the broker waits rather than failing;
+  the bound is there because the caller may be what's keeping the machine busy (`busy_wait = 0`
+  refuses at once). A release and `den mode off` still refuse outright. A side that is loaded keeps serving, and a swap to the other side
   goes ahead and frees it first, so den never gates out its own load: keying the gate on the
   requested side instead deadlocked it against its own ComfyUI until the idle timeout. The tools
   stay listed and the call fails, rather than the tool list flapping with the load

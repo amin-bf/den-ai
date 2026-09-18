@@ -25,12 +25,23 @@ again while that work runs.
   keeps refusing until `den mode on`. Nothing new is needed for "off until I say so".
 - **A side isn't loaded onto a machine busy with work that isn't den's own** (`[limits]` in
   `config.toml`): the 1-minute load average per CPU above `max_load_per_cpu`, or available RAM
-  (`MemAvailable`) below `min_free_ram_gb`, and the request is refused with the numbers and the
-  limit in the message. Defaults: 0.8 per CPU and 4 GB.
+  (`MemAvailable`) below `min_free_ram_gb`, and the request waits `busy_wait` for the machine to
+  settle before it's refused with the numbers and the limit in the message. Defaults: 0.8 per
+  CPU, 4 GB and 60 s.
 - **Only *loading* is gated; a loaded side keeps serving.** Serving from a model that's already in
   memory costs what it always costs, and cutting a conversation off mid-way to protect the
   machine helps nobody. It also means den can't gate itself out: while the LLM generates, the
   load is high but its side is loaded, so the limits never see its own work.
+- **Busy waits, bounded, rather than refusing outright.** Everything else in `admit` waits and
+  says why — for a swap, for a batch cap, for running requests — and callers already render those
+  reasons; the gate was the one condition that failed instead of queueing. What makes a machine
+  busy is usually a build or a test run, which ends, so refusing at once turns a slightly slower
+  answer into an error someone has to notice and repeat; pi's three quick retries gave up on a
+  condition that needed thirty seconds. It stays bounded because the caller may be the very thing
+  keeping the machine busy, and then no amount of waiting helps — an agent blocked on its own
+  test suite should be told so rather than hang. `busy_wait = 0` restores refusing at once. The
+  release and the kill switch keep refusing outright: both mean "stop using this machine now",
+  and a request that merely waited would load a side again right behind them.
 - **The gate asks whether den holds anything, not whether *this* side is loaded.** Keying it on
   the requested side meant it fired on every swap, and a swap is the case where den itself is the
   load: with ComfyUI up holding ~19 GB, available RAM sat under the limit and every LLM request

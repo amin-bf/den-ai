@@ -126,7 +126,7 @@ negative = "77.text"
 with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 family = "klein4b"
 model = "70"
-references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 3 }
+references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 4 }
 
 [image.workflows.flux2-klein-4b.settings]
 steps = { input = "62.steps", recommended = [4, 6], allowed = [2, 12] }
@@ -155,7 +155,7 @@ negative = "77.text"
 with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 family = "klein9b"
 model = "70"
-references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 3 }
+references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 4 }
 
 [image.workflows.klein9b-realism.settings]
 steps = { input = "62.steps", recommended = [4, 6], allowed = [2, 12] }
@@ -184,7 +184,7 @@ negative = "77.text"
 with_negative = { "63.negative" = ["77", 0], "63.cfg" = 2 }
 family = "klein9b"
 model = "70"
-references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 3 }
+references = { positive = "63.positive", negative = "63.negative", vae = "72", max = 4 }
 
 [image.workflows.klein9b-anime.settings]
 steps = { input = "62.steps", recommended = [4, 6], allowed = [2, 12] }

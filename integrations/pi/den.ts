@@ -4,9 +4,11 @@
  * - `generate_image`: a tool the model calls on its own, listed while a workflow can run and
  *   den isn't off (`den mode off`). Its description and parameters come
  *   from `den image --json`, the same text Claude's MCP tool uses.
- * - `/imagine [hint]`: the chat model writes a prompt from the conversation and the hint, an
- *   editable box shows it, and Enter generates. When the image model is still loaded, the box
- *   opens with the last prompt instead (Ctrl+R asks the chat model, which swaps).
+ * - `/imagine [hint] [--flag value …]`: the chat model writes a prompt from the conversation and
+ *   the hint, an editable box shows it, and Enter generates. Ctrl+N edits the negative prompt in
+ *   the same box. When the image model is still loaded, the box opens with the last prompt
+ *   instead (Ctrl+R asks the chat model, which swaps). The flags are den's own options, read
+ *   from the request spec, so one den gains later needs no change here.
  * - Results show inline (kitty graphics) with the path as a file:// link. The model gets text
  *   only: path, workflow, seed and settings.
  * - The footer explains broker waits and swaps while pi works.
@@ -72,7 +74,15 @@ type ImageResult = {
 
 type Generation = { result: ImageResult; prompt: string; negative?: string };
 
-type Draft = { workflow: string; prompt: string; negative?: string; size?: string; image?: string };
+type Draft = {
+  workflow: string;
+  prompt: string;
+  negative?: string;
+  size?: string;
+  image?: string;
+  /** Every other request option, by den's own name: references, seed, cfg, loras, control, strength… */
+  options?: Record<string, any>;
+};
 
 type BrokerStatus = {
   loaded: string | null;
@@ -569,7 +579,10 @@ export default function (pi: ExtensionAPI) {
   // --- /imagine ---
 
   pi.registerCommand("imagine", {
-    description: "Generate an image from the conversation: /imagine [--yes] [--workflow NAME] [--image [PATH]] [hint]",
+    description:
+      "Generate an image from the conversation: /imagine [hint] [--yes] [--workflow NAME] " +
+      "[--image [PATH]] [--negative TEXT] [--reference PATH] [--seed N] [--size WxH] [--lora NAME[:STRENGTH]] " +
+      "[--strength 0-1] [--control PATH --control-type TYPE] [--upscale NAME[:FACTOR]] — quote values with spaces",
     getArgumentCompletions(prefix: string) {
       const words = prefix.split(/\s+/);
       const current = words.at(-1) ?? "";
@@ -602,13 +615,14 @@ export default function (pi: ExtensionAPI) {
   }
 
   async function imagine(args: string, ctx: ExtensionCommandContext) {
-    const options = parseImagineArgs(args, ctx);
-    if (!options.yes && ctx.mode !== "tui") throw new Error("/imagine needs the interactive UI; pass --yes to skip the prompt box");
     await ctx.waitForIdle();
     const s = await refreshTool();
     if (!s) throw new Error(`den isn't available: ${DEN} image --json failed (is den on PATH?)`);
     if (!s.image_on) throw new Error(s.unavailable || "image generation isn't available (see: den image)");
     if (!s.workflows.length) throw new Error("no image workflow can run (see: den image)");
+    // The flags come from den's spec, so it has to be in hand before the arguments can be read.
+    const options = parseImagineArgs(args, ctx, s);
+    if (!options.yes && ctx.mode !== "tui") throw new Error("/imagine needs the interactive UI; pass --yes to skip the prompt box");
     if (options.workflow && !s.workflows.includes(options.workflow)) {
       throw new Error(`workflow ${options.workflow} can't run; available: ${s.workflows.join(", ")}`);
     }
@@ -636,13 +650,27 @@ export default function (pi: ExtensionAPI) {
       );
     }
     if (!draft) return;
+    // Flags win over whatever the draft came with, and carry the rest of the request.
+    draft = {
+      ...draft,
+      negative: options.negative ?? draft.negative,
+      size: options.size ?? draft.size,
+      options: options.extras,
+    };
     if (!options.yes) {
       draft = await promptBox(ctx, s, draft, note, options);
       if (!draft) return;
     }
 
     const request = toBrokerRequest(
-      { prompt: draft.prompt, workflow: draft.workflow, negative: draft.negative, size: draft.size, image: draft.image },
+      {
+        prompt: draft.prompt,
+        workflow: draft.workflow,
+        negative: draft.negative,
+        size: draft.size,
+        image: draft.image,
+        ...(draft.options ?? {}),
+      },
       ctx,
     );
     for (const key of Object.keys(request)) if (request[key] === undefined || request[key] === "") delete request[key];
@@ -657,18 +685,85 @@ export default function (pi: ExtensionAPI) {
     });
   }
 
-  function parseImagineArgs(args: string, ctx: ExtensionContext) {
-    const words = args.trim() ? args.trim().split(/\s+/) : [];
-    const options = { yes: false, workflow: undefined as string | undefined, image: undefined as string | undefined, hint: "" };
+  /** Split on whitespace but keep quoted runs together, so a multi-word --negative survives. */
+  function tokenize(args: string): string[] {
+    const words: string[] = [];
+    const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(args))) words.push(match[1] ?? match[2] ?? match[3]);
+    return words;
+  }
+
+  const SHORT_FLAGS: Record<string, string> = { y: "yes", w: "workflow", i: "image", n: "negative", s: "size", r: "reference" };
+
+  type ImagineOptions = {
+    yes: boolean;
+    workflow?: string;
+    image?: string;
+    negative?: string;
+    size?: string;
+    hint: string;
+    /** Everything else, keyed by den's own option names, passed to the broker untouched. */
+    extras: Record<string, any>;
+  };
+
+  /** Every option den offers, as a flag, so one den gains later needs no change here. */
+  function imagineFlags(properties: Record<string, any>): string[] {
+    // The repeatable ones read better singular, and that is the spelling the parser documents.
+    const singular: Record<string, string> = { references: "reference", loras: "lora" };
+    const own = Object.keys(properties).filter((name) => name !== "prompt" && name !== "switch_back" && name !== "control");
+    const control = ["--control", "--control-type", "--control-strength", "--control-start", "--control-end"];
+    return ["--yes", ...own.map((name) => `--${singular[name] ?? name}`), ...("control" in properties ? control : [])].sort();
+  }
+
+  /**
+   * `/imagine [hint] [--flag value …]`. Flags are den's own, in the same compact form as
+   * `den image`: --negative, --reference (repeatable), --lora NAME[:STRENGTH], --upscale
+   * NAME[:FACTOR], --control PATH with --control-type, and any scalar option the spec lists.
+   * Quoted values keep their spaces. The rest of the words are the hint for the chat model.
+   */
+  function parseImagineArgs(args: string, ctx: ExtensionContext, s: Spec): ImagineOptions {
+    const properties = s.parameters?.properties ?? {};
+    const options: ImagineOptions = { yes: false, hint: "", extras: {} };
     const hint: string[] = [];
+    const words = tokenize(args);
+    const control: Record<string, any> = {};
+    const value = (name: string, raw: string | undefined) => {
+      if (raw === undefined) throw new Error(`--${name} needs a value`);
+      return raw;
+    };
+    const number = (name: string, raw: string | undefined) => {
+      const parsed = Number(value(name, raw));
+      if (Number.isNaN(parsed)) throw new Error(`--${name} takes a number, got ${JSON.stringify(raw)}`);
+      return parsed;
+    };
+    // NAME or NAME:AMOUNT, as --lora and --upscale take it.
+    const named = (flag: string, raw: string, key: string) => {
+      const at = raw.lastIndexOf(":");
+      if (at < 0) return { name: raw };
+      const amount = Number(raw.slice(at + 1));
+      if (Number.isNaN(amount)) throw new Error(`--${flag} takes NAME or NAME:${key.toUpperCase()}, got ${JSON.stringify(raw)}`);
+      return { name: raw.slice(0, at), [key]: amount };
+    };
+
     for (let i = 0; i < words.length; i++) {
       const word = words[i];
-      if (word === "--yes" || word === "-y") {
+      if (!word.startsWith("-") || word === "-") {
+        hint.push(word);
+        continue;
+      }
+      const long = word.startsWith("--");
+      const flag = word.replace(/^--?/, "");
+      const name = long ? flag : (SHORT_FLAGS[flag] ?? flag);
+      if (name === "yes") {
         options.yes = true;
-      } else if (word === "--workflow" || word === "-w") {
-        options.workflow = words[++i];
-        if (!options.workflow) throw new Error("--workflow needs a name");
-      } else if (word === "--image" || word === "-i") {
+        continue;
+      }
+      if (name === "workflow" || name === "negative" || name === "size") {
+        options[name] = value(name, words[++i]);
+        continue;
+      }
+      if (name === "image") {
         // A path if the next word looks like one; otherwise the last image of this session.
         const next = words[i + 1];
         if (next && (next === "last" || /[/.~]/.test(next))) {
@@ -677,9 +772,46 @@ export default function (pi: ExtensionAPI) {
         } else {
           options.image = "last";
         }
-      } else {
-        hint.push(word);
+        continue;
       }
+      if (name === "reference" || name === "references") {
+        const raw = value("reference", words[++i]);
+        const path = raw === "last" ? lastImage(ctx) : absolutePath(raw, ctx.cwd);
+        if (!path) throw new Error("--reference last: no image was generated in this session yet");
+        (options.extras.references ??= []).push(path);
+        continue;
+      }
+      if (name === "lora" || name === "loras") {
+        (options.extras.loras ??= []).push(named("lora", value(name, words[++i]), "strength"));
+        continue;
+      }
+      if (name === "upscale") {
+        options.extras.upscale = named("upscale", value(name, words[++i]), "factor");
+        continue;
+      }
+      if (name === "control") {
+        control.image = absolutePath(value(name, words[++i]), ctx.cwd);
+        continue;
+      }
+      if (name === "control-type") {
+        control.type = value(name, words[++i]);
+        continue;
+      }
+      if (name === "control-strength" || name === "control-start" || name === "control-end") {
+        control[name.slice("control-".length)] = number(name, words[++i]);
+        continue;
+      }
+      const schema = properties[name];
+      if (!schema) throw new Error(`unknown option --${name}; /imagine takes: ${imagineFlags(properties).join(" ")}`);
+      if (schema.type === "number" || schema.type === "integer") options.extras[name] = number(name, words[++i]);
+      else if (schema.type === "array") (options.extras[name] ??= []).push(value(name, words[++i]));
+      else options.extras[name] = value(name, words[++i]);
+    }
+
+    if (control.image || control.type) {
+      if (!control.image) throw new Error("--control-type needs --control with the guide image");
+      if (!control.type) throw new Error("--control needs --control-type (den image lists each workflow's types)");
+      options.extras.control = control;
     }
     options.hint = hint.join(" ");
     if (options.image === "last") {
@@ -803,6 +935,16 @@ export default function (pi: ExtensionAPI) {
   }
 
   /** The editable prompt box: Enter generates, Tab picks the workflow, Ctrl+R rewrites, Esc cancels. */
+  /** One option as the box shows it: a count for reference paths, the name for a lora or upscale. */
+  function optionText(key: string, value: any): string {
+    if (Array.isArray(value)) {
+      if (key === "references") return `${value.length} reference(s)`;
+      return value.map((v: any) => (v && typeof v === "object" ? `${key} ${v.name}${v.strength !== undefined ? ` ${v.strength}` : ""}` : `${key} ${v}`)).join(" · ");
+    }
+    if (value && typeof value === "object") return `${key} ${value.name ?? value.type ?? ""}`.trim();
+    return `${key} ${value}`;
+  }
+
   async function promptBox(
     ctx: ExtensionCommandContext,
     s: Spec,
@@ -814,6 +956,8 @@ export default function (pi: ExtensionAPI) {
       let current = { ...draft };
       let rewriting: AbortController | undefined;
       let problem = "";
+      // One editor serves both texts: Ctrl+N swaps which one it holds, so the box stays one line tall.
+      let field: "prompt" | "negative" = "prompt";
       const editor = new Editor(tui, { borderColor: (t: string) => theme.fg("accent", t), selectList: getSelectListTheme() });
       editor.setText(current.prompt);
       const header = new Text("", 1, 0);
@@ -829,9 +973,15 @@ export default function (pi: ExtensionAPI) {
         const bits = [`${theme.bold("/imagine")}  ${theme.fg("accent", current.workflow)}`];
         if (current.image) bits.push(theme.fg("muted", `edits ${fileLink(current.image)}`));
         if (current.size) bits.push(theme.fg("muted", current.size));
+        for (const [key, value] of Object.entries(current.options ?? {})) bits.push(theme.fg("muted", optionText(key, value)));
+        if (field === "negative") bits.push(theme.fg("warning", "editing the negative"));
         header.setText(bits.join(theme.fg("dim", " · ")));
         const lines: string[] = [];
-        if (current.negative) lines.push(theme.fg("muted", `negative: ${current.negative}`));
+        const other = field === "prompt" ? current.negative : current.prompt;
+        if (other?.trim()) {
+          const shown = other.replace(/\s+/g, " ");
+          lines.push(theme.fg("muted", `${field === "prompt" ? "negative" : "prompt"}: ${shown.length > 72 ? `${shown.slice(0, 71)}…` : shown}`));
+        }
         if (note) lines.push(theme.fg("warning", `note (not in the prompt): ${note}`));
         if (problem) lines.push(theme.fg("error", problem));
         lines.push(
@@ -839,7 +989,7 @@ export default function (pi: ExtensionAPI) {
             "dim",
             rewriting
               ? "the chat model is rewriting the prompt (this swaps the GPU) … Esc stops"
-              : "Enter generate · Shift+Enter newline · Tab workflow · Ctrl+R rewrite with the chat model · Esc cancel",
+              : "Enter generate · Shift+Enter newline · Tab workflow · Ctrl+N negative · Ctrl+R rewrite with the chat model · Esc cancel",
           ),
         );
         footer.setText(lines.join("\n"));
@@ -847,11 +997,14 @@ export default function (pi: ExtensionAPI) {
       };
       editor.onSubmit = (text: string) => {
         if (rewriting) return;
-        if (!text.trim()) {
+        const next = { ...current };
+        if (field === "prompt") next.prompt = text.trim();
+        else next.negative = text.trim() || undefined;
+        if (!next.prompt.trim()) {
           problem = "the prompt is empty";
           return update();
         }
-        done({ ...current, prompt: text.trim() });
+        done(next);
       };
       update();
 
@@ -870,6 +1023,13 @@ export default function (pi: ExtensionAPI) {
             return;
           }
           if (matchesKey(data, "escape")) return done(null);
+          if (matchesKey(data, "ctrl+n")) {
+            if (field === "prompt") current.prompt = editor.getText();
+            else current.negative = editor.getText().trim() || undefined;
+            field = field === "prompt" ? "negative" : "prompt";
+            editor.setText((field === "prompt" ? current.prompt : current.negative) ?? "");
+            return update();
+          }
           if (matchesKey(data, "tab")) {
             const choices = current.image ? s.edits : s.workflows;
             const i = choices.indexOf(current.workflow);
@@ -882,9 +1042,13 @@ export default function (pi: ExtensionAPI) {
             problem = "";
             update();
             const request = { ...options, hint: note || options.hint };
-            writePrompt(ctx, s, request, { ...current, prompt: editor.getText() }, controller.signal)
+            const draftNow = field === "prompt" ? { ...current, prompt: editor.getText() } : { ...current, negative: editor.getText().trim() || undefined };
+            writePrompt(ctx, s, request, draftNow, controller.signal)
               .then((next) => {
-                current = { ...next, image: current.image };
+                // The rewrite replaces both texts, so come back to the prompt rather than
+                // leaving the editor on a negative the model just changed underneath it.
+                current = { ...next, image: current.image, options: current.options };
+                field = "prompt";
                 editor.setText(current.prompt);
                 note = "";
               })

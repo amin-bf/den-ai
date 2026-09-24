@@ -801,9 +801,15 @@ export default function (pi: ExtensionAPI) {
       async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
         const broker = (spec ?? s).broker;
         const request: Record<string, any> = { ...params };
-        // A script or a recording given as a path is a file here: the broker wants it absolute.
-        if (typeof params.srt === "string" && !params.srt.includes("\n")) request.srt = absolutePath(params.srt, ctx.cwd);
-        if (typeof params.voice === "string" && /[/.]/.test(params.voice)) request.voice = absolutePath(params.voice, ctx.cwd);
+        // A script or a recording given as a path is a file here: it goes as its content, so a
+        // den on another machine gets it too.
+        if (typeof params.srt === "string" && !params.srt.includes("\n")) {
+          request.srt = readFileSync(absolutePath(params.srt, ctx.cwd), "utf8");
+        }
+        if (typeof params.voice === "string" && /[/.]/.test(params.voice)) {
+          const path = absolutePath(params.voice, ctx.cwd);
+          request.voice = { name: path.split("/").pop(), base64: readFileSync(path).toString("base64") };
+        }
         if (typeof params.out === "string") request.out = absolutePath(params.out, ctx.cwd);
         const r = await requestBroker<Record<string, any>>(broker, request, signal, (msg) => {
           const text = progressText(msg);

@@ -62,7 +62,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `launchd/` | The same two services as launchd agents for macOS, as templates `setup.sh` fills in: launchd expands no home directory of its own, and absolute paths don't belong in the repo. |
 | `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit), the speech venv (Chatterbox pinned by commit) and the voice designer's (qwen-tts pinned). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: the domain's terms and the words to avoid. Use them in code, docs and tool text. |
-| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `generate_voice`, `list_voices`, `design_voice`, `transcribe_audio`, `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `generate_voice`, `list_voices`, `design_voice`, `save_voice`, `transcribe_audio`, `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `den/skills.py` | den's own skills as the broker serves them: `GET /skills` lists them, `GET /skill` gives one's text or a reference, so a client elsewhere can load one into a conversation when its user asks ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
 | `skills/` | den's own agent skills (Agent Skills format), versioned: `den-image` (images), `den-clip` (clips, which build on its stills) and `den-voice` (voice-overs) teach their tools' recipes and measured traps. `setup.sh` links each into `~/.claude/skills/` and `~/.agents/skills/`. |
 | `clients/android/` | Android client (Kotlin, Compose): the den on another machine from a phone, over an SSH channel per request with a key made on the device; Status, Ask, Image and Poses. Its own README ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
@@ -97,7 +97,9 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   date, so a model chooses by what a voice sounds like and a designed one can be made again.
   A model finds voices with `list_voices`; `generate_voice` and a clip's voiceover only say the
   library exists, because a tool whose text changes with every voice makes pi reread its
-  conversation. `den voice --mv`, `--describe` and `--rm` rename, describe and delete.
+  conversation. A designed voice is a draft (`draft:ID`) until `save_voice` keeps it, once the user
+  has heard it. `den voice --mv`, `--describe` and `--rm` rename, describe and delete; no tool
+  deletes a voice, as none deletes a pose.
 - **Speech runs in a venv of its own, on the image side.** Chatterbox pins a torch and
   transformers that ComfyUI's venv has moved past, so installing it there would break image and
   clip generation; `setup.sh` gives it `~/.local/share/den/speech/` (`SPEECH_DIR`) instead. There

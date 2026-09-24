@@ -154,9 +154,9 @@ The user performs the lines (their pace, pauses, emphasis) and a character with 
 says them on screen, lip-synced: an old keeper, a child, a woman. Four calls:
 
 1. **The character's voice**, once (`design_voice`, den-voice), unless `list_voices` shows a
-   fitting one:
+   fitting one: a draft the user hears and approves, then `save_voice` as `grandpa`:
    ```json
-   {"name": "grandpa", "description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly."}
+   {"description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly."}
    ```
 2. **The user records the lines** as they want them said: on the phone, Record narration; or any
    recording they give you.
@@ -186,8 +186,10 @@ Whisper is your ears. Five calls:
 
 1. **The character's still** (den-image): face visible and large enough to see the mouth.
 2. **Their voice** (`design_voice`) from the same idea of the character, unless `list_voices`
-   shows a fitting one: `{"name": "grandpa", "description": "An old man in his eighties with a deep,
-   warm, slightly raspy voice, speaking slowly."}`
+   shows a fitting one. With nobody to listen, check the draft yourself: `generate_voice` a line
+   with `draft:ID`, `transcribe_audio` it, and `save_voice` it once the words come back right:
+   `{"description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking
+   slowly."}`
 3. **The clip**, the lines written by you (about 2.5 words a second, one thought per line) and
    timed by den, lip-synced:
    ```json

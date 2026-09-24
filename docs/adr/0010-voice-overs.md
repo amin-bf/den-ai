@@ -53,7 +53,9 @@ should go over a clip made with any workflow, silent or not, and stand on its ow
   library, so everything after is the one speaking path: Chatterbox's timing, 23 languages,
   lip-sync. It pins transformers 4.57.3 against Chatterbox's 5.2.0, so it gets a venv of its own
   (`setup.sh`, `DESIGN_DIR`) and runs as a one-shot process per design (`speech/design.py`), an
-  image-side request like speech, not a server.
+  image-side request like speech, not a server. A design is a draft (`draft:ID`, outside the
+  library, the last 20 kept) until someone has heard it and saves it under a name, as a pose is
+  drawn before it's kept: a voice nobody listened to shouldn't end up in the library.
 - **Whisper writes down a recording.** `POST /transcribe` runs Whisper large-v3-turbo (MIT, about
   1.6 GB, downloaded on first use) in the same speech server, loaded only when something is
   transcribed; the transformers Chatterbox pins already carries it. A recording, the user's own

@@ -72,14 +72,17 @@ script den spoke itself; read the SRT before speaking it again.
 For a character's voice nobody has recorded:
 
 ```json
-{"name": "grandpa", "description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly, like a storyteller by the fire."}
+{"description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly, like a storyteller by the fire."}
 ```
+
+That makes a draft (`draft 20260924-…`). Try it: `generate_voice` with `"voice": "draft:20260924-…"`
+on a real line. The user likes it: `save_voice` with `{"draft": "20260924-…", "name": "grandpa"}`.
 
 - Describe **age, gender, pitch, texture, pace and mood**; the more concrete, the more it holds.
 - The sample is spoken in `language` (10 to choose from); Chatterbox then speaks the voice in any
   of its 23, with the sample's accent.
-- Try it on one short line with `generate_voice` and ask the user. Not right: the same
-  description with another `seed`, or a sharper description, with `replace`.
+- Not right: the same description with another `seed`, or a sharper description, as a new draft.
+  Only a user who asked for it at once gets `name` in `design_voice`, which skips the draft.
 - The description, language and seed are kept with the voice: `list_voices` shows them, and the
   same description and seed make the same voice again if it's ever lost.
 - From then on it's a voice like any recorded one: `voice: "grandpa"` in `generate_voice` or a

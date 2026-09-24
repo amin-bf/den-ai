@@ -442,7 +442,9 @@ den voice "Welcome to the harbour." -v narrator # one line, as a WAV track
 den voice --srt script.srt -v narrator -l de    # each line at its time, on one track
 den voice --lines lines.txt -v narrator         # lines in turn; den writes the SRT at their times
 den voice --transcribe me.m4a                   # what a recording says, as a timed SRT (Whisper)
-den voice --design grandpa "an old man with a deep, raspy, slow voice"   # a voice from a description
+den voice --design "an old man with a deep, raspy, slow voice"   # a draft voice from a description
+den voice "A line to try." -v draft:ID          # try the draft through the speech model
+den voice --save ID grandpa                     # keep it once you like it (--keep-as skips the draft)
 den voice --show grandpa                        # a voice's details; --mv OLD NEW, --describe NAME TEXT
 den clip "…" --voiceover script.srt --voice narrator   # a clip with the voice mixed in
 den clip "…he says to the camera…" --voiceover lines.txt --voice narrator --lip-sync

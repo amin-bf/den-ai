@@ -15,9 +15,10 @@ description lists the voices and languages; this skill is how to get speech that
   and saved as one WAV track. Settings: `exaggeration`, `cfg_weight`, `seed`.
 - **`generate_clip`** with `voiceover` (den-clip): the same script and voice, spoken first and
   mixed into a clip.
-- **`design_voice`**: a new voice from a description ("an old man with a deep, raspy, slow
-  voice"), kept in the library under a name. Chatterbox can't be told a voice in words; the
-  designer speaks a sample in it once, and Chatterbox clones that sample from then on.
+- **`design_voice`** / **`save_voice`**: a new voice from a description ("an old man with a deep,
+  raspy, slow voice"). Chatterbox can't be told a voice in words; the designer speaks a sample in
+  it once, and Chatterbox clones that sample from then on. A design is a **draft** (`draft:ID`)
+  until `save_voice` keeps it under a name, as a pose is drawn before it's kept.
 - **`transcribe_audio`**: what a recording says, as an SRT at the times it was said (Whisper):
   subtitles, or the script of a recording to speak again in another voice.
 - **`list_voices`**: the voice library, each voice with what it sounds like and how it was made
@@ -43,6 +44,21 @@ What to tell a user who wants their own voice, or a narrator's:
 - Any common audio format; a phone's voice recorder is fine, and the den phone app records one
   itself (Clip pane, a new voice's name, Record). A second recording in another mood is a second
   voice.
+
+## A new voice: in stages, with the user
+
+Like a pose, a voice is kept only once the user has heard it and likes it:
+
+1. **Design a draft** (`design_voice` with a description, no name). Say its sample's path; on the
+   phone it plays at once.
+2. **Try it where it counts**: one real line with `generate_voice` and `voice: "draft:ID"`. The
+   clone is what every voice-over will sound like, not the designer's sample.
+3. **Ask**, and stop. Not right: design again with another `seed` or a sharper description
+   (older, raspier, slower…), and try that.
+4. **Keep it** with `save_voice` (the draft's id and a name) once the user says so. Don't save a
+   voice they haven't heard; den keeps the last 20 drafts, so an unsaved one isn't lost at once.
+
+Deleting or renaming a voice is the user's (`den voice --rm`, `--mv`), never a tool's.
 
 ## Writing a script
 

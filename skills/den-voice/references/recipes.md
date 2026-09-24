@@ -66,3 +66,19 @@ The user speaks the lines themselves (on the phone: Clip pane, Record narration)
 
 Whisper writes numbers as digits ("40 years") and times its lines a little more coarsely than a
 script den spoke itself; read the SRT before speaking it again.
+
+## A designed voice
+
+For a character's voice nobody has recorded:
+
+```json
+{"name": "grandpa", "description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly, like a storyteller by the fire."}
+```
+
+- Describe **age, gender, pitch, texture, pace and mood**; the more concrete, the more it holds.
+- The sample is spoken in `language` (10 to choose from); Chatterbox then speaks the voice in any
+  of its 23, with the sample's accent.
+- Try it on one short line with `generate_voice` and ask the user. Not right: the same
+  description with another `seed`, or a sharper description, with `replace`.
+- From then on it's a voice like any recorded one: `voice: "grandpa"` in `generate_voice` or a
+  clip's voiceover, with `sync` for a lip-synced character.

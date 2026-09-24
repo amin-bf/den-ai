@@ -1,6 +1,6 @@
 ---
 name: den-voice
-description: Speak a text, lines or an SRT script in a voice cloned from a recording, with den's local speech model (generate_voice), and write a recording down as a timed SRT (transcribe_audio) — voice-overs, narration, subtitles, keeping voices, scripts whose lines fit their times, languages and expressiveness. Use when asked for a voice-over, narration, a spoken line or a voice from a recording, to say something in someone's voice, or to transcribe a recording or make subtitles. Putting the voice on a clip is den-clip's; the clip passes the same script as its voiceover.
+description: Speak a text, lines or an SRT script in a voice cloned from a recording, with den's local speech model (generate_voice), make a new voice from a description (design_voice: an old man, a child, a woman), and write a recording down as a timed SRT (transcribe_audio) — voice-overs, narration, subtitles, keeping voices, scripts whose lines fit their times, languages and expressiveness. Use when asked for a voice-over, narration, a spoken line or a voice from a recording, to say something in someone's voice, or to transcribe a recording or make subtitles. Putting the voice on a clip is den-clip's; the clip passes the same script as its voiceover.
 ---
 
 # den-voice: voice-overs with den
@@ -15,6 +15,9 @@ description lists the voices and languages; this skill is how to get speech that
   and saved as one WAV track. Settings: `exaggeration`, `cfg_weight`, `seed`.
 - **`generate_clip`** with `voiceover` (den-clip): the same script and voice, spoken first and
   mixed into a clip.
+- **`design_voice`**: a new voice from a description ("an old man with a deep, raspy, slow
+  voice"), kept in the library under a name. Chatterbox can't be told a voice in words; the
+  designer speaks a sample in it once, and Chatterbox clones that sample from then on.
 - **`transcribe_audio`**: what a recording says, as an SRT at the times it was said (Whisper):
   subtitles, or the script of a recording to speak again in another voice.
 - **Voices** are recordings kept under a name, listed in the tool description. The user adds them
@@ -75,6 +78,7 @@ when lines must land at given moments.
 | Several lines, times not known yet | **lines in turn**: den times them and writes the SRT | 1 |
 | Narration with timing | **an SRT script** | 1 |
 | The user's own voice | **a voice from a recording**, then either of the above | 1 + 1 |
+| A kind of voice nobody recorded (old, young, a woman, a child) | **a designed voice**, then any of the above | 1 + 1 |
 | The user's own narration, as it is | **the recording as the voice-over** (`audio`), transcribed for its script | 1 + 2 |
 | A clip with a narrator | den-clip, **clip with a voice-over** | 2 |
 

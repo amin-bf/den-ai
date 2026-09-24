@@ -18,3 +18,8 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
   words and the times before speaking a transcript again.
 - **Cloning works from any clean recording.** A 6.5-second track of the model's own voice kept
   as a voice gave a line in that voice, in one request with no other setup.
+- **A designed voice survives cloning.** Three voices designed from descriptions (an old man in
+  his eighties, deep and raspy; an old woman, soft and gentle; a cheerful eight-year-old girl),
+  then cloned by Chatterbox on one line: median pitch 130 → 122 Hz, 172 → 172 Hz and 526 →
+  444 Hz, still clearly apart. Designing took 59 s the first time (the download), then 15–18 s;
+  each sample came out 12–18 s long.

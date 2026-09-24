@@ -47,6 +47,13 @@ should go over a clip made with any workflow, silent or not, and stand on its ow
   with a zero noise mask, as ComfyUI's image-and-audio-to-video template does; the model draws
   the picture to it, lips included. The saved clip carries the clean voice, not its trip through
   the VAE. A voice-over without `sync` stays a narrator over the picture.
+- **A voice from a description is designed once, then cloned.** Chatterbox takes no description
+  of a voice, only a recording. Qwen3-TTS VoiceDesign (Apache 2.0, 1.7B, 10 languages) speaks a
+  fixed sample text in a voice made from a description, and den keeps that sample in the voice
+  library, so everything after is the one speaking path: Chatterbox's timing, 23 languages,
+  lip-sync. It pins transformers 4.57.3 against Chatterbox's 5.2.0, so it gets a venv of its own
+  (`setup.sh`, `DESIGN_DIR`) and runs as a one-shot process per design (`speech/design.py`), an
+  image-side request like speech, not a server.
 - **Whisper writes down a recording.** `POST /transcribe` runs Whisper large-v3-turbo (MIT, about
   1.6 GB, downloaded on first use) in the same speech server, loaded only when something is
   transcribed; the transformers Chatterbox pins already carries it. A recording, the user's own

@@ -50,7 +50,9 @@ What to tell a user who wants their own voice, or a narrator's:
 Like a pose, a voice is kept only once the user has heard it and likes it:
 
 1. **Design a draft** (`design_voice` with a description, no name). Say its sample's path; on the
-   phone it plays at once.
+   phone it plays at once. A character whose voice nobody described (only their looks, age,
+   manner): design **two contrasting drafts** from what's known, e.g. warm and low against bright
+   and lively, and let the user choose between them rather than guess once.
 2. **Try it where it counts**: one real line with `generate_voice` and `voice: "draft:ID"`. The
    clone is what every voice-over will sound like, not the designer's sample.
 3. **Ask**, and stop. Not right: design again with another `seed` or a sharper description
@@ -59,6 +61,9 @@ Like a pose, a voice is kept only once the user has heard it and likes it:
    voice they haven't heard; den keeps the last 20 drafts, so an unsaved one isn't lost at once.
 
 Deleting or renaming a voice is the user's (`den voice --rm`, `--mv`), never a tool's.
+
+The GPU is shared: a voice job waits behind other clients' work, as they wait behind it. Never
+release the machine or cancel another client's request to go first.
 
 ## Writing a script
 

@@ -26,3 +26,7 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
 - **Whisper reads a finished clip's mp4 directly.** The lip-synced keeper clip, passed as it was,
   came back "Tonight, someone else will keep the light." word for word: a way to check a clip's
   speech without anyone listening.
+- **Two contrasting drafts make the choice easy.** For a 24-year-old woman described only by her
+  looks: "warm, smooth, slightly low … unhurried" came out around 200 Hz and "bright, clear,
+  lively … a smile in her tone" around 370 Hz, both kept by the clone (203 and 370 Hz) and both
+  word for word through Whisper. The user picked the low one at once; the high one read young.

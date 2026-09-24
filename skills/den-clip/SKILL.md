@@ -62,7 +62,9 @@ write the script and pick the voice: den-voice.
 A voice-over is a narrator: the picture doesn't know it, and no lips move. For a person on screen
 who **speaks the lines**, pass `sync: true` in the voiceover, on a workflow whose options say
 lip-sync: the voice goes into the model and the picture is made to it. Say in the prompt who
-speaks and to whom ("he says to the camera"); keep the rest of the sound to ambience.
+speaks and to whom ("he says to the camera"); keep the rest of the sound to ambience. The lips
+read best from a close-up start frame with the face frontal and the mouth large; the clip takes
+that frame's shape (a portrait close-up gives a portrait clip).
 
 So there are two ways to make someone on screen talk, both lip-synced:
 
@@ -78,13 +80,20 @@ line in the prompt only confuses who says what.
 
 ## The working loop
 
-1. **Make the look as stills first** (den-image) and get them approved.
+1. **Pick the workflow from the tool description**: its style, what it takes (keyframes, sound,
+   lip-sync) and any note at the end of its description. Then **make the look as stills first**
+   (den-image) and get them approved.
 2. **Try the motion short**: 2–3 seconds, the workflow's defaults. Note the seed.
 3. **Judge the contact sheet**: four frames, first to last. *Claude:* look at it and say what you
    see. *pi:* you don't see it; ask the user. You can't hear a clip's sound: for speech,
    `transcribe_audio` on the clip's mp4 tells you the words; for the rest, ask how it sounds.
 4. **Change one thing, reuse the seed**, then make the full length.
 5. **Finish.** *Claude:* `release_resources`. *pi:* nothing to do.
+
+The GPU is shared: a clip waits in the broker's queue behind other clients' work (pi's chat, a
+phone's image) and they wait behind it. Never release the machine, cancel another client's
+request or restart the broker to go first; say the clip is queued. Checks that need the GPU
+(`transcribe_audio`) are best run while the image side is still loaded, right after the clip.
 
 ## Which recipe for which goal
 

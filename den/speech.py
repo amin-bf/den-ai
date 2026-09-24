@@ -222,7 +222,8 @@ def request_spec():
             "voice-over. For a voice-over on a clip, pass it to generate_clip as voiceover instead. "
             "Give each SRT line time to be said, about 2.5 words a second: a line that runs long "
             "pushes the next one later, and the result lists each one as a note. You can't hear the "
-            "result; ask the user how it sounds."
+            "result; ask the user how it sounds. The den-voice skill has the recipes (recording a voice, "
+            "scripts that fit their times, the settings)."
         ),
         "parameters": {
             "type": "object",

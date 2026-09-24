@@ -499,7 +499,10 @@ def listing(config, folders=True):
 
 def request_spec(config, flows, default):
     """The clip tool's description and JSON schema, built from the workflows that can run."""
-    lines = ["Clip workflows (pick by style; each has its own prompt format):"]
+    lines = [
+        "The den-clip skill has the recipes (the look as stills first, keyframes, sound, a voice-over).",
+        "Clip workflows (pick by style; each has its own prompt format):",
+    ]
     for name, wf in flows.items():
         marker = " (default)" if name == default else ""
         lines.append(f"- {name}{marker}: {image.describe(wf)}")

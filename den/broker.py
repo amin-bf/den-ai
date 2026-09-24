@@ -1094,6 +1094,14 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/skill" and self.command == "GET":
                 query = parse_qs(urlsplit(self.path).query)
                 self._send_json(200, skills.get(query.get("name", [""])[0], query.get("reference", [None])[0]))
+            elif path == "/poses" and self.command == "POST":
+                # A person deleting a pose from a client (the phone); no tool deletes one.
+                body = json.loads(self._read_body() or b"{}")
+                if not body.get("remove"):
+                    raise DenError("POST /poses takes {name, remove: true}")
+                poses.remove(str(body.get("name") or ""))
+                log(f"{self._caller()} POST /poses -> removed {body.get('name')}")
+                self._send_json(200, {"removed": body.get("name"), "names": poses.names()})
             elif path == "/poses" and self.command == "GET":
                 # For a client on another machine: names, descriptions and small copies, no files.
                 name = parse_qs(urlsplit(self.path).query).get("name", [None])[0]

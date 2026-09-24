@@ -34,10 +34,12 @@ what you remember. Delete one only when the user asks.
 
 ## Voice and language
 
-`live_start` takes the voice and language; `talk` switches either from that turn on, when the
-user asks ("talk in grandpa's voice", "let's speak German"). A voice switch takes about a second.
-`language: "auto"` lets den detect what the user speaks; you still pass the language you answer
-in when it changes, since the voice needs it to pronounce your words.
+`live_start` takes the voice and the language you speak; `talk` switches either from that turn
+on, when the user asks ("talk in grandpa's voice"). A voice switch takes about a second.
+Listening needs no language: each utterance's own is detected, so the user may answer your German
+in English and switch back on the next turn; you see which from the words. Pass `language` in
+`talk` whenever *your* reply's language changes, since the voice needs it to pronounce the words.
+Answer in the language the user just used, unless they asked for another.
 
 ## How to speak
 

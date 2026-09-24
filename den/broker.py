@@ -454,8 +454,8 @@ class Broker:
 
     def live_talk(self, say, wait_s, voice=None, language=None):
         voice_file = speech.voice_path(voice) if voice else None
-        if language and language != "auto" and language not in speech.LANGUAGES:
-            raise DenError(f"unknown language {language!r}; one of: auto, {', '.join(speech.LANGUAGES)}")
+        if language and language not in speech.LANGUAGES:
+            raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
         with self.cond:
             if not self.live or self.live.get("state") != "on":
                 raise DenError("no live conversation is on (live_start begins one)")
@@ -1391,8 +1391,8 @@ class Handler(BaseHTTPRequestHandler):
         """POST /live/start {voice?, language?, exaggeration?}: take the machine for a live
         conversation (ADR 0011). Streams progress; ends with {"result": {session}}."""
         language = str(body.get("language") or "en").lower()
-        if language != "auto" and language not in speech.LANGUAGES:
-            raise DenError(f"unknown language {language!r}; one of: auto, {', '.join(speech.LANGUAGES)}")
+        if language not in speech.LANGUAGES:
+            raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
         session = self.broker.live_start(body.get("voice"), language, float(body.get("exaggeration") or 0.5), emit, self._caller_gone)
         emit({"result": {"session": session}})
 

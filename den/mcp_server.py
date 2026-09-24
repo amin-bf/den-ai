@@ -297,7 +297,7 @@ def live_tools():
                 "type": "object",
                 "properties": {
                     "voice": {"type": "string", "description": "Your voice: a name from list_voices. Default: the model's own."},
-                    "language": {"type": "string", "enum": ["auto", *sorted(speech.LANGUAGES)], "description": "Default: en; auto lets den detect what the user speaks."},
+                    "language": {"type": "string", "enum": sorted(speech.LANGUAGES), "description": "The language you speak at first (default en); the user's is detected in every utterance."},
                     "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2 (default 0.5)."},
                 },
             },
@@ -316,9 +316,10 @@ def live_tools():
                     "wait_s": {"type": "number", "description": "How long to listen for an answer (default 120 s)."},
                     "voice": {"type": "string", "description": "Switch to this voice (list_voices) from this turn on, e.g. when the user asks."},
                     "language": {
-                        "type": "string", "enum": ["auto", *sorted(speech.LANGUAGES)],
-                        "description": "Switch language from this turn on, for speaking and listening; auto: den detects what "
-                        "the user speaks (you still choose the language you answer in).",
+                        "type": "string", "enum": sorted(speech.LANGUAGES),
+                        "description": "The language `say` is in, from this turn on: pass it whenever you answer in another "
+                        "language than before. Listening needs none: the user may answer in any language, each utterance's "
+                        "own is detected, and you see it in the words.",
                     },
                 },
             },

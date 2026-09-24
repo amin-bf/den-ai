@@ -7,7 +7,8 @@ goes through PipeWire's echo canceller, so den's own voice is never taken for th
 
     GET  /health  {ready, error}
     POST /talk    {say?, wait_s?, voice?, language?} -> from this turn on in voice (a recording's
-                  path) and language ("auto": Whisper detects it); speaks `say` sentence by sentence, then waits for the user's
+                  path), speaking language (what `say` is in; listening always detects each
+                  utterance's own); speaks `say` sentence by sentence, then waits for the user's
                   next utterance: {heard, interrupted, spoken, unspoken, silence}. The user
                   speaking over the voice stops it at once (interrupted, and how far it got);
                   something said before the call came in is returned without speaking at all.
@@ -222,12 +223,11 @@ def speak(text, target):
 
 
 def switch(voice=None, language=None):
-    """Another voice or language from this turn on: the voice's recording is read once (about a
-    second); a language applies to speaking and listening, "auto" letting Whisper detect it."""
+    """Another voice or speaking language from this turn on: the voice's recording is read once
+    (about a second). Listening needs no language: Whisper detects each utterance's own, so the
+    user can answer in English what was said in German, and the other way round."""
     if language:
-        models["language"] = None if language == "auto" else language
-        if language != "auto":
-            models["speak_language"] = language
+        models["speak_language"] = language
     if voice and voice != models.get("voice"):
         with models["tts_lock"]:
             models["tts"].prepare_conditionals(voice, exaggeration=models["exaggeration"])
@@ -306,8 +306,8 @@ def load(args):
         models["tts"] = tts
         models["tts_lock"] = threading.Lock()
         models["voice"] = args.voice
-        models["language"] = None if args.language == "auto" else args.language
-        models["speak_language"] = args.language if args.language != "auto" else "en"
+        models["language"] = None  # listening: every utterance's own language, detected
+        models["speak_language"] = args.language
         models["exaggeration"] = args.exaggeration
         state["ready"] = True
         log("ready")

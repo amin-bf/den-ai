@@ -38,6 +38,10 @@ library). No chat model of den's, no pi, no phone.
   the summary is kept beside it), or have Claude turn it into something else. Every session is
   kept until then, with no limit: it's text. `list_conversations` and `read_conversation` let a
   later session pick up an earlier conversation.
+- **Listening detects every utterance's language; speaking is told.** Whisper writes each utterance
+  down in its own language, so the user may answer German in English and switch back; Chatterbox
+  must be told the language of the words it speaks, so `talk` carries the language of Claude's
+  reply, from that turn on.
 - **A turn ends by what was said, never while the user speaks.** After a pause, den waits 0.6 s
   after a finished sentence, 1.8 s after a very short answer ("No.", often the start of more) and
   2.5 s after words that don't sound finished ("maybe that's gonna"), and not at all while the

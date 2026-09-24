@@ -1,5 +1,6 @@
 package den.android
 
+import android.Manifest
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -414,6 +415,9 @@ private fun ClipPane(model: AppModel) {
             if (uri != null) model.readPicked(uri)?.let(model::loadScript)
         }
         var newVoice by remember { mutableStateOf("") }
+        val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) model.toggleRecording(newVoice.trim()) else model.voiceNote = "recording needs the microphone permission"
+        }
         val pickRecording = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) model.readPicked(uri)?.let { model.addVoice(newVoice.trim(), it) }
         }
@@ -423,13 +427,44 @@ private fun ClipPane(model: AppModel) {
             supportingText = { Text("A line to say, or an SRT script: each line at its time, and the clip lasts to its end") },
             minLines = 2, modifier = Modifier.fillMaxWidth(),
         )
+        val askMicNarration = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) model.toggleNarration() else model.voiceNote = "recording needs the microphone permission"
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = { if (model.recordingNarration) model.toggleNarration() else askMicNarration.launch(Manifest.permission.RECORD_AUDIO) },
+                enabled = !model.recording || model.recordingNarration,
+            ) { Text(if (model.recordingNarration) "Stop" else "Record narration") }
             OutlinedButton(onClick = { pickScript.launch(arrayOf("application/x-subrip", "text/*", "*/*")) }) { Text("Load SRT") }
             if (model.clipVoiceover.isNotEmpty()) TextButton(onClick = { model.clipVoiceover = "" }) { Text("Clear") }
         }
         if (model.clipVoiceover.isNotBlank()) {
             Picker("Voice", model.clipVoice, model.voiceNames(), { model.clipVoice = it }, allowNone = true)
             Picker("Language", model.clipLanguage, model.languages(), { model.clipLanguage = it }, allowNone = true)
+            if (model.narration != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Switch(model.useNarration, { model.useNarration = it })
+                    Column(Modifier.weight(1f)) {
+                        Text("Use my recording")
+                        Text("Off: the voice below reads the script instead", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if (model.clipCanLipSync()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Switch(model.clipLipSync, { model.clipLipSync = it })
+                    Column(Modifier.weight(1f)) {
+                        Text("Lip-sync")
+                        Text("A person on screen speaks it; say who in the prompt", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+        model.lastSrt?.let {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { model.clipVoiceover = it }) { Text("Use the timed script") }
+                TextButton(onClick = model::saveSrt) { Text("Save SRT") }
+            }
         }
         // A new voice from a recording: about 10 seconds of clear speech, no music or echo.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -437,8 +472,13 @@ private fun ClipPane(model: AppModel) {
                 newVoice, { newVoice = it.lowercase().replace(Regex("[^a-z0-9-]"), "-") },
                 label = { Text("New voice name") }, singleLine = true, modifier = Modifier.weight(1f),
             )
-            OutlinedButton(onClick = { pickRecording.launch(arrayOf("audio/*")) }, enabled = newVoice.isNotBlank()) {
-                Text("Pick recording")
+            val sampling = model.recording && !model.recordingNarration
+            Button(
+                onClick = { if (sampling) model.toggleRecording(newVoice.trim()) else askMic.launch(Manifest.permission.RECORD_AUDIO) },
+                enabled = newVoice.isNotBlank() && !model.recordingNarration,
+            ) { Text(if (sampling) "Stop" else "Record") }
+            OutlinedButton(onClick = { pickRecording.launch(arrayOf("audio/*")) }, enabled = newVoice.isNotBlank() && !model.recording) {
+                Text("File")
             }
         }
         model.voiceNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }

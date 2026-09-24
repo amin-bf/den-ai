@@ -190,6 +190,10 @@ class DenClient(private val transport: Transport) {
     fun pose(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/pose", request, null, onProgress)
 
+    /** POST /transcribe {audio: {name, base64}}: what a recording says, as a timed SRT (ADR 0010). */
+    fun transcribe(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
+        streamed("/transcribe", request, null, onProgress)
+
     /** An endpoint that streams NDJSON progress lines and ends with {"result"} or {"error"}. */
     private fun streamed(path: String, request: JSONObject, stop: Stop?, onProgress: (JSONObject) -> Unit): JSONObject {
         request.put("bytes", true)

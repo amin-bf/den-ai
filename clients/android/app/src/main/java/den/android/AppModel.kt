@@ -115,6 +115,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var clipVoice by mutableStateOf<String?>(null)
     var clipLanguage by mutableStateOf<String?>(null)
     var voiceNote by mutableStateOf<String?>(null)
+    /** Make the clip to the voice-over, so a person on screen speaks it; where the workflow can. */
+    var clipLipSync by mutableStateOf(false)
+    /** The script at the times the last clip's lines were spoken, to reuse or keep. */
+    var lastSrt by mutableStateOf<String?>(null)
+    private val recorder = Recorder(app)
+    var recording by mutableStateOf(false)
+    /** What the recorder is recording: a new voice's sample, or the narration of a clip. */
+    var recordingNarration by mutableStateOf(false)
+    /** The user's own narration, recorded here; its words come back as the timed script. */
+    var narration by mutableStateOf<Picked?>(null)
+    /** The narration itself is the voice-over, instead of a voice reading its script. */
+    var useNarration by mutableStateOf(false)
     /** A sound track, on a workflow that makes sound; sent only when switched off. */
     var clipSound by mutableStateOf(true)
     /** LoRAs picked for the clip, each with its strength as typed; empty for the LoRA's default. */
@@ -432,9 +444,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (clipMakesSound() && !clipSound) body.put("sound", false)
         clipVoiceover.trim().takeIf { it.isNotEmpty() && voiceInfo() != null }?.let { spoken ->
             // A script has timed lines; anything else is one text spoken from the start.
-            val voiceover = JSONObject().put(if ("-->" in spoken) "srt" else "text", spoken)
+            // A script has timed lines; several lines without times are spoken in turn and timed by
+            // the den; one line is a text spoken from the start.
+            val voiceover = when {
+                "-->" in spoken -> JSONObject().put("srt", spoken)
+                "\n" in spoken -> JSONObject().put("lines", JSONArray(spoken.lines().filter { it.isNotBlank() }))
+                else -> JSONObject().put("text", spoken)
+            }
             clipVoice?.let { voiceover.put("voice", it) }
             clipLanguage?.let { voiceover.put("language", it) }
+            if (clipLipSync && clipCanLipSync()) voiceover.put("sync", true)
+            narration?.takeIf { useNarration }?.let {
+                voiceover.put("audio", JSONObject().put("name", it.name).put("base64", Base64.encodeToString(it.bytes, Base64.NO_WRAP)))
+            }
             body.put("voiceover", voiceover)
         }
         clipDuration.trim().takeIf { it.isNotEmpty() }?.let {
@@ -500,6 +522,91 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val clip = info?.optJSONObject("clip") ?: return 0
         val name = clipWorkflow ?: clip.optString("default").takeIf { it.isNotEmpty() } ?: return 3
         return clip.optJSONObject("keyframes")?.optInt(name, 3) ?: 3
+    }
+
+    /** Whether the chosen clip workflow can make its picture to a voice. */
+    fun clipCanLipSync(): Boolean {
+        val clip = info?.optJSONObject("clip") ?: return false
+        val name = clipWorkflow ?: clip.optString("default").takeIf { it.isNotEmpty() } ?: return false
+        return clip.optJSONObject("lip_sync")?.optBoolean(name, false) ?: false
+    }
+
+    /** Record the narration; a second call stops, and the den writes down what was said as the timed script. */
+    fun toggleNarration() {
+        val c = client ?: return
+        if (!recorder.recording) {
+            try {
+                recorder.start()
+                recording = true
+                recordingNarration = true
+                voiceNote = "recording the narration: speak the lines, then tap Stop"
+            } catch (e: Exception) {
+                voiceNote = "can't record: ${e.message}"
+            }
+            return
+        }
+        recording = false
+        recordingNarration = false
+        val (file, _) = recorder.stop() ?: run { voiceNote = "nothing was recorded"; return }
+        val picked = Picked(file.name, file.readBytes())
+        file.delete()
+        voiceNote = "writing down what you said ..."
+        io {
+            try {
+                val audio = JSONObject().put("name", picked.name).put("base64", Base64.encodeToString(picked.bytes, Base64.NO_WRAP))
+                val request = JSONObject().put("audio", audio)
+                clipLanguage?.let { request.put("language", it) }
+                val result = c.transcribe(request) { msg -> voiceNote = DenClient.describeProgress(msg) }
+                clipVoiceover = result.getString("srt")
+                narration = picked
+                useNarration = true
+                voiceNote = "heard ${result.optJSONArray("segments")?.length() ?: 0} line(s); your recording is the voice-over"
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
+    }
+
+    /** Record a voice sample; a second call stops and keeps it as the voice [name]. */
+    fun toggleRecording(name: String) {
+        if (!recorder.recording) {
+            try {
+                recorder.start()
+                recording = true
+                voiceNote = "recording: speak naturally for about 10 seconds, then tap Stop"
+            } catch (e: Exception) {
+                voiceNote = "can't record: ${e.message}"
+            }
+            return
+        }
+        recording = false
+        val (file, seconds) = recorder.stop() ?: run { voiceNote = "nothing was recorded"; return }
+        if (seconds < 4) {
+            file.delete()
+            voiceNote = "that was ${"%.1f".format(seconds)} s; record 5–15 seconds of speech"
+            return
+        }
+        addVoice(name, Picked(file.name, file.readBytes()))
+        file.delete()
+    }
+
+    /** Keep the last clip's timed script as a file in Download/den. */
+    fun saveSrt() {
+        val srt = lastSrt ?: return
+        val name = "den-" + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(Date()) + ".srt"
+        val resolver = getApplication<Application>().contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.MIME_TYPE, "application/x-subrip")
+            put(MediaStore.Downloads.RELATIVE_PATH, "Download/den")
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            voiceNote = "could not save the script"
+            return
+        }
+        resolver.openOutputStream(uri)!!.use { it.write(srt.toByteArray()) }
+        voiceNote = "script saved to Download/den/$name"
     }
 
     /** The broker's voices and languages, or null where speech isn't installed (ADR 0010). */
@@ -620,6 +727,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         }
         val summary = result.optJSONArray("summary")?.let { a -> (0 until a.length()).joinToString(" · ") { a.getString(it) } }
         val notes = result.optJSONArray("notes")?.let { a -> (0 until a.length()).map { "note: ${a.getString(it)}" } }.orEmpty()
+        lastSrt = result.optString("srt").takeIf { it.isNotEmpty() }
         clipSummary = (listOfNotNull(summary, "${result.opt("seconds")} s", "saved to $where") + notes).joinToString("\n")
         clipUri = uri
         clipState = null

@@ -29,7 +29,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **No content notes about what image models will or won't generate,** in code, config, tool
   descriptions or docs. Describe models by style and prompt format only. Content notes belong
   in the git-ignored `config.local.toml` (a workflow's `note`), never in versioned files.
-- **A workflow built for explicit content, or on files only this machine has, stays out of the
+- **A workflow that shouldn't be published, or one on files only this machine has, stays out of the
   repo entirely:** its graph in `~/.config/den/workflows/` and its entry in `config.local.toml`.
   Model files it downloads get neutral local names, since the graph names them.
 - **Nothing machine-specific in code, config or scripts:** no absolute paths. Derive the repo

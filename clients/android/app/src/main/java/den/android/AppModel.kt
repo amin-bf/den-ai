@@ -110,6 +110,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var clipWorkflow by mutableStateOf<String?>(null)
     var clipDuration by mutableStateOf("")
     var clipSize by mutableStateOf("")
+    /** A sound track, on a workflow that makes sound; sent only when switched off. */
+    var clipSound by mutableStateOf(true)
     /** LoRAs picked for the clip, each with its strength as typed; empty for the LoRA's default. */
     val clipLoras = mutableStateMapOf<String, String>()
     /** Images the clip must show, each with its moment as typed: start, end, seconds or NN%. */
@@ -422,6 +424,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         clipNegative.trim().takeIf { it.isNotEmpty() }?.let { body.put("negative", it) }
         // The broker checks the size; left empty, the clip takes the start frame's shape.
         clipSize.trim().takeIf { it.isNotEmpty() }?.let { body.put("size", it) }
+        if (clipMakesSound() && !clipSound) body.put("sound", false)
         clipDuration.trim().takeIf { it.isNotEmpty() }?.let {
             val seconds = it.toDoubleOrNull()
             if (seconds == null) {
@@ -485,6 +488,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val clip = info?.optJSONObject("clip") ?: return 0
         val name = clipWorkflow ?: clip.optString("default").takeIf { it.isNotEmpty() } ?: return 3
         return clip.optJSONObject("keyframes")?.optInt(name, 3) ?: 3
+    }
+
+    /** Whether the chosen clip workflow makes sound; false from a broker that doesn't say. */
+    fun clipMakesSound(): Boolean {
+        val clip = info?.optJSONObject("clip") ?: return false
+        val name = clipWorkflow ?: clip.optString("default").takeIf { it.isNotEmpty() } ?: return false
+        return clip.optJSONObject("sound")?.optBoolean(name, false) ?: false
     }
 
     /** {name: (description, default strength)} of the LoRAs the chosen clip workflow takes. */

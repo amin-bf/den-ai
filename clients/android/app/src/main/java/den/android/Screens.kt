@@ -396,6 +396,18 @@ private fun ClipPane(model: AppModel) {
         singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
+    // Sound: only a workflow that makes it offers the switch; the prompt says what it sounds like.
+    if (model.clipMakesSound()) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Switch(model.clipSound, { model.clipSound = it })
+            Column(Modifier.weight(1f)) {
+                Text("Sound")
+                Text("Describe the sounds in the prompt", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    } else {
+        Text("Sound: none, this workflow makes silent clips", style = MaterialTheme.typography.bodySmall)
+    }
     // LoRAs: the ones this workflow's model takes, each switched on with an optional strength.
     val loraChoices = model.clipLoraChoices()
     if (loraChoices.isEmpty()) {

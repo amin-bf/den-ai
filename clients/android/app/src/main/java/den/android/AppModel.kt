@@ -532,6 +532,66 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var player: android.media.MediaPlayer? = null
+    /** A designed voice not kept yet: its id and sample, to listen to and try before saving it. */
+    var voiceDraft by mutableStateOf<String?>(null)
+    private var draftSample: ByteArray? = null
+
+    /** Play audio bytes (a WAV) through the phone's speaker. */
+    private suspend fun play(bytes: ByteArray, name: String) {
+        val file = java.io.File(getApplication<Application>().cacheDir, "listen-$name")
+        file.writeBytes(bytes)
+        withContext(Dispatchers.Main) {
+            player?.release()
+            player = android.media.MediaPlayer().apply {
+                setDataSource(file.path)
+                setOnCompletionListener { it.release(); if (player === it) player = null; file.delete() }
+                prepare()
+                start()
+            }
+        }
+    }
+
+    /** Hear the draft's sample as the designer spoke it. */
+    fun listenDraft() {
+        val bytes = draftSample ?: return
+        io { play(bytes, "draft.wav") }
+    }
+
+    /** Hear the draft through the speech model on a real line: what clips will sound like. */
+    fun tryDraft(line: String) {
+        val c = client ?: return
+        val draft = voiceDraft ?: return
+        voiceNote = "speaking a line in the draft voice ..."
+        io {
+            try {
+                val request = JSONObject().put("text", line).put("voice", "draft:$draft")
+                clipLanguage?.let { request.put("language", it) }
+                val result = c.speak(request) { msg -> voiceNote = DenClient.describeProgress(msg) }
+                play(Base64.decode(result.getString("audio"), Base64.DEFAULT), "try.wav")
+                voiceNote = "the draft voice, through the speech model"
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
+    }
+
+    /** Keep the draft in the den's voice library under [name]. */
+    fun saveDraft(name: String) {
+        val c = client ?: return
+        val draft = voiceDraft ?: return
+        io {
+            try {
+                c.saveDraft(draft, name)
+                voiceDraft = null
+                draftSample = null
+                clipVoice = name
+                voiceNote = "voice $name kept"
+                loadStatus(c)
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
+    }
 
     /** Play a voice's sample from the den, so it can be chosen by ear. */
     fun listen(name: String) {
@@ -562,17 +622,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** Whether the den can make a voice from a description. */
     fun canDesignVoices(): Boolean = (voiceInfo()?.optJSONArray("design_languages")?.length() ?: 0) > 0
 
-    /** Make the voice [name] from a description on the den, then read its list again. */
-    fun designVoice(name: String, description: String) {
+    /** Design a voice from a description on the den: a draft to listen to and try before saving it. */
+    fun designVoice(description: String) {
         val c = client ?: return
-        voiceNote = "designing $name ..."
+        voiceNote = "designing a voice ..."
         io {
             try {
-                val request = JSONObject().put("name", name).put("description", description).put("replace", true)
+                val request = JSONObject().put("description", description)
                 val result = c.designVoice(request) { msg -> voiceNote = DenClient.describeProgress(msg) }
-                clipVoice = name
-                voiceNote = "voice $name designed (${result.optDouble("duration")} s sample)"
-                loadStatus(c)
+                voiceDraft = result.getString("draft")
+                draftSample = Base64.decode(result.getString("sample"), Base64.DEFAULT)
+                voiceNote = "a draft voice (${result.optDouble("duration")} s): listen, try a line, then save it"
+                play(draftSample!!, "draft.wav")
             } catch (e: Exception) {
                 voiceNote = e.message
             }

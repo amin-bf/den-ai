@@ -496,9 +496,19 @@ private fun ClipPane(model: AppModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedButton(
-                onClick = { model.designVoice(newVoice.trim(), described.trim()) },
-                enabled = newVoice.isNotBlank() && described.isNotBlank() && !model.recording,
+                onClick = { model.designVoice(described.trim()) },
+                enabled = described.isNotBlank() && !model.recording,
             ) { Text("Design voice") }
+            // A designed voice is a draft until it's heard and saved, like a pose before it's kept.
+            model.voiceDraft?.let {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = model::listenDraft) { Text("Listen") }
+                    TextButton(onClick = { model.tryDraft(model.clipVoiceover.lines().firstOrNull { l -> l.isNotBlank() && "-->" !in l && l.trim().toIntOrNull() == null } ?: "Every morning I walk down to the harbour and watch the boats come in.") }) { Text("Try a line") }
+                    Button(onClick = { model.saveDraft(newVoice.trim()) }, enabled = newVoice.isNotBlank()) {
+                        Text(if (newVoice.isBlank()) "Save (name it above)" else "Save as ${newVoice.trim()}")
+                    }
+                }
+            }
         }
         model.voiceNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }

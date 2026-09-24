@@ -190,6 +190,14 @@ class DenClient(private val transport: Transport) {
     fun pose(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/pose", request, null, onProgress)
 
+    /** POST /voice with bytes: speech in a voice, the track back as base64 "audio" (ADR 0010). */
+    fun speak(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
+        streamed("/voice", request, null, onProgress)
+
+    /** POST /voices {draft, name}: keep a designed draft voice under name. */
+    fun saveDraft(draft: String, name: String): JSONObject =
+        request("POST", "/voices", JSONObject().put("draft", draft).put("name", name).put("replace", true), 30_000)
+
     /** GET /voices?name=N&bytes=1: one voice's details and its sample, to listen to it. */
     fun voice(name: String): JSONObject =
         request("GET", "/voices?name=" + java.net.URLEncoder.encode(name, "UTF-8") + "&bytes=1", null, 60_000)

@@ -92,6 +92,9 @@ to do, what happens otherwise, and how it was found.
 - **But an edit reframes the whole shot well.** "Move the camera back so she fills half the frame"
   shrank a stand-in cleanly, pose intact, with even the raised knee clearer than before: the whole
   frame changes together, so nothing has to be kept twice.
+- **"Both hands around a coffee cup" gave her two cups**, one in each hand; "one cup on the
+  table, and both of her hands are wrapped around that single cup" with the same seed gave one
+  (klein9b-realism, 1344x768). Count the objects a pair of hands holds.
 
 ## Settings
 
@@ -127,6 +130,15 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   0, 50 % and the end of a 4-second clip: LTX 13B and Wan Fun Inpaint both passed through all
   three, with the light changing gradually and no visible seam. The waves kept moving
   throughout, though no keyframe showed them move.
+- **A head turn works as an edit of the still.** "She turns her head to look straight at the
+  camera and gives a small, warm smile. Keep everything else exactly the same: …" kept the
+  hands, cup, window, light and framing, and changed only the head and expression. The face
+  read slightly younger from the front. As a start and end keyframe, the clip passed through
+  both, lowering her eyes on the way.
+- **ltx23-distilled took 130 s for a 4-second clip** at 960x544 with two keyframes and sound,
+  its model partly in RAM. Its sound at cfg 1 averaged −39 dB, a quiet but present track; a
+  cfg-3.5 LTX-2.3 fine-tune made the same prompt's track louder (−21 dB), in line with the model
+  card's "higher cfg, more audio".
 
 ## The machine
 

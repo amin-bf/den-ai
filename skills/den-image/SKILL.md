@@ -23,7 +23,7 @@ can't carry: how to reach a goal in one call or several, and the traps that were
   (`ltxv-13b` about 15 s of work per second of clip, Wan 5B about a minute, larger models
   longer), so `generate_clip` answers with an id and `get_clip` waits for it and shows a
   contact sheet: four frames, first to last, in a 2x2 grid. Extras by workflow: `keyframes`,
-  `negative`, `loras`, `size`, `duration`.
+  `negative`, `loras`, `size`, `duration`, `sound`.
 - **`release_resources`** (Claude): hand the machine back when the image work is done.
 
 ## Clips: the look as stills first, then the motion
@@ -44,10 +44,11 @@ each limb does; a negative is the last resort. A clip's negative is added to the
 list, and unlike an image it doesn't raise cfg for you: on a workflow at cfg 1 it does nothing
 unless you also pass a higher `cfg`, which doubles the time.
 
-A workflow whose description says "with sound" makes the audio together with the picture, from
-the same prompt: end it with the sounds (the room's ambience, what the action sounds like, a
-line of dialogue in quotes for the person on screen to speak). Without that you get ambience at
-most; on a silent workflow the words only take attention from the motion.
+A workflow whose options list `sound: made with the picture` gives its clips a sound track from
+the same prompt, unless you pass `sound: false`: end the prompt with the sounds (the room's
+ambience, what the action sounds like, a line of dialogue in quotes for the person on screen to
+speak). Without that you get ambience at most; on a silent workflow the words only take
+attention from the motion.
 
 A LoRA works only on the model it was trained for, so the clip workflows offer their own, never
 the image workflows'. A LoRA that made the still doesn't reach the clip: the look reaches it
@@ -125,6 +126,8 @@ and in pi write your reply first and call the tool last.
 | A short clip from a description | **clip from text** (`generate_clip`, then `get_clip`) | 2 |
 | A clip in a look the user approved | **clip from an approved still** (first keyframe) | 1 image + 2 |
 | A clip that changes (light, a door, a turn) | **keyframes through it**, each an edit of the first still | 1 + edits + 2 |
+| A clip of a person moving (a turn, a smile) | **a person between two stills**: start, an edit for the end | 2 images + 2 |
+| A clip with sound | **clip with sound**: a workflow that makes it, the sounds at the end of the prompt | 2 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md).
 

@@ -186,7 +186,8 @@ and leaves the detail free.
 
 ## Clip from text
 
-`generate_clip`, then `get_clip` with the id it returns. Clips are silent.
+`generate_clip`, then `get_clip` with the id it returns. Silent unless the workflow makes sound
+(next recipe but one).
 
 ```json
 {"prompt": "A red fox trots through fresh snow in a birch forest at dawn, its breath visible in the cold air. Soft golden light between the trunks, snow falling lightly. The camera tracks slowly alongside the fox at its height.",
@@ -232,6 +233,49 @@ moment a still, **by editing the first one**, then pass all of them:
    ```
 
 `at` is seconds, a percentage or `"end"`; the tool description says how many keyframes each
-workflow takes (`ltxv-13b`: a start and two more anywhere; Wan 5B: the start only). Stills generated
+workflow takes (`ltxv-13b` and `ltx23-distilled`: a start and two more anywhere; Wan 5B: the
+start only). Stills generated
 separately instead of edited differ in every detail, and the clip morphs between them. Check on
 the contact sheet that it passed through each keyframe.
+
+## A person who moves between two stills
+
+The same recipe for a person: a turn of the head, a smile, looking up. Tested on a woman at a
+café window turning from the window to the camera.
+
+1. The start, on a workflow that edits (`klein9b-realism`). Spell out the hands and what they
+   hold: "both hands wrapped around one cup" (lessons.md: it once gave her two cups).
+2. The end: an edit of the start with the same seed, naming the movement and everything that
+   stays:
+   ```json
+   {"workflow": "klein9b-realism", "image": "/path/start.png", "seed": 1711959363,
+    "prompt": "She turns her head to look straight at the camera and gives a small, warm smile. Keep everything else exactly the same: her hair, sweater, both hands around the one cup on the table, the window, the café, the framing and the warm late-afternoon light."}
+   ```
+3. The clip, start at 0 and end at `"end"`, the prompt telling the movement in order and what
+   stays still:
+   ```json
+   {"workflow": "ltx23-distilled", "duration": 4,
+    "prompt": "A woman sits at a small wooden table by a café window in warm late-afternoon light, both hands wrapped around one white coffee cup. She gazes out of the window for a moment, blinks, then slowly turns her head toward the camera, and a small warm smile spreads across her face as her eyes meet the lens. Her hands stay on the cup. The camera is static, a medium shot at eye level.",
+    "keyframes": [{"image": "/path/start.png"}, {"image": "/path/end.png", "at": "end"}]}
+   ```
+
+Something the prompt adds between the keyframes (a car passing outside) comes through too.
+
+## Clip with sound
+
+On a workflow whose options list `sound: made with the picture`, the clip gets a sound track
+from the same prompt. End the prompt with what it should sound like:
+
+```json
+{"workflow": "ltx23-distilled", "duration": 4,
+ "prompt": "… The camera is static, a medium shot at eye level. Sound: the quiet murmur of a café, cups clinking on saucers, the hiss of an espresso machine in the background, and the muffled hum of a car passing outside."}
+```
+
+- Ambience and the sounds of the action come from naming them. A line of dialogue goes in
+  quotes, for the person on screen to say.
+- `"sound": false` leaves the track out and skips decoding it; a silent workflow refuses
+  `"sound": true` and names the ones that make sound.
+- You can't hear the result. The summary says "with sound" only when the saved file has a sound
+  track; whether it sounds right is for the user to judge, so ask.
+- A higher `cfg` gives more motion and more sound, and costs about twice the time per step.
+

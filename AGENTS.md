@@ -28,6 +28,9 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **No content notes about what image models will or won't generate,** in code, config, tool
   descriptions or docs. Describe models by style and prompt format only. Content notes belong
   in the git-ignored `config.local.toml` (a workflow's `note`), never in versioned files.
+- **A workflow built for explicit content, or on files only this machine has, stays out of the
+  repo entirely:** its graph in `~/.config/den/workflows/` and its entry in `config.local.toml`.
+  Model files it downloads get neutral local names, since the graph names them.
 - **Nothing machine-specific in code, config or scripts:** no absolute paths. Derive the repo
   location from the script or module (`dirname "${BASH_SOURCE[0]}"`, `Path(__file__)`), and user
   paths from `$HOME` / `XDG_*` (`%h` in systemd units), with an environment override where a
@@ -48,12 +51,12 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
 | `den/clip.py` | Clip workflows on top of `image.py`'s helpers: duration to frames, keyframes, the contact sheet, clip files and the clip log with its time estimates ([ADR 0009](docs/adr/0009-clip-generation.md)). |
 | `den/poses.py` | The pose library: saved poses (skeleton, photo copy, keypoints JSON, description) in `~/.local/share/den/poses/`, names, the table of contents, one pose's details, rename and delete. |
-| `workflows/` | ComfyUI graphs in API format, one per image or clip workflow; their mappings live in `config.toml`. |
+| `workflows/` | Example ComfyUI graphs in API format, one per image or clip workflow, on public models under their official file names; their mappings live in `config.toml`. Private workflows live in `~/.config/den/workflows/` (`DEN_WORKFLOWS`) with their entries in `config.local.toml`, and a graph there wins over the repo's of the same name. |
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / clip / pose / log / serve`. |
 | `den/platform.py` | What differs between the systems den runs on: starting and stopping a service (systemd units, launchd agents), the runtime folder the LLM's socket goes in, free RAM, and the hints in messages. The only file that asks which system this is ([ADR 0006](docs/adr/0006-running-on-macos.md)). |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `launchd/` | The same two services as launchd agents for macOS, as templates `setup.sh` fills in: launchd expands no home directory of its own, and absolute paths don't belong in the repo. |
-| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, unit). Never overwrites config, no sudo. |
+| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: the domain's terms and the words to avoid. Use them in code, docs and tool text. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `den/skills.py` | den's own skills as the broker serves them: `GET /skills` lists them, `GET /skill` gives one's text or a reference, so a client elsewhere can load one into a conversation when its user asks ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
@@ -126,11 +129,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   start: the broker logs `OLLAMA DOWN`, callers get the same line with `sudo systemctl start
   ollama`, and `den status` exits non-zero.
 - **Workflows, not model names:** a workflow is available when its graph's model files are in
-  ComfyUI's models folder. Add one as `workflows/<name>.json` (API format) plus
-  `[image.workflows.<name>]`. A model that can edit gets an edit variant too
-  (`<name>-edit.json`, `[image.workflows.<name>.edit]`). Descriptions say style and prompt
-  format only. An edit takes `strength` too: it blends the result back over its input, because a
-  klein edit re-renders the whole frame and repaints colours the instruction never mentioned.
+  ComfyUI's models folder. Add one as `<name>.json` (API format) plus `[image.workflows.<name>]`
+  (or `[clip.workflows.<name>]`): in `workflows/` and `config.toml` when it's a shareable example
+  on public models, in `~/.config/den/workflows/` and `config.local.toml` when it isn't. A model
+  that can edit gets an edit variant too (`<name>-edit.json`, `[image.workflows.<name>.edit]`).
+  Descriptions say style and prompt format only. An edit takes `strength` too: it blends the
+  result back over its input, because a klein edit re-renders the whole frame and repaints
+  colours the instruction never mentioned.
 - **A guide image can be an ordinary photo where den has the preprocessor.** `canny` is built
   into ComfyUI; the rest are `[image.preprocessors]` entries naming a model file, and a type is
   offered as drawn from a photo once that file is downloaded — otherwise it still takes a

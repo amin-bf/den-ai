@@ -875,13 +875,14 @@ export default function (pi: ExtensionAPI) {
       label: "Transcribe audio",
       description:
         "Write down what a recording says, as an SRT with each line at the time it was said (Whisper, many " +
-        "languages): subtitles, or a script to speak again in another voice (generate_voice) or to put on a clip. " +
+        "languages): subtitles, a script to speak again in another voice (generate_voice) or to put on a clip, or " +
+        "to check what a finished clip says (it takes a clip's mp4 too, since you can't hear it). " +
         "The den-voice skill has the recipes.",
       promptSnippet: "Transcribe a recording into a timed SRT (local Whisper)",
       parameters: {
         type: "object",
         properties: {
-          audio: { type: "string", description: "Path of the recording (wav, mp3, m4a, …)." },
+          audio: { type: "string", description: "Path of the recording (wav, mp3, m4a, …) or a clip (mp4)." },
           language: { type: "string", description: "Its language as a code, e.g. en, de; default: detected." },
         },
         required: ["audio"],

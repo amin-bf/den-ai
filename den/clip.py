@@ -562,6 +562,8 @@ def request_spec(config, flows, default):
                             "the clip lasts to the script's end, and longer if the voice runs long.",
                             "properties": {
                                 **speech.spoken_properties(),
+                                "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2 (default 0.5)."},
+                                "seed": {"type": "integer", "description": "The voice's seed: another one gives another take of the lines."},
                                 "sync": {
                                     "type": "boolean",
                                     "description": "Lip-sync: the clip is made to the voice, so a person on screen "

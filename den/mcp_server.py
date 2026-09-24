@@ -313,12 +313,13 @@ def transcribe_tool(remote_name=None):
     return {
         "name": "transcribe_audio",
         "description": where + "Write down what a recording says, as an SRT with each line at the time it was said "
-        "(Whisper large-v3-turbo, many languages). For subtitles, or a script to speak again in another voice "
-        "(generate_voice) or to put on a clip. The den-voice skill has the recipes.",
+        "(Whisper large-v3-turbo, many languages). For subtitles, a script to speak again in another voice "
+        "(generate_voice) or to put on a clip, or to check what a finished clip says: it takes a clip's mp4 too, "
+        "since you can't hear it. The den-voice skill has the recipes.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "audio": {"type": "string", "description": "Absolute path of the recording (wav, mp3, m4a, …)."},
+                "audio": {"type": "string", "description": "Absolute path of the recording (wav, mp3, m4a, …) or a clip (mp4)."},
                 "language": {"type": "string", "description": "Its language as a code, e.g. en, de; default: detected."},
             },
             "required": ["audio"],

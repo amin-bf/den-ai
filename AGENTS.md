@@ -5,17 +5,18 @@ Guidance for AI coding agents (Claude Code, Codex, …) working in this repo.
 ## What this is
 
 **den** is the HQ for a **local AI toolchain**. Claude stays the main coding agent;
-it delegates selected cheap, bulk or private tasks to a local LLM. Image generation
-(ComfyUI) is being built on top of the GPU broker.
+it delegates selected cheap, bulk or private tasks to a local LLM. Images and clips come from
+ComfyUI, and voice-overs from a speech model, all on top of the GPU broker.
 
 - **Runtime:** `llama-server` (llama.cpp) runs the LLM, started by the broker on the selected
   model; Ollama is the model store (downloads, and which GGUF file a model is). Models are split
   between GPU and RAM ([ADR 0005](docs/adr/0005-llama-server.md)).
-- **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation), `generate_image`
-  and `release_resources` (hand the machine back) to Claude Code.
+- **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation), `generate_image`,
+  `generate_clip`, `generate_voice` and `release_resources` (hand the machine back) to Claude
+  Code; pi's extension and the Android client offer the same through the broker.
 - **GPU broker:** `den serve` (user unit `den.service`, `127.0.0.1:11435`) sits in front
-  of llama-server and ComfyUI. The CLI, the MCP server and pi all go through it
-  ([ADR 0002](docs/adr/0002-gpu-broker.md)).
+  of llama-server, ComfyUI and the speech server. The CLI, the MCP server and pi all go
+  through it ([ADR 0002](docs/adr/0002-gpu-broker.md)).
 
 ## This repo is public
 
@@ -46,19 +47,21 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `state.json` | Written by the broker (mode) and the CLI, not versioned: the kill switch (`on`/`off`), active model, task on/off overrides. |
 | `den/core.py` | Config and state loading, the Ollama (model store) and broker clients, `run_task` (with a guard against overflowing the context window), the machine's load and free RAM (`pressure`, `too_busy`). |
 | `den/llm.py` | The LLM side: a model's GGUF file from Ollama's record, `llama-server` started and stopped on a private UNIX socket, the conversation's cache saved before a stop and restored after a start. |
-| `den/broker.py` | `den serve`: streaming pass-through of `/v1` to llama-server (and of Ollama's catalogue and download endpoints), `/image`, `/pose` (which also draws without saving, `draw_only`, for a client that shows the skeleton before it is kept), `/clip` (clips as detached requests: an id at once, `GET /clip?id=` and `/clip/cancel` after, [ADR 0009](docs/adr/0009-clip-generation.md)), swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, the busy gate, `/status`, `/mode` and `/unload` (both wait, `now` cancels, and both refuse meanwhile). |
+| `den/broker.py` | `den serve`: streaming pass-through of `/v1` to llama-server (and of Ollama's catalogue and download endpoints), `/image`, `/pose` (which also draws without saving, `draw_only`, for a client that shows the skeleton before it is kept), `/clip` (clips as detached requests: an id at once, `GET /clip?id=` and `/clip/cancel` after, [ADR 0009](docs/adr/0009-clip-generation.md)), swaps between the sides with batch caps, idle timeout, in-flight and waiting requests, the busy gate, `/status`, `/mode` and `/unload` (both wait, `now` cancels, and both refuse meanwhile)., `/voice` and `/voices` (voice-overs on the image side: ComfyUI frees its models, the speech server runs for the request only, [ADR 0010](docs/adr/0010-voice-overs.md)) |
 | `den/remote.py` | The den on another machine, used from one that keeps none of den's files: asks its broker for the tools, sends files and input images as bytes, saves the images that come back ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
-| `den/clip.py` | Clip workflows on top of `image.py`'s helpers: duration to frames, keyframes, the contact sheet, clip files and the clip log with its time estimates ([ADR 0009](docs/adr/0009-clip-generation.md)). |
+| `den/clip.py` | Clip workflows on top of `image.py`'s helpers: duration to frames, keyframes, the contact sheet, clip files and the clip log with its time estimates ([ADR 0009](docs/adr/0009-clip-generation.md)).; a clip's `sound` and its voice-over, put into its graph |
+| `den/speech.py` | Speech (ADR 0010): the speech server's process on a private UNIX socket, SRT scripts, the voice library in `~/.local/share/den/voices/`, the voice track assembled at the script's times, and the speech log. |
+| `speech/server.py` | The speech server: Chatterbox Multilingual behind `GET /health` and `POST /speak`. It runs in the speech venv `setup.sh` makes, not in den's Python, so it's the one file here that isn't stdlib. |
 | `den/poses.py` | The pose library: saved poses (skeleton, photo copy, keypoints JSON, description) in `~/.local/share/den/poses/`, names, the table of contents, one pose's details, rename and delete. |
 | `workflows/` | Example ComfyUI graphs in API format, one per image or clip workflow, on public models under their official file names; their mappings live in `config.toml`. Private workflows live in `~/.config/den/workflows/` (`DEN_WORKFLOWS`) with their entries in `config.local.toml`, and a graph there wins over the repo's of the same name. |
-| `den/cli.py` | `den status / mode / unload / model / task / ask / image / clip / pose / log / serve`. |
+| `den/cli.py` | `den status / mode / unload / model / task / ask / image / clip / voice / pose / log / serve`. |
 | `den/platform.py` | What differs between the systems den runs on: starting and stopping a service (systemd units, launchd agents), the runtime folder the LLM's socket goes in, free RAM, and the hints in messages. The only file that asks which system this is ([ADR 0006](docs/adr/0006-running-on-macos.md)). |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `launchd/` | The same two services as launchd agents for macOS, as templates `setup.sh` fills in: launchd expands no home directory of its own, and absolute paths don't belong in the repo. |
-| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit). Never overwrites config, no sudo. |
+| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit), the speech venv (Chatterbox pinned by commit). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: the domain's terms and the words to avoid. Use them in code, docs and tool text. |
-| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
+| `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `generate_voice`, `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `den/skills.py` | den's own skills as the broker serves them: `GET /skills` lists them, `GET /skill` gives one's text or a reference, so a client elsewhere can load one into a conversation when its user asks ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
 | `skills/` | den's own agent skills (Agent Skills format), versioned: `den-image` teaches the image tools' recipes and measured traps. `setup.sh` links each into `~/.claude/skills/` and `~/.agents/skills/`. |
 | `clients/android/` | Android client (Kotlin, Compose): the den on another machine from a phone, over an SSH channel per request with a key made on the device; Status, Ask, Image and Poses. Its own README ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
@@ -70,6 +73,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 ## Design rules
 
 - **Python stdlib only.** No pip installs: `tomllib`, `urllib` and `json` are enough.
+  `speech/server.py` is the exception: it runs in the speech venv, never in den's own Python.
 - **Switch without restarts.** The broker, CLI and MCP server re-read config and state on
   every use. Code changes to the broker need `systemctl --user restart den`
   (`launchctl kickstart -k gui/$UID/ai.den.broker` on macOS).
@@ -86,6 +90,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   only bytes: files and input images go as name and bytes, results come back with `"bytes"`.
   A local caller that sends paths gets paths, unchanged
   ([ADR 0007](docs/adr/0007-remote-brokers.md)).
+- **Speech runs in a venv of its own, on the image side.** Chatterbox pins a torch and
+  transformers that ComfyUI's venv has moved past, so installing it there would break image and
+  clip generation; `setup.sh` gives it `~/.local/share/den/speech/` (`SPEECH_DIR`) instead. There
+  is no third side: a voice request is an image-side request that asks ComfyUI to free its models,
+  starts `speech/server.py` and stops it when the request ends, so nothing of speech stays loaded.
+  A clip's voice-over is spoken first and mixed into the clip's own graph; the clip is built
+  longer if the spoken track outruns the script's times ([ADR 0010](docs/adr/0010-voice-overs.md)).
 - **Everything that uses the GPU goes through the broker.** Clients never call Ollama
   (11434) or llama-server directly; llama-server listens only on a private UNIX socket the broker
   owns. When the broker is down they fail with a start hint and never fall back. Only downloads

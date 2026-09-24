@@ -1197,8 +1197,9 @@ class ComfyUI:
         queue = self._json("GET", "/queue", timeout=5)
         return bool(queue.get("queue_running") or queue.get("queue_pending"))
 
-    def upload(self, path):
-        """Upload an input image; returns the name a LoadImage node takes."""
+    def upload(self, path, subfolder="den"):
+        """Upload an input file; returns the name a LoadImage node takes. LoadAudio only lists
+        the input folder's top level, so an audio file goes up with subfolder=""."""
         path = Path(path).expanduser()
         try:
             content = path.read_bytes()
@@ -1206,7 +1207,7 @@ class ComfyUI:
             raise DenError(f"cannot read {path}: {e}") from e
         boundary = uuid.uuid4().hex
         parts = [
-            f'--{boundary}\r\nContent-Disposition: form-data; name="subfolder"\r\n\r\nden\r\n'.encode(),
+            f'--{boundary}\r\nContent-Disposition: form-data; name="subfolder"\r\n\r\n{subfolder}\r\n'.encode(),
             f'--{boundary}\r\nContent-Disposition: form-data; name="overwrite"\r\n\r\ntrue\r\n'.encode(),
             f'--{boundary}\r\nContent-Disposition: form-data; name="image"; filename="{path.name}"\r\n'
             "Content-Type: application/octet-stream\r\n\r\n".encode()
@@ -1256,6 +1257,10 @@ class ComfyUI:
         """Drop the prompt from ComfyUI's queue, or interrupt it when it's running."""
         self._json("POST", "/queue", {"delete": [prompt_id]})
         self._json("POST", "/interrupt", {"prompt_id": prompt_id})
+
+    def free(self):
+        """Unload ComfyUI's models from the GPU, keeping ComfyUI up (for the speech model's turn)."""
+        self._json("POST", "/free", {"unload_models": True, "free_memory": True})
 
 
 def split_outputs(images, maps):

@@ -21,7 +21,7 @@ import statistics
 import time
 from pathlib import Path
 
-from den import core, image
+from den import core, image, speech
 from den.core import DenError
 
 CLIP_DIR = Path(os.environ.get("DEN_CLIPS") or Path.home() / "Videos/den")
@@ -31,6 +31,8 @@ SHEET_WIDTH = 1024
 # Node ids den adds to a clip graph; exported graphs number theirs far lower.
 KEYFRAME_NODE = 940
 SHEET_NODE = 960
+VOICE_NODE = 980
+VOICE_UNDER_DB = -8  # the clip's own sound, under a voice-over
 
 
 def settings(config):
@@ -358,6 +360,36 @@ def _set_sound(flows, name, wf, graph, wanted):
     return True
 
 
+def add_voiceover(graph, wf, track, duration):
+    """Put a voice-over track (an uploaded file's name) into the clip: over the clip's own sound,
+    turned down, where it has some; as its sound track where it has none. Either way the track
+    ends with the clip."""
+    loaded = str(VOICE_NODE)
+    graph[loaded] = {"class_type": "LoadAudio", "inputs": {"audio": track}}
+    node, _, field = (wf.get("sound") or "").partition(".")
+    own = graph.get(node, {}).get("inputs", {}).get(field)
+    if isinstance(own, list):
+        under, mixed = str(VOICE_NODE + 1), str(VOICE_NODE + 2)
+        graph[under] = {"class_type": "AudioAdjustVolume", "inputs": {"audio": own, "volume": VOICE_UNDER_DB}}
+        # AudioMerge fits the second track to the first's length: the voice ends with the clip.
+        graph[mixed] = {"class_type": "AudioMerge", "inputs": {"audio1": [under, 0], "audio2": [loaded, 0], "merge_method": "add"}}
+        graph[node]["inputs"][field] = [mixed, 0]
+        return
+    videos = [n for n, spec in graph.items() if spec.get("class_type") == "CreateVideo"]
+    if not videos:
+        raise DenError("this workflow's graph has no CreateVideo node to put a voice-over on")
+    trimmed = str(VOICE_NODE + 3)
+    graph[trimmed] = {"class_type": "TrimAudioDuration", "inputs": {"audio": [loaded, 0], "start_index": 0.0, "duration": float(duration)}}
+    for video in videos:
+        graph[video]["inputs"]["audio"] = [trimmed, 0]
+
+
+def voiceover_length(cues):
+    """How long a clip must be to hold an SRT voice-over: to its last line's end, and a breath."""
+    ends = [c["end"] for c in cues if c.get("end") is not None]
+    return round(max(ends) + 0.5, 2) if ends else None
+
+
 def has_sound(path):
     """Whether an MP4 or MOV file holds a sound track: its handler box says soun."""
     try:
@@ -380,6 +412,8 @@ def summary_parts(params):
         parts.append(f"{len(params['keyframes'])} keyframe(s)")
     if "sound" in params:
         parts.append("with sound" if params["sound"] else "sound off")
+    if params.get("voiceover"):
+        parts.append(f"voice-over {params['voiceover']}")
     return parts
 
 
@@ -490,6 +524,19 @@ def request_spec(config, flows, default):
                 "seed": {"type": "integer", "description": "Reuse one to change a single thing between clips."},
                 "size": {"type": "string", "description": "WIDTHxHEIGHT, e.g. 1280x704."},
                 "duration": {"type": "number", "description": "Length of the clip in seconds."},
+                **(
+                    {
+                        "voiceover": {
+                            "type": "object",
+                            "description": "A voice-over, spoken before the clip is made and mixed over its "
+                            "sound (or as its sound track on a silent workflow). With an SRT and no duration, "
+                            "the clip lasts to the script's end, and longer if the voice runs long.",
+                            "properties": speech.spoken_properties(),
+                        }
+                    }
+                    if speech.unavailable() is None
+                    else {}
+                ),
                 "sound": {
                     "type": "boolean",
                     "description": "Whether the clip gets a sound track, on a workflow whose options say it makes sound "

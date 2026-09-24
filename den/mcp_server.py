@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 
-from den import clip, core, image, poses, remote
+from den import clip, core, image, poses, remote, speech
 from den.core import DenError
 
 SERVER_INFO = {"name": f"den-{core.remote_name()}" if core.remote_name() else "den", "version": "0.1.0"}
@@ -242,6 +242,10 @@ def list_tools():
                 tools.append({"name": name, "description": spec["description"], "inputSchema": spec["parameters"]})
     if clip.unavailable(config, state) is None:
         tools += clip_tools(clip.request_spec(config, clip.available(config), clip.settings(config).get("default_workflow")))
+    # Speech runs on the image side (ADR 0010): listed when that side can run and speech is installed.
+    if image.unavailable(config, state) is None and speech.unavailable() is None:
+        spec = speech.request_spec()
+        tools.append({"name": "generate_voice", "description": spec["description"], "inputSchema": spec["parameters"]})
     return tools
 
 
@@ -284,7 +288,10 @@ def progress_text(msg):
     if "unloading" in msg:
         return f"unloading the LLM ({', '.join(msg['unloading'])})"
     if "starting" in msg or "stopping" in msg:
-        return f"{'starting' if 'starting' in msg else 'stopping'} ComfyUI"
+        return f"{'starting' if 'starting' in msg else 'stopping'} {msg.get('starting') or msg.get('stopping')}"
+    if "speaking" in msg:
+        s = msg["speaking"]
+        return f"speaking line {s['line']} of {s['of']}"
     if "drawing" in msg:
         return f"drawing the pose for {msg['drawing']['name']}"
     if "generating" in msg:
@@ -369,12 +376,32 @@ def generate_image(args, progress_token):
     return content
 
 
+def generate_voice(args, progress_token):
+    config = core.load_config()
+    keys = ("srt", "text", "voice", "language", "exaggeration", "cfg_weight", "temperature", "seed", "out")
+    request = {k: args[k] for k in keys if args.get(k) is not None}
+    result, step = None, 0
+    for msg in core.broker(config, "claude").speak(**request):
+        if "result" in msg:
+            result = msg["result"]
+        elif progress_token is not None and (text := progress_text(msg)):
+            step += 1
+            notify(progress_token, step, text)
+    if result is None:
+        raise DenError("the broker ended the voice request without a result")
+    lines = [f"saved: {result['path']}"] + [f"copied to: {p}" for p in result["copies"]]
+    lines += [f"note: {note}" for note in result["notes"]]
+    waited = f", waited {result['waited_s']:.0f}s" if result["waited_s"] >= 1 else ""
+    lines.append(f"[{' · '.join([*result['summary'], f'{result['seconds']}s{waited}'])}]")
+    return "\n".join(lines)
+
+
 CLIP_POLL_S = 3
 
 
 def generate_clip(args):
     config = core.load_config()
-    keys = ("prompt", "workflow", "negative", "seed", "size", "duration", "sound", "keyframes", *image.SETTINGS, "loras", "out")
+    keys = ("prompt", "workflow", "negative", "seed", "size", "duration", "sound", "voiceover", "keyframes", *image.SETTINGS, "loras", "out")
     # A small copy of the contact sheet comes back with the finished clip, for get_clip to show.
     request = {k: args[k] for k in keys if args.get(k) is not None} | {"preview": True}
     where = core.remote_name()
@@ -429,6 +456,9 @@ def get_clip(args, progress_token):
     lines = [f"saved: {r['path']}"] + [f"copied to: {p}" for p in r["copies"]]
     if r.get("sheet"):
         lines.append(f"contact sheet: {r['sheet']}")
+    if r.get("voiceover_track"):
+        lines.append(f"voice-over track: {r['voiceover_track']}")
+    lines += [f"note: {note}" for note in r.get("notes") or []]
     waited = f", waited {r['waited_s']:.0f}s" if r["waited_s"] >= 1 else ""
     lines.append(f"[{' · '.join([*r['summary'], str(r['seconds']) + 's' + waited])}]")
     content = [{"type": "text", "text": "\n".join(lines)}]
@@ -523,6 +553,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name == "generate_voice":
+            text = generate_voice(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "get_clip":
             text = get_clip(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "save_pose":

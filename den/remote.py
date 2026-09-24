@@ -84,6 +84,19 @@ def _save(result, prompt, out):
 _clips = {}
 
 
+def spoken_here(spec):
+    """A voice request with its files read here (ADR 0010): an .srt path becomes the script, and a
+    recording's path goes as bytes. A voice name is from the library there."""
+    spec = dict(spec)
+    srt = spec.get("srt")
+    if srt and "\n" not in srt and srt.strip().lower().endswith(".srt"):
+        spec["srt"] = Path(srt.strip()).expanduser().read_text(errors="replace")
+    voice = spec.get("voice")
+    if voice and Path(voice).expanduser().is_file():
+        spec["voice"] = image.file_object(voice)
+    return spec
+
+
 def generate_clip(caller, request):
     """Start a clip there (a detached request, ADR 0009): keyframes are files here, sent as
     bytes. {id, estimate_s, summary}; get_clip fetches it once done."""
@@ -92,6 +105,8 @@ def generate_clip(caller, request):
     request["keyframes"] = [
         {**keyframe, "image": image.file_object(keyframe["image"])} for keyframe in request.get("keyframes") or []
     ]
+    if request.get("voiceover"):
+        request["voiceover"] = spoken_here(request["voiceover"])
     broker = client(caller)
     started = broker.generate_clip(**request)
     _clips[(broker.base_url, started["id"])] = {"out": out}

@@ -396,6 +396,18 @@ class BrokerClient(Ollama):
         self._clips()
         return self._request("POST", "/clip/cancel", {"id": int(clip_id)})
 
+    def speak(self, **request):
+        """Progress lines of a voice job (ADR 0010); the last one carries "result"."""
+        return self._stream("/voice", request)
+
+    def voices(self):
+        """The voice library there, the languages, and why speech can't run (or None)."""
+        return self._request("GET", "/voices", timeout=30)
+
+    def add_voice(self, name, recording, replace=False):
+        """Keep a recording as a voice: its path here, or {name, base64} from elsewhere."""
+        return self._request("POST", "/voices", {"name": name, "recording": recording, "replace": replace}, timeout=60)
+
     def save_pose(self, **request):
         """Progress lines of drawing and saving a pose; the last one carries "result".
 

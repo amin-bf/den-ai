@@ -56,7 +56,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from den import clip, core, image, llm, platform, poses, skills
+from den import clip, core, image, llm, platform, poses, skills, speech
 from den.core import DenError, Ollama
 from den.image import ComfyUI
 
@@ -132,6 +132,7 @@ class Broker:
         self.ids = itertools.count(1)
         self.started = time.time()
         self.detached = {}  # id -> record of a detached request (a clip), running or finished
+        self.speech = speech.Server()  # started for a voice job, stopped after it (ADR 0010)
 
     # --- admission and the swap ---
 
@@ -752,6 +753,47 @@ def clip_view(record, with_bytes=False):
     return view
 
 
+def voice_request(spec, folder):
+    """A voice job's script, language, voice and settings from a request: {srt? | text?, voice?,
+    language?, exaggeration?, cfg_weight?, temperature?, seed?}. A voice sent as bytes is written
+    into folder."""
+    why = speech.unavailable()
+    if why:
+        raise DenError(why)
+    if not isinstance(spec, dict):
+        raise DenError("a voice-over is {srt or text, voice?, language?, ...}")
+    cues = speech.script(spec.get("srt"), spec.get("text"))
+    language = str(spec.get("language") or "en").lower()
+    if language not in speech.LANGUAGES:
+        raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
+    voice = spec.get("voice")
+    if image.is_file_object(voice):
+        voice_file, voice = image._write_input(folder, voice), voice.get("name") or "recording"
+    else:
+        voice_file = speech.voice_path(voice)
+    options = {k: spec[k] for k in ("exaggeration", "cfg_weight", "temperature", "seed") if spec.get(k) is not None}
+    return {"cues": cues, "language": language, "voice": voice, "voice_file": voice_file, "options": options}
+
+
+def speak_lines(broker, config, request, emit, check):
+    """Speak each line of a voice request on the speech server, which starts once ComfyUI has
+    freed its models (they don't fit on the GPU together) and stops after. Returns the WAVs."""
+    settings = image.settings(config)
+    comfy = ComfyUI(settings["base_url"]) if settings else None
+    if comfy and comfy.up():
+        comfy.free()
+    cues, lines = request["cues"], []
+    try:
+        broker.speech.start(emit)
+        for i, cue in enumerate(cues, 1):
+            check()
+            emit({"speaking": {"line": i, "of": len(cues), "text": cue["text"][:60]}})
+            lines.append(broker.speech.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
+    finally:
+        broker.speech.stop()
+    return lines
+
+
 def run_clip(broker, record, graph, uploads, sheet, body, folder):
     """Make a detached clip: wait for the image side like any request, run the graph, save the
     clip and its contact sheet. Runs on its own thread; what happens goes into the record."""
@@ -772,7 +814,29 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
         if info.get("cancelled"):
             raise DenError(info["cancelled"])
         record["state"] = "running"
-        comfy = ComfyUI(image.settings(core.load_config())["base_url"])
+        config = core.load_config()
+        comfy = ComfyUI(image.settings(config)["base_url"])
+        voiced = record.get("voiceover")
+        if voiced:
+            # The voice first: the speech model and the clip's don't share the GPU.
+            def cancelled():
+                if info.get("cancelled"):
+                    raise DenError(info["cancelled"])
+
+            track, length, notes = speech.assemble(voiced["cues"], speak_lines(broker, config, voiced, emit, cancelled))
+            track_path, _ = speech.save(track, " ".join(c["text"] for c in voiced["cues"]))
+            wf = clip.check_workflows(config)[record["params"]["workflow"]][0]
+            planned = record["params"]["duration"]
+            longest = (wf["duration"].get("allowed") or [None, planned])[1]
+            if length > planned + 0.1 and longest > planned:
+                # The voice came out longer than the script's times: make the clip long enough to hold it.
+                graph, params, uploads, sheet = clip.build(config, duration=min(length + 0.3, longest), **voiced["build"])
+                record["params"] = {**params, "voiceover": record["params"]["voiceover"]}
+                notes.append(f"the clip was lengthened to {record['params']['duration']:g}s to hold the voice-over")
+            if length > record["params"]["duration"] + 0.1:
+                notes.append(f"the voice-over runs {length:g}s; the clip ends at {record['params']['duration']:g}s")
+            clip.add_voiceover(graph, wf, comfy.upload(track_path, subfolder=""), record["params"]["duration"])
+            voiced.update(track=str(track_path), notes=notes)
         image.fill_uploads(graph, uploads, [comfy.upload(path) for _, path in uploads])
         began = time.time()
         prompt_id = comfy.submit(graph)
@@ -805,6 +869,7 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
         record["result"] = {
             **params,
             "summary": clip.summary_parts(params),
+            **({"voiceover_track": voiced["track"], "notes": voiced["notes"]} if voiced else {}),
             "path": str(path),
             "sheet": str(sheet_path) if sheet_path else None,
             "copies": [str(p) for p in copies],
@@ -939,6 +1004,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._unload(json.loads(self._read_body() or b"{}"))
             elif path == "/image" and self.command == "POST":
                 self._image(json.loads(self._read_body() or b"{}"))
+            elif path == "/voice" and self.command == "POST":
+                self._stream_request(self._with_voice(self._voice), json.loads(self._read_body() or b"{}"))
+            elif path == "/voices" and self.command == "GET":
+                self._send_json(200, self._voices())
+            elif path == "/voices" and self.command == "POST":
+                self._send_json(200, self._voice_add(json.loads(self._read_body() or b"{}")))
             elif path == "/pose" and self.command == "POST":
                 self._pose(json.loads(self._read_body() or b"{}"))
             elif path == "/clip" and self.command == "POST":
@@ -992,6 +1063,8 @@ class Handler(BaseHTTPRequestHandler):
             "tasks": {name: {"description": task["description"]} for name, task in tasks.items()},
             "image": {**image.client_spec(config, state), "listing": image.listing(config, folders=False)},
             "clip": {**clip.client_spec(config, state), "listing": clip.listing(config, folders=False)},
+            # Present only where speech runs: a client offers voice-overs when it's there (ADR 0010).
+            **({"voice": {**speech.request_spec(), **self._voices()}} if speech.unavailable() is None else {}),
         }
 
     def _delegate(self, body):
@@ -1051,6 +1124,88 @@ class Handler(BaseHTTPRequestHandler):
         with {"result": {...}} or {"error": "..."}. Paths must be absolute.
         """
         self._stream_request(self._with_inputs(self._generate), body)
+
+    # --- voice-overs (ADR 0010) ---
+
+    def _with_voice(self, run):
+        """run(body, emit) with a voice recording sent as bytes written to a private folder."""
+
+        def wrapped(body, emit):
+            folder = tempfile.mkdtemp(prefix="den-voice-")
+            try:
+                if image.is_file_object(body.get("voice")):
+                    body = {**body, "voice": image._write_input(folder, body["voice"])}
+                run(body, emit)
+            finally:
+                shutil.rmtree(folder, ignore_errors=True)
+
+        return wrapped
+
+    def _voices(self):
+        return {
+            "voices": sorted(speech.voices()),
+            "languages": speech.LANGUAGES,
+            "unavailable": speech.unavailable(),
+        }
+
+    def _voice_add(self, body):
+        """POST /voices {name, recording: path or {name, base64}, replace?}: keep a voice."""
+        folder = tempfile.mkdtemp(prefix="den-voice-")
+        try:
+            recording = body.get("recording")
+            if image.is_file_object(recording):
+                recording = image._write_input(folder, recording)
+            path = speech.add_voice(str(body.get("name") or ""), recording or "", bool(body.get("replace")))
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        log(f"{self._caller()} POST /voices -> {path.name}")
+        return {"voice": path.stem, "voices": sorted(speech.voices())}
+
+    def _voice(self, body, emit):
+        """POST /voice {srt? | text?, voice?, language?, exaggeration?, cfg_weight?, temperature?,
+        seed?, out?, bytes?}: speak each line of an SRT script (or one text) in a voice from the
+        library, a recording's path, or one sent as bytes, and put the lines on one track at their
+        times. Streams progress lines and ends with {"result": {...}}."""
+        request = voice_request(body, None)
+        cues, language, voice, options = request["cues"], request["language"], request["voice"], request["options"]
+        config = core.load_config()
+        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/voice", "model": "chatterbox"}
+        req_id = self.broker.admit(info, emit, self._caller_gone)
+        began = time.time()
+
+        def check():
+            if info.get("cancelled"):
+                raise DenError(info["cancelled"])
+            if self._caller_gone():
+                raise ConnectionResetError("the caller hung up while speaking")
+
+        try:
+            lines = speak_lines(self.broker, config, request, emit, check)
+        except (DenError, ConnectionResetError, BrokenPipeError) as e:
+            log(f"#{req_id} {info['caller']} POST /voice -> failed: {e}")
+            raise
+        finally:
+            self.broker.finish(req_id)
+        data, duration, notes = speech.assemble(cues, lines)
+        spoken = " ".join(c["text"] for c in cues)
+        path, copies = speech.save(data, spoken, body.get("out"))
+        seconds = round(time.time() - began, 1)
+        summary = [
+            f"voice {voice or 'default'}", speech.LANGUAGES[language], f"{len(cues)} line(s)", f"{duration:g}s",
+            *[f"{k} {v}" for k, v in options.items()],
+        ]
+        result = {
+            "summary": summary, "path": str(path), "copies": [str(p) for p in copies], "duration": duration,
+            "lines": len(cues), "notes": notes, "voice": voice, "language": language, "seconds": seconds,
+            "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
+        }
+        speech.log({"caller": info["caller"], **{k: v for k, v in result.items() if k != "summary"}, "text": spoken[:500], **options})
+        log(f"#{req_id} {info['caller']} POST /voice {len(cues)} line(s) -> {path} in {seconds}s")
+        if body.get("bytes"):
+            result["audio"] = speech.as_bytes(path)
+            for key in ("path", "copies"):
+                result.pop(key)
+        emit({"result": result})
 
     def _stream_request(self, run, body):
         emit, started = self._ndjson()
@@ -1207,10 +1362,24 @@ class Handler(BaseHTTPRequestHandler):
                 if path and not Path(path).is_file():
                     raise DenError(f"keyframe image not found: {path}")
                 keyframes.append({**keyframe, "image": path})
-            graph, params, uploads, sheet = clip.build(
-                config, name, body.get("prompt") or "", body.get("negative"), body.get("seed"),
-                body.get("size"), body.get("duration"), keyframes, {key: body.get(key) for key in (*image.SETTINGS, "loras", "sound")},
-            )
+            voiced = voice_request(body["voiceover"], folder) if body.get("voiceover") else None
+            duration = body.get("duration")
+            flows = clip.check_workflows(config)
+            if voiced and duration is None and name in flows:
+                # Long enough for the script, within what the workflow allows.
+                length = clip.voiceover_length(voiced["cues"])
+                allowed = flows[name][0]["duration"].get("allowed")
+                duration = min(length, allowed[1]) if length and allowed else length
+            build = {
+                "name": name, "prompt": body.get("prompt") or "", "negative": body.get("negative"),
+                "seed": body.get("seed"), "size": body.get("size"), "keyframes": keyframes,
+                "options": {key: body.get(key) for key in (*image.SETTINGS, "loras", "sound")},
+            }
+            graph, params, uploads, sheet = clip.build(config, duration=duration, **build)
+            if voiced:
+                params["voiceover"] = voiced["voice"] or "default"
+                # Kept to build the graph again if the spoken voice turns out longer than planned.
+                voiced["build"] = {**build, "seed": params["seed"]}
             # Refuse now what admit would refuse later, rather than hand out an id that fails.
             self.broker._check_available("image", config, core.load_state(config))
         except BaseException:
@@ -1223,7 +1392,7 @@ class Handler(BaseHTTPRequestHandler):
         }
         record = {
             "id": info["id"], "state": "waiting", "info": info, "params": params,
-            "prompt": body.get("prompt"), "created": time.time(),
+            "prompt": body.get("prompt"), "created": time.time(), "voiceover": voiced,
         }
         self.broker.detach(record)
         body = {**body, "keyframes": keyframes}

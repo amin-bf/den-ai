@@ -167,6 +167,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var poseToc by mutableStateOf<String?>(null)
     var poseNames by mutableStateOf<List<String>>(emptyList())
     var pose by mutableStateOf<String?>(null)
+    /** The open pose's source photo and skeleton; the view shows one, the photo first. */
+    var posePhoto by mutableStateOf<Bitmap?>(null)
+    var poseSkeleton by mutableStateOf<Bitmap?>(null)
+    var showSkeleton by mutableStateOf(false)
     var poseDetails by mutableStateOf<String?>(null)
     var poseImages by mutableStateOf<List<Bitmap>>(emptyList())
     var posesError by mutableStateOf<String?>(null)
@@ -945,6 +949,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         pose = name
         poseDetails = null
         poseImages = emptyList()
+        posePhoto = null
+        poseSkeleton = null  // showSkeleton stays: swiping on keeps to photos or to skeletons
         val c = client ?: return
         if (name == null) return
         io {
@@ -957,8 +963,12 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 }
                 // Swiping on before this one arrived: only the pose still open is shown.
                 if (pose != name) return@io
-                poseDetails = p.optString("details")
+                // The line that tells a model the images' order means nothing on a screen.
+                poseDetails = p.optString("details").lines().filterNot { it.startsWith("Below:") }.joinToString("\n").trim()
                 poseImages = bitmaps
+                // The broker sends the skeleton, then the photo when the pose has one.
+                poseSkeleton = bitmaps.getOrNull(0)
+                posePhoto = bitmaps.getOrNull(1)
             } catch (e: Exception) {
                 posesError = e.message
             }

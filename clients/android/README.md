@@ -11,7 +11,7 @@ Screens: **Connect**, **Status** (mode, model, load, tasks, workflows), **Chat**
 **Ask** (run a delegated task, optionally with a file, and give a verdict), **Image** (prompt,
 workflow, the workflow's settings, an optional input image to edit; progress streams while it
 runs), **Clip** (on the Image screen's second tab, below), **Poses** (browse the saved pose
-library, swiping left or right through an open pose's neighbours, make a pose, and delete one) and **Voices** (the voice library: each voice with what it
+library, an open pose shows its source photo, a button switches to its skeleton, and swiping left or right goes to its neighbours, make a pose, and delete one) and **Voices** (the voice library: each voice with what it
 is, to listen to or delete).
 
 Deleting a pose or a voice asks first: it's gone from the den's library for every client. No

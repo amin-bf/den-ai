@@ -707,8 +707,20 @@ fun PosesScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
             model.posePosition()?.let { (at, of) ->
                 Text("$at of $of · swipe for the next or previous", style = MaterialTheme.typography.bodySmall)
             }
+            // The source photo on top; the button at its bottom right switches to the skeleton and back.
+            val shown = if (model.showSkeleton || model.posePhoto == null) model.poseSkeleton else model.posePhoto
+            shown?.let { bitmap ->
+                Box(Modifier.fillMaxWidth()) {
+                    Image(bitmap.asImageBitmap(), selected, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
+                    if (model.posePhoto != null && model.poseSkeleton != null) {
+                        androidx.compose.material3.SmallFloatingActionButton(
+                            onClick = { model.showSkeleton = !model.showSkeleton },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+                        ) { Text(if (model.showSkeleton) "Photo" else "Skeleton", Modifier.padding(horizontal = 12.dp)) }
+                    }
+                }
+            }
             model.poseDetails?.let { SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) } }
-            model.poseImages.forEach { Image(it.asImageBitmap(), selected, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
         }
         ConfirmedDelete("pose", selected) { model.deletePose(selected) }
         return@Page

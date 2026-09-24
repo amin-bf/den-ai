@@ -12,8 +12,8 @@ images, clips and the local model all wait.
 
 ## The loop
 
-1. **Start only when asked**: `live_start` with the voice the user wants (`list_voices`; none
-   named: ask, or the model's own). It frees the machine first, which can take a minute if
+1. **Start only when asked**: `live_start` with the voice the user wants. None named: your own,
+   the voice called `claude` if `list_voices` has one; otherwise ask, or the model's own. It frees the machine first, which can take a minute if
    something is running; don't cancel anyone's work to go faster.
 2. **Every exchange is one `talk`**: pass what you say, get back what they said. Your first call
    is a short greeting. Then answer, `talk` again, and so on: the whole conversation is this one

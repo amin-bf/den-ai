@@ -1,6 +1,6 @@
 ---
 name: den-voice
-description: Speak a text or an SRT script in a voice cloned from a recording, with den's local speech model (generate_voice), for a voice-over track or narration on a clip — keeping voices, writing scripts whose lines fit their times, languages and expressiveness. Use when asked for a voice-over, narration, a spoken line or a voice from a recording, or to say something in someone's voice. Putting the voice on a clip is den-clip's; the clip passes the same script as its voiceover.
+description: Speak a text, lines or an SRT script in a voice cloned from a recording, with den's local speech model (generate_voice), and write a recording down as a timed SRT (transcribe_audio) — voice-overs, narration, subtitles, keeping voices, scripts whose lines fit their times, languages and expressiveness. Use when asked for a voice-over, narration, a spoken line or a voice from a recording, to say something in someone's voice, or to transcribe a recording or make subtitles. Putting the voice on a clip is den-clip's; the clip passes the same script as its voiceover.
 ---
 
 # den-voice: voice-overs with den

@@ -1,6 +1,6 @@
 ---
 name: den-clip
-description: Make short video clips with den's local tools (generate_clip, get_clip) — from text, from an approved still, through keyframes, with sound, or with a voice-over — and judge them on their contact sheet. Use when asked to make, animate or narrate a clip or a short video, or to turn an image into one. The stills come from den-image; scripts and voices from den-voice.
+description: Make short video clips with den's local tools (generate_clip, get_clip) — from text, from an approved still, through keyframes, with sound, with a voice-over, or lip-synced so a person on screen speaks the lines — and judge them on their contact sheet. Use when asked to make, animate or narrate a clip or a short video, to make someone in it talk or say something, or to turn an image into one. The stills come from den-image; scripts and voices from den-voice.
 ---
 
 # den-clip: short clips with den

@@ -26,3 +26,9 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   its model partly in RAM. Its sound at cfg 1 averaged −39 dB, a quiet but present track; a
   cfg-3.5 LTX-2.3 fine-tune made the same prompt's track louder (−21 dB), in line with the model
   card's "higher cfg, more audio".
+- **A lip-synced clip carries the voice alone.** The keeper speaking two lines (ltx23-distilled,
+  one keyframe facing the camera, `lines` in the default voice): the voice was fixed in the
+  model, the clip lengthened from 4 s to 5 s to hold it, and its sound was the clean voice with
+  silence (−91 dB) around it, so no ambience from the prompt. 136 s for 5 s. A recording (an
+  M4A) instead of a script went the same way in 143 s. Whether the lips follow the words shows
+  only in the video, not on the contact sheet: ask the user.

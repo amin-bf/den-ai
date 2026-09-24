@@ -153,7 +153,8 @@ speaker's face is visible and large enough to see the mouth, then:
 The user performs the lines (their pace, pauses, emphasis) and a character with another voice
 says them on screen, lip-synced: an old keeper, a child, a woman. Four calls:
 
-1. **The character's voice**, once (`design_voice`, den-voice), unless the library has it:
+1. **The character's voice**, once (`design_voice`, den-voice), unless `list_voices` shows a
+   fitting one:
    ```json
    {"name": "grandpa", "description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly."}
    ```
@@ -184,8 +185,8 @@ The same result as the recipe above, when nobody records or listens: you write t
 Whisper is your ears. Five calls:
 
 1. **The character's still** (den-image): face visible and large enough to see the mouth.
-2. **Their voice** (`design_voice`) from the same idea of the character, unless the library has
-   a fitting one: `{"name": "grandpa", "description": "An old man in his eighties with a deep,
+2. **Their voice** (`design_voice`) from the same idea of the character, unless `list_voices`
+   shows a fitting one: `{"name": "grandpa", "description": "An old man in his eighties with a deep,
    warm, slightly raspy voice, speaking slowly."}`
 3. **The clip**, the lines written by you (about 2.5 words a second, one thought per line) and
    timed by den, lip-synced:

@@ -80,5 +80,7 @@ For a character's voice nobody has recorded:
   of its 23, with the sample's accent.
 - Try it on one short line with `generate_voice` and ask the user. Not right: the same
   description with another `seed`, or a sharper description, with `replace`.
+- The description, language and seed are kept with the voice: `list_voices` shows them, and the
+  same description and seed make the same voice again if it's ever lost.
 - From then on it's a voice like any recorded one: `voice: "grandpa"` in `generate_voice` or a
   clip's voiceover, with `sync` for a lip-synced character.

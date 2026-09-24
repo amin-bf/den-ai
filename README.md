@@ -443,6 +443,7 @@ den voice --srt script.srt -v narrator -l de    # each line at its time, on one 
 den voice --lines lines.txt -v narrator         # lines in turn; den writes the SRT at their times
 den voice --transcribe me.m4a                   # what a recording says, as a timed SRT (Whisper)
 den voice --design grandpa "an old man with a deep, raspy, slow voice"   # a voice from a description
+den voice --show grandpa                        # a voice's details; --mv OLD NEW, --describe NAME TEXT
 den clip "…" --voiceover script.srt --voice narrator   # a clip with the voice mixed in
 den clip "…he says to the camera…" --voiceover lines.txt --voice narrator --lip-sync
 den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your own recording, lip-synced
@@ -464,7 +465,12 @@ den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your ow
 - **Settings:** `--exaggeration` (0.25–2, default 0.5) for how expressive, `--cfg-weight` (0–1,
   default 0.5; lower is slower and calmer), `--seed` to repeat a take.
 - **Results** go to `~/Music/den/YYYY-MM-DD/` (`DEN_SPEECH_OUT`), logged to
-  `~/.local/state/den/speech.jsonl`; voices live in `~/.local/share/den/voices/` (`DEN_VOICES`).
+  `~/.local/state/den/speech.jsonl`.
+- **The voice library** is `~/.local/share/den/voices/` (`DEN_VOICES`), outside the repo like
+  the pose library: each voice's sample and a `NAME.json` with what it is (description, designed
+  or recorded, language, seed, date). `den voice` lists them with their descriptions, and
+  Claude's and pi's `list_voices` tool shows the same; no tool text names a voice, so keeping
+  one doesn't change the tools. The phone plays a voice's sample (Listen).
 - **Claude and pi** get a `generate_voice` tool, and `generate_clip` takes a `voiceover`; the
   phone's Clip pane has a voice-over field (a script, lines, or a text), a voice and language
   picker, a lip-sync switch, the timed script of the last clip (reuse or save it), records a new

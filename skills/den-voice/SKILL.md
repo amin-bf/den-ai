@@ -20,9 +20,14 @@ description lists the voices and languages; this skill is how to get speech that
   designer speaks a sample in it once, and Chatterbox clones that sample from then on.
 - **`transcribe_audio`**: what a recording says, as an SRT at the times it was said (Whisper):
   subtitles, or the script of a recording to speak again in another voice.
-- **Voices** are recordings kept under a name, listed in the tool description. The user adds them
-  (`den voice --add NAME RECORDING`, or the phone's Clip pane); a request may also pass a
-  recording's path. Without a voice it's the model's own.
+- **`list_voices`**: the voice library, each voice with what it sounds like and how it was made
+  (designed or recorded); with a name, one voice's details (description, language, seed, length).
+  Call it once per conversation before choosing a voice, and keep the list: no tool text names
+  the voices, so the list is the only place they're described.
+- **Voices** are kept under a name with that description, like the pose library's poses. They
+  come from `design_voice`, or the user's recordings (`den voice --add NAME RECORDING
+  --description …`, the phone's Clip pane); a request may also pass a recording's path. Without
+  a voice it's the model's own.
 
 ## Recording a voice
 
@@ -62,8 +67,9 @@ when lines must land at given moments.
 
 ## The working loop
 
-1. **One short line first** in the chosen voice and language, to hear the voice before a whole
-   script.
+1. **Pick the voice from `list_voices`** by its description, not its name: "grandpa" says less
+   than "an old man with a deep, raspy voice". None fits: design one. Then **one short line
+   first** in that voice and language, before a whole script.
 2. **You can't hear the result.** Say what was made (the track, its length, the notes) and ask
    the user how it sounds: the voice, the pace, the tone.
 3. **Fix the script's times from the notes** before anything else; then one setting at a time,

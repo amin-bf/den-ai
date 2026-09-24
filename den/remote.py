@@ -137,6 +137,11 @@ def add_voice(caller, name, recording, replace=False):
     return client(caller).add_voice(name, image.file_object(recording), replace)
 
 
+def design_voice(caller, request):
+    """Progress lines of designing a voice there; it's kept in that den's library."""
+    return client(caller).design_voice(**request)
+
+
 def remove_voice(caller, name):
     return client(caller).remove_voice(name)
 

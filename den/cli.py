@@ -278,6 +278,20 @@ def cmd_voice(args):
         answer = remote.add_voice("cli", name, recording, args.replace) if where else client.add_voice(name, recording, args.replace)
         print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
         return
+    if args.design:
+        name, description = args.design
+        request = {"name": name, "description": description, "replace": args.replace or None,
+                   "language": args.language, "seed": args.seed}
+        request = {k: v for k, v in request.items() if v is not None}
+        for msg in remote.design_voice("cli", request) if where else client.design_voice(**request):
+            if _print_image_step(msg):
+                pass
+            elif "designing" in msg:
+                print(f"designing the voice {msg['designing']} (the first time downloads the designer, about 4.5 GB) ...", flush=True)
+            elif "result" in msg:
+                r = msg["result"]
+                print(f"voice {r['voice']} kept ({r['duration']:g}s sample, {r['seconds']}s); voices: {', '.join(r['voices'])}")
+        return
     if args.transcribe:
         recording = str(Path(args.transcribe).expanduser().resolve())
         stream = remote.transcribe("cli", recording, args.language) if where else client.transcribe(
@@ -537,7 +551,10 @@ def cmd_image(args):
         extra["clip"] = clip.client_spec(config, state)
         # And the voice tool's, where speech is installed (ADR 0010).
         if speech.unavailable() is None and unavailable is None:
-            extra["voice"] = speech.request_spec()
+            extra["voice"] = {
+                **speech.request_spec(),
+                "design_languages": list(speech.DESIGN_LANGUAGES) if speech.design_unavailable() is None else [],
+            }
         print(json.dumps({**listing, "workflows": list(flows), "edits": [n for n, wf in flows.items() if "edit" in wf], **spec, **extra}))
         return
     if args.prompt is None:
@@ -996,6 +1013,11 @@ def main(argv=None):
     p.add_argument("--add", nargs=2, metavar=("NAME", "RECORDING"), help="keep a recording in the voice library")
     p.add_argument("--replace", action="store_true", help="with --add: replace a voice of that name")
     p.add_argument("--rm", metavar="NAME", help="remove a voice from the library")
+    p.add_argument(
+        "--design", nargs=2, metavar=("NAME", "DESCRIPTION"),
+        help='make a voice from a description, e.g. grandpa "an old man with a deep, raspy, slow voice" '
+        "(-l for the sample's language, --seed, --replace)",
+    )
     p.add_argument(
         "--transcribe", metavar="RECORDING",
         help="write down what a recording says, as a timed SRT (Whisper; -l for its language)",

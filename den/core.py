@@ -412,6 +412,10 @@ class BrokerClient(Ollama):
         """Keep a recording as a voice: its path here, or {name, base64} from elsewhere."""
         return self._request("POST", "/voices", {"name": name, "recording": recording, "replace": replace}, timeout=60)
 
+    def design_voice(self, **request):
+        """Progress lines of designing a voice from a description; the last one carries the result."""
+        return self._stream("/voices/design", request)
+
     def remove_voice(self, name):
         return self._request("POST", "/voices", {"name": name, "remove": True}, timeout=30)
 

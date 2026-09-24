@@ -46,6 +46,76 @@ LANGUAGES = {
     "ru": "Russian", "sv": "Swedish", "sw": "Swahili", "tr": "Turkish", "zh": "Chinese",
 }
 _NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+DESIGN_DIR = Path(os.environ.get("DESIGN_DIR") or _DATA_HOME / "den/voice-design")
+DESIGNER = core.ROOT / "speech/design.py"
+DESIGN_LOG = core._STATE_HOME / "den/voice-design.log"
+DESIGN_TIMEOUT_S = 1800  # the first run downloads the model (about 4.5 GB)
+# The languages the voice designer speaks, and a sample of about ten seconds with varied sounds in
+# each: the sample is what Chatterbox clones, so it only needs to show the voice.
+DESIGN_LANGUAGES = {
+    "en": ("English", "Every morning I walk down to the harbour, buy a coffee from the little stand by the boats, "
+           "and watch the fishermen come in. Some days the sea is calm and silver; other days the wind throws spray over the wall."),
+    "de": ("German", "Jeden Morgen gehe ich hinunter zum Hafen, hole mir einen Kaffee am kleinen Stand bei den Booten "
+           "und sehe den Fischern zu. Manchmal ist das Meer ruhig und silbern, manchmal wirft der Wind die Gischt über die Mauer."),
+    "fr": ("French", "Chaque matin, je descends au port, j'achète un café au petit stand près des bateaux et je regarde "
+           "rentrer les pêcheurs. Certains jours la mer est calme et argentée, d'autres le vent jette l'écume par-dessus le mur."),
+    "es": ("Spanish", "Cada mañana bajo al puerto, compro un café en el puesto junto a los barcos y miro llegar a los "
+           "pescadores. Algunos días el mar está tranquilo y plateado; otros, el viento lanza la espuma sobre el muro."),
+    "it": ("Italian", "Ogni mattina scendo al porto, prendo un caffè al chiosco vicino alle barche e guardo rientrare i "
+           "pescatori. Certi giorni il mare è calmo e argenteo, altri il vento getta gli spruzzi oltre il muro."),
+    "pt": ("Portuguese", "Todas as manhãs desço ao porto, compro um café na banca junto aos barcos e vejo os pescadores "
+           "chegar. Há dias em que o mar está calmo e prateado; noutros, o vento atira a espuma por cima do muro."),
+    "ru": ("Russian", "Каждое утро я спускаюсь в гавань, беру кофе у маленького ларька возле лодок и смотрю, как "
+           "возвращаются рыбаки. Иногда море спокойное и серебристое, а иногда ветер перебрасывает брызги через стену."),
+    "ja": ("Japanese", "毎朝、港まで歩いて行き、船のそばの小さな店でコーヒーを買って、漁師たちが帰ってくるのを眺めます。"
+           "海が穏やかで銀色に光る日もあれば、風がしぶきを堤防の上まで吹き上げる日もあります。"),
+    "ko": ("Korean", "매일 아침 나는 항구로 내려가 배 옆의 작은 가게에서 커피를 사고 어부들이 돌아오는 것을 바라본다. "
+           "어떤 날은 바다가 잔잔하고 은빛이며, 어떤 날은 바람이 물보라를 방파제 너머로 날린다."),
+    "zh": ("Chinese", "每天早上，我走到港口，在船边的小摊买一杯咖啡，看着渔民们归来。有时大海平静而泛着银光，有时海风把浪花吹过堤岸。"),
+}
+
+
+def design_unavailable():
+    """Why voices can't be designed here, or None."""
+    if not (DESIGN_DIR / ".venv/bin/python").exists():
+        return f"the voice designer isn't installed ({DESIGN_DIR}/.venv is missing); run ./setup.sh"
+    return None
+
+
+def design(description, language="en", seed=None, check=lambda: None):
+    """A voice's sample from a description: WAV bytes, spoken by the voice designer (Qwen3-TTS
+    VoiceDesign) in a process of its own. check() is called while it runs, to cancel it."""
+    why = design_unavailable()
+    if why:
+        raise DenError(why)
+    if language not in DESIGN_LANGUAGES:
+        raise DenError(f"the voice designer speaks {', '.join(DESIGN_LANGUAGES)}; got {language!r}")
+    name, sample = DESIGN_LANGUAGES[language]
+    out = SOCKET.parent / f"design-{os.getpid()}-{time.time_ns()}.wav"
+    SOCKET.parent.mkdir(parents=True, exist_ok=True)
+    DESIGN_LOG.parent.mkdir(parents=True, exist_ok=True)
+    args = [str(DESIGN_DIR / ".venv/bin/python"), str(DESIGNER), "--description", description,
+            "--text", sample, "--language", name, "--out", str(out)]
+    if seed is not None:
+        args += ["--seed", str(int(seed))]
+    with open(DESIGN_LOG, "w") as log:
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        deadline = time.time() + DESIGN_TIMEOUT_S
+        try:
+            while proc.poll() is None:
+                check()
+                if time.time() > deadline:
+                    raise DenError(f"the voice designer took longer than {DESIGN_TIMEOUT_S}s; see {DESIGN_LOG}")
+                time.sleep(1)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(10)
+    if proc.returncode != 0 or not out.is_file():
+        raise DenError(f"the voice designer failed; see {DESIGN_LOG}")
+    data = out.read_bytes()
+    out.unlink()
+    return data
 
 
 def unavailable():
@@ -326,6 +396,21 @@ def add_voice(name, recording, replace=False):
         existing.unlink()
     target = VOICES_DIR / f"{name}{source.suffix.lower()}"
     shutil.copyfile(source, target)
+    return target
+
+
+def keep_voice(name, data, replace=False):
+    """Keep WAV bytes (a designed sample) in the library under name; returns its path."""
+    if not _NAME.fullmatch(name):
+        raise DenError(f"a voice name is lower case letters, digits and dashes, got {name!r}")
+    existing = voices().get(name)
+    if existing and not replace:
+        raise DenError(f"voice {name!r} exists; replace it with --replace")
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+    if existing:
+        existing.unlink()
+    target = VOICES_DIR / f"{name}.wav"
+    target.write_bytes(data)
     return target
 
 

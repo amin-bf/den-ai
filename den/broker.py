@@ -1065,6 +1065,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_request(self._with_voice(self._voice), json.loads(self._read_body() or b"{}"))
             elif path == "/transcribe" and self.command == "POST":
                 self._stream_request(self._transcribe, json.loads(self._read_body() or b"{}"))
+            elif path == "/voices/design" and self.command == "POST":
+                self._stream_request(self._voice_design, json.loads(self._read_body() or b"{}"))
             elif path == "/voices" and self.command == "GET":
                 self._send_json(200, self._voices())
             elif path == "/voices" and self.command == "POST":
@@ -1243,11 +1245,64 @@ class Handler(BaseHTTPRequestHandler):
         log(f"#{req_id} {info['caller']} POST /transcribe {len(cues)} segment(s) -> {path} in {seconds}s")
         emit({"result": {"srt": srt, "text": heard["text"], "segments": cues, "duration": heard["duration"], "path": str(path), "seconds": seconds}})
 
+    def _voice_design(self, body, emit):
+        """POST /voices/design {name, description, language?, seed?, replace?, bytes?}: make a
+        voice from a description (Qwen3-TTS VoiceDesign speaks a sample in it) and keep it in the
+        voice library, where Chatterbox clones it like a recording. Streams progress and ends with
+        {"result": {voice, voices, duration, seconds}}."""
+        name = str(body.get("name") or "")
+        description = str(body.get("description") or "").strip()
+        if not speech._NAME.fullmatch(name):
+            raise DenError(f"a voice name is lower case letters, digits and dashes, got {name!r}")
+        if not description:
+            raise DenError("describe the voice, e.g. \"an old man with a deep, raspy, slow voice\"")
+        if name in speech.voices() and not body.get("replace"):
+            raise DenError(f"voice {name!r} exists; replace it with replace")
+        why = speech.design_unavailable()
+        if why:
+            raise DenError(why)
+        language = str(body.get("language") or "en").lower()
+        if language not in speech.DESIGN_LANGUAGES:
+            raise DenError(f"the voice designer speaks {', '.join(speech.DESIGN_LANGUAGES)}; got {language!r}")
+        config = core.load_config()
+        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/voices/design", "model": "voice-design"}
+        req_id = self.broker.admit(info, emit, self._caller_gone)
+        began = time.time()
+
+        def check():
+            if info.get("cancelled"):
+                raise DenError(info["cancelled"])
+            if self._caller_gone():
+                raise ConnectionResetError("the caller hung up while designing")
+
+        try:
+            settings = image.settings(config)
+            comfy = ComfyUI(settings["base_url"]) if settings else None
+            if comfy and comfy.up():
+                comfy.free()  # the designer and ComfyUI's models don't share the GPU
+            emit({"designing": name})
+            data = speech.design(description, language, body.get("seed"), check)
+        finally:
+            self.broker.finish(req_id)
+        path = speech.keep_voice(name, data, bool(body.get("replace")))
+        samples, rate = speech._pcm(data)
+        seconds = round(time.time() - began, 1)
+        log(f"#{req_id} {info['caller']} POST /voices/design -> {path.name} in {seconds}s")
+        result = {
+            "voice": name, "voices": sorted(speech.voices()), "description": description,
+            "duration": round(len(samples) / rate, 2), "seconds": seconds,
+        }
+        if body.get("bytes"):
+            result["sample"] = speech.as_bytes(path)  # to listen to it there
+        emit({"result": result})
+
     def _voices(self):
         return {
             "voices": sorted(speech.voices()),
             "languages": speech.LANGUAGES,
             "unavailable": speech.unavailable(),
+            # Voices from a description, where the designer is installed (ADR 0010).
+            "design_languages": list(speech.DESIGN_LANGUAGES) if speech.design_unavailable() is None else [],
         }
 
     def _voice_add(self, body):

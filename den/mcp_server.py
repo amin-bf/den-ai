@@ -247,6 +247,8 @@ def list_tools():
     if image.unavailable(config, state) is None and speech.unavailable() is None:
         tools.append(voice_tool(speech.request_spec()))
         tools.append(transcribe_tool())
+        if speech.design_unavailable() is None:
+            tools.append(design_tool())
     return tools
 
 
@@ -274,7 +276,36 @@ def remote_tools(name):
     if voice and spec["image_on"]:
         tools.append(voice_tool(voice, name))
         tools.append(transcribe_tool(name))
+        if voice.get("design_languages"):
+            tools.append(design_tool(name))
     return tools
+
+
+def design_tool(remote_name=None):
+    where = f"The voice is kept in {remote_name}'s library. " if remote_name else ""
+    return {
+        "name": "design_voice",
+        "description": where + "Make a new voice from a description and keep it in the voice library under a name, "
+        "for generate_voice and clip voice-overs (also lip-synced) from then on: Qwen3-TTS VoiceDesign speaks a "
+        "sample in that voice, which Chatterbox then clones. Describe age, gender, pitch, texture, pace and mood, "
+        "e.g. \"an old man with a deep, raspy, slow voice\", \"a cheerful eight-year-old girl with a high, "
+        "bright voice\". About a minute; the first time also downloads the designer. The den-voice skill has the "
+        "recipes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "The voice's name: lower case letters, digits and dashes."},
+                "description": {"type": "string", "description": "What the voice sounds like."},
+                "language": {
+                    "type": "string", "enum": list(speech.DESIGN_LANGUAGES),
+                    "description": "The sample's language (default en); the voice then speaks any of Chatterbox's.",
+                },
+                "seed": {"type": "integer", "description": "Another seed gives another voice for the same description."},
+                "replace": {"type": "boolean", "description": "Replace a voice of that name."},
+            },
+            "required": ["name", "description"],
+        },
+    }
 
 
 def transcribe_tool(remote_name=None):
@@ -323,6 +354,8 @@ def progress_text(msg):
         return f"unloading the LLM ({', '.join(msg['unloading'])})"
     if "starting" in msg or "stopping" in msg:
         return f"{'starting' if 'starting' in msg else 'stopping'} {msg.get('starting') or msg.get('stopping')}"
+    if "designing" in msg:
+        return f"designing the voice {msg['designing']}"
     if "transcribing" in msg:
         return f"transcribing {msg['transcribing']}"
     if "speaking" in msg:
@@ -410,6 +443,26 @@ def generate_image(args, progress_token):
     if shown:
         content.append({"type": "image", "data": shown["base64"], "mimeType": shown["mime"]})
     return content
+
+
+def design_voice(args, progress_token):
+    request = {k: args[k] for k in ("name", "description", "language", "seed", "replace") if args.get(k) is not None}
+    config = core.load_config()
+    stream = remote.design_voice("claude", request) if core.remote_name() else core.broker(config, "claude").design_voice(**request)
+    result, step = None, 0
+    for msg in stream:
+        if "result" in msg:
+            result = msg["result"]
+        elif progress_token is not None and (text := progress_text(msg)):
+            step += 1
+            notify(progress_token, step, text)
+    if result is None:
+        raise DenError("the broker ended the voice design without a result")
+    return (
+        f"voice {result['voice']} kept ({result['duration']:g}s sample, {result['seconds']}s): "
+        f"use it as voice in generate_voice or a clip's voiceover. Voices: {', '.join(result['voices'])}. "
+        "You can't hear it; ask the user to try it on a short line."
+    )
 
 
 def transcribe_audio(args, progress_token):
@@ -611,6 +664,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name == "design_voice":
+            text = design_voice(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "transcribe_audio":
             text = transcribe_audio(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_voice":

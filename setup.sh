@@ -328,6 +328,8 @@ if [ "$with_comfyui" = 1 ]; then
     fi
   else
   unit="$UNIT_DIR/comfyui.service"
+  # --reserve-vram keeps room on the GPU for what a quantized (GGUF) model unpacks mid-step; without
+  # it a model that fills the GPU runs out of memory on its first step.
   if [ -f "$unit" ]; then
     ok "$unit"
   else
@@ -337,7 +339,7 @@ Description=ComfyUI (localhost)
 
 [Service]
 WorkingDirectory=$COMFYUI_DIR
-ExecStart=$COMFYUI_DIR/.venv/bin/python main.py --listen 127.0.0.1 --port 8188
+ExecStart=$COMFYUI_DIR/.venv/bin/python main.py --listen 127.0.0.1 --port 8188 --reserve-vram 1.5
 Restart=no
 
 [Install]

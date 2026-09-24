@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The broker's launchd agent, the counterpart of systemd/den.service. launchd expands no
+  home directory of its own, so setup.sh fills the @PLACEHOLDERS@ in and writes the result
+  to ~/Library/LaunchAgents/; this file is the template, and nothing machine-specific is
+  committed.
+
+  KeepAlive/SuccessfulExit false is Restart=on-failure, ThrottleInterval is RestartSec, and
+  ExitTimeOut is TimeoutStopSec. launchd signals the job's own process and only kills the
+  group after that timeout, which is what den.service asks for with KillMode=mixed: the
+  broker needs the time to save llama-server's cache and stop it.
+
+  PATH is set because an agent starts with a bare one, and the broker runs llama-server.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.den.broker</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@PYTHON@</string>
+    <string>@REPO@/bin/den</string>
+    <string>serve</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>60</integer>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

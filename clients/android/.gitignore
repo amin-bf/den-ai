@@ -1,0 +1,12 @@
+# Build outputs and Gradle's own state
+build/
+.gradle/
+.kotlin/
+# Machine-specific: the SDK location
+local.properties
+# IDE files
+.idea/
+*.iml
+.cxx/
+captures/
+.externalNativeBuild/

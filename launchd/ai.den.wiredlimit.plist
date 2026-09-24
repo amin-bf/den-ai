@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Raise the share of unified memory Metal may wire to the GPU, at every boot. macOS only:
+  nothing on a machine with its own card needs this.
+
+  macOS wires about 75% of memory to the GPU by default. On a machine where the model, its
+  conversation cache, a vision projector and a draft context all come out of that one pool,
+  that default is the ceiling a model hits — and it fails as an opaque Metal allocation
+  error, not as "out of memory". `sysctl` does not survive a reboot, so a model that loaded
+  yesterday fails today for no visible reason; this daemon sets it again each boot.
+
+  This is a system daemon and needs root, so den never installs it: setup.sh fills this in
+  and prints the two commands for you to run (ADR 0006).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.den.wiredlimit</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/sbin/sysctl</string>
+    <string>-w</string>
+    <string>iogpu.wired_limit_mb=@WIRED_MB@</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>

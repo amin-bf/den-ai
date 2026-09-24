@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the app may hand to other apps (the gallery viewer, a share target): the pictures it
+     keeps with a conversation, and a photo just taken. -->
+<paths>
+    <files-path name="chats" path="chats/" />
+    <cache-path name="camera" path="camera/" />
+</paths>

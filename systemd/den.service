@@ -1,0 +1,15 @@
+[Unit]
+Description=den GPU broker (localhost)
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/den serve
+Restart=on-failure
+RestartSec=2
+# Signal only the broker on stop: it saves llama-server's cache and stops the server itself,
+# which a signal to the whole group at once would kill before the save.
+KillMode=mixed
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

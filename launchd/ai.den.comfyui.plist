@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ComfyUI's launchd agent, the counterpart of the comfyui.service setup.sh writes on
+  systemd. setup.sh fills the @PLACEHOLDERS@ in and writes the result to
+  ~/Library/LaunchAgents/; it is not loaded there, because the broker loads it when an image
+  is asked for and boots it out when the LLM needs the machine back.
+
+  No KeepAlive: this is Restart=no. ComfyUI stopping is how a swap ends, not a failure.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.den.comfyui</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@COMFYUI_DIR@/.venv/bin/python</string>
+    <string>main.py</string>
+    <string>--listen</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8188</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>@COMFYUI_DIR@</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>@LOG@</string>
+  <key>StandardErrorPath</key>
+  <string>@LOG@</string>
+</dict>
+</plist>

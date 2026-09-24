@@ -1,0 +1,13 @@
+# runtime switches written by `den` (the on/off mode, active model, task toggles)
+state.json
+state.tmp
+# private additions merged over config.toml (e.g. workflow notes)
+config.local.toml
+__pycache__/
+
+# Per-branch working artifacts (handoffs, diff viewers, agent notes); see AGENTS.md
+/.branch-artifacts/
+
+# Claude Code session files and the vendored agent skills stay local (third-party, not ours to publish)
+.claude/
+.agents/

@@ -16,6 +16,7 @@
 #   COMFYUI_GGUF_REF  ComfyUI-GGUF commit to check out (default: 6ea2651e)
 #   SPEECH_DIR     where the speech model's venv lives (default: ~/.local/share/den/speech)
 #   CHATTERBOX_REF Chatterbox commit to install (default: 5de7a54a)
+#   DESIGN_DIR     where the voice designer's venv lives (default: ~/.local/share/den/voice-design)
 #   TORCH_INDEX    PyTorch wheel index for your GPU  (default: CUDA 13.0; none on macOS,
 #                                                     where the wheels carry Metal)
 set -euo pipefail
@@ -26,6 +27,7 @@ COMFYUI_REF="${COMFYUI_REF:-v0.36.0}"
 COMFYUI_PY="${COMFYUI_PY:-3.13}"
 COMFYUI_GGUF_REF="${COMFYUI_GGUF_REF:-6ea2651e}"
 SPEECH_DIR="${SPEECH_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/speech}"
+DESIGN_DIR="${DESIGN_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/voice-design}"
 CHATTERBOX_REF="${CHATTERBOX_REF:-5de7a54aa4e5e2baadb0182dde554908b48b85c2}"
 BROKER_URL="http://127.0.0.1:11435"
 
@@ -407,6 +409,20 @@ if [ "$with_speech" = 1 ]; then
     fi
     uv pip install --quiet --python "$py" "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@$CHATTERBOX_REF"
     did "installed Chatterbox ${CHATTERBOX_REF:0:8} in $SPEECH_DIR/.venv (its model, about 3.2 GB, downloads on first use)"
+  fi
+  # The voice designer (Qwen3-TTS VoiceDesign) makes a voice's sample from a description, which
+  # Chatterbox then clones. It pins transformers 4.57.3 against Chatterbox's 5.2.0: a venv of its own.
+  py="$DESIGN_DIR/.venv/bin/python"
+  if [ -x "$py" ] && "$py" -c "import qwen_tts" 2>/dev/null; then
+    ok "voice designer (Qwen3-TTS) in $DESIGN_DIR/.venv"
+  else
+    mkdir -p "$DESIGN_DIR"
+    [ -x "$py" ] || uv venv --quiet --python 3.12 "$DESIGN_DIR/.venv"
+    if [ -n "$SPEECH_TORCH_INDEX" ]; then
+      uv pip install --quiet --python "$py" torch==2.6.0 torchaudio==2.6.0 --index-url "$SPEECH_TORCH_INDEX"
+    fi
+    uv pip install --quiet --python "$py" "qwen-tts==0.1.1"
+    did "installed the voice designer in $DESIGN_DIR/.venv (its model, about 4.5 GB, downloads on first use)"
   fi
 fi
 

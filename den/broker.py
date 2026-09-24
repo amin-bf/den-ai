@@ -754,15 +754,24 @@ def clip_view(record, with_bytes=False):
 
 
 def voice_request(spec, folder):
-    """A voice job's script, language, voice and settings from a request: {srt? | text?, voice?,
-    language?, exaggeration?, cfg_weight?, temperature?, seed?}. A voice sent as bytes is written
-    into folder."""
+    """A voice job's script, language, voice and settings from a request: {srt? | lines? | text?,
+    voice?, language?, exaggeration?, cfg_weight?, temperature?, seed?, sync?}. With `audio` (a
+    recording's path, or bytes) the recording is the track and a script only names its lines. A
+    voice or a recording sent as bytes is written into folder."""
     why = speech.unavailable()
     if why:
         raise DenError(why)
     if not isinstance(spec, dict):
         raise DenError("a voice-over is {srt or text, voice?, language?, ...}")
-    cues = speech.script(spec.get("srt"), spec.get("text"))
+    audio = spec.get("audio")
+    if image.is_file_object(audio):
+        audio = image._write_input(folder, audio)
+    elif audio and not (Path(audio).is_absolute() and Path(audio).is_file()):
+        raise DenError(f"no recording at {audio} (an absolute path)")
+    if audio and not any(spec.get(k) for k in ("srt", "text", "lines")):
+        cues = [{"start": 0.0, "end": None, "text": "(recording)"}]
+    else:
+        cues = speech.script(spec.get("srt"), spec.get("text"), spec.get("lines"))
     language = str(spec.get("language") or "en").lower()
     if language not in speech.LANGUAGES:
         raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
@@ -772,7 +781,43 @@ def voice_request(spec, folder):
     else:
         voice_file = speech.voice_path(voice)
     options = {k: spec[k] for k in ("exaggeration", "cfg_weight", "temperature", "seed") if spec.get(k) is not None}
-    return {"cues": cues, "language": language, "voice": voice, "voice_file": voice_file, "options": options}
+    return {
+        "cues": cues, "language": language, "voice": voice, "voice_file": voice_file, "options": options,
+        "sync": bool(spec.get("sync")), "audio": audio,
+    }
+
+
+def voice_track(broker, config, request, emit, check):
+    """(track WAV, seconds, notes) of a voice request: its lines spoken, or its recording as it is."""
+    if not request.get("audio"):
+        return speech.assemble(request["cues"], speak_lines(broker, config, request, emit, check))
+    settings = image.settings(config)
+    comfy = ComfyUI(settings["base_url"]) if settings else None
+    if comfy and comfy.up():
+        comfy.free()
+    try:
+        broker.speech.start(emit)
+        check()
+        track = broker.speech.convert(request["audio"])
+    finally:
+        broker.speech.stop()
+    samples, rate = speech._pcm(track)
+    return track, round(len(samples) / rate, 2), []
+
+
+def transcribe(broker, config, recording, language, emit, check):
+    """Whisper's timed segments of a recording, as cues."""
+    settings = image.settings(config)
+    comfy = ComfyUI(settings["base_url"]) if settings else None
+    if comfy and comfy.up():
+        comfy.free()
+    try:
+        broker.speech.start(emit)
+        check()
+        emit({"transcribing": Path(recording).name})
+        return broker.speech.transcribe(recording, language)
+    finally:
+        broker.speech.stop()
 
 
 def speak_lines(broker, config, request, emit, check):
@@ -823,19 +868,27 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
                 if info.get("cancelled"):
                     raise DenError(info["cancelled"])
 
-            track, length, notes = speech.assemble(voiced["cues"], speak_lines(broker, config, voiced, emit, cancelled))
+            track, length, notes = voice_track(broker, config, voiced, emit, cancelled)
             track_path, _ = speech.save(track, " ".join(c["text"] for c in voiced["cues"]))
+            track_path.with_suffix(".srt").write_text(speech.to_srt(voiced["cues"]))
             wf = clip.check_workflows(config)[record["params"]["workflow"]][0]
             planned = record["params"]["duration"]
             longest = (wf["duration"].get("allowed") or [None, planned])[1]
             if length > planned + 0.1 and longest > planned:
                 # The voice came out longer than the script's times: make the clip long enough to hold it.
                 graph, params, uploads, sheet = clip.build(config, duration=min(length + 0.3, longest), **voiced["build"])
-                record["params"] = {**params, "voiceover": record["params"]["voiceover"]}
+                kept = {k: record["params"][k] for k in ("voiceover", "lip_sync") if k in record["params"]}
+                record["params"] = {**params, **kept}
                 notes.append(f"the clip was lengthened to {record['params']['duration']:g}s to hold the voice-over")
             if length > record["params"]["duration"] + 0.1:
                 notes.append(f"the voice-over runs {length:g}s; the clip ends at {record['params']['duration']:g}s")
-            clip.add_voiceover(graph, wf, comfy.upload(track_path, subfolder=""), record["params"]["duration"])
+            if voiced["sync"]:
+                # The encoded voice must be as long as the clip's audio: pad it with silence.
+                synced = Path(folder) / f"{track_path.stem}-synced.wav"
+                synced.write_bytes(speech.pad(track, record["params"]["duration"] + 0.1))
+                clip.add_lipsync(graph, wf, comfy.upload(synced, subfolder=""), record["params"]["duration"])
+            else:
+                clip.add_voiceover(graph, wf, comfy.upload(track_path, subfolder=""), record["params"]["duration"])
             voiced.update(track=str(track_path), notes=notes)
         image.fill_uploads(graph, uploads, [comfy.upload(path) for _, path in uploads])
         began = time.time()
@@ -869,7 +922,11 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
         record["result"] = {
             **params,
             "summary": clip.summary_parts(params),
-            **({"voiceover_track": voiced["track"], "notes": voiced["notes"]} if voiced else {}),
+            **(
+                {"voiceover_track": voiced["track"], "srt": speech.to_srt(voiced["cues"]), "notes": voiced["notes"]}
+                if voiced
+                else {}
+            ),
             "path": str(path),
             "sheet": str(sheet_path) if sheet_path else None,
             "copies": [str(p) for p in copies],
@@ -1006,6 +1063,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._image(json.loads(self._read_body() or b"{}"))
             elif path == "/voice" and self.command == "POST":
                 self._stream_request(self._with_voice(self._voice), json.loads(self._read_body() or b"{}"))
+            elif path == "/transcribe" and self.command == "POST":
+                self._stream_request(self._transcribe, json.loads(self._read_body() or b"{}"))
             elif path == "/voices" and self.command == "GET":
                 self._send_json(200, self._voices())
             elif path == "/voices" and self.command == "POST":
@@ -1141,6 +1200,49 @@ class Handler(BaseHTTPRequestHandler):
 
         return wrapped
 
+    def _transcribe(self, body, emit):
+        """POST /transcribe {audio: path or {name, base64}, language?, out?}: the speech of a
+        recording as a timed SRT (Whisper), saved next to where voice tracks go. Streams progress
+        and ends with {"result": {srt, text, segments, duration, path}}."""
+        why = speech.unavailable()
+        if why:
+            raise DenError(why)
+        folder = tempfile.mkdtemp(prefix="den-voice-")
+        try:
+            recording = body.get("audio")
+            if image.is_file_object(recording):
+                recording = image._write_input(folder, recording)
+            if not recording or not Path(recording).is_absolute() or not Path(recording).is_file():
+                raise DenError(f"no recording at {recording} (an absolute path, or bytes)")
+            language = body.get("language")
+            config = core.load_config()
+            info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/transcribe", "model": "whisper"}
+            req_id = self.broker.admit(info, emit, self._caller_gone)
+            began = time.time()
+
+            def check():
+                if info.get("cancelled"):
+                    raise DenError(info["cancelled"])
+                if self._caller_gone():
+                    raise ConnectionResetError("the caller hung up while transcribing")
+
+            try:
+                heard = transcribe(self.broker, config, recording, language, emit, check)
+            finally:
+                self.broker.finish(req_id)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        cues = heard["segments"]
+        if not cues:
+            raise DenError("no speech heard in the recording")
+        srt = speech.to_srt(cues)
+        path = speech.OUTPUT_DIR / time.strftime("%Y-%m-%d") / f"{time.strftime('%H%M%S')}-{speech.slug(heard['text'])}.srt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(srt)
+        seconds = round(time.time() - began, 1)
+        log(f"#{req_id} {info['caller']} POST /transcribe {len(cues)} segment(s) -> {path} in {seconds}s")
+        emit({"result": {"srt": srt, "text": heard["text"], "segments": cues, "duration": heard["duration"], "path": str(path), "seconds": seconds}})
+
     def _voices(self):
         return {
             "voices": sorted(speech.voices()),
@@ -1185,15 +1287,17 @@ class Handler(BaseHTTPRequestHandler):
                 raise ConnectionResetError("the caller hung up while speaking")
 
         try:
-            lines = speak_lines(self.broker, config, request, emit, check)
+            data, duration, notes = voice_track(self.broker, config, request, emit, check)
         except (DenError, ConnectionResetError, BrokenPipeError) as e:
             log(f"#{req_id} {info['caller']} POST /voice -> failed: {e}")
             raise
         finally:
             self.broker.finish(req_id)
-        data, duration, notes = speech.assemble(cues, lines)
         spoken = " ".join(c["text"] for c in cues)
         path, copies = speech.save(data, spoken, body.get("out"))
+        # The script at the times the lines were spoken: subtitles, and a script to reuse.
+        srt = speech.to_srt(cues)
+        path.with_suffix(".srt").write_text(srt)
         seconds = round(time.time() - began, 1)
         summary = [
             f"voice {voice or 'default'}", speech.LANGUAGES[language], f"{len(cues)} line(s)", f"{duration:g}s",
@@ -1202,6 +1306,7 @@ class Handler(BaseHTTPRequestHandler):
         result = {
             "summary": summary, "path": str(path), "copies": [str(p) for p in copies], "duration": duration,
             "lines": len(cues), "notes": notes, "voice": voice, "language": language, "seconds": seconds,
+            "srt": srt,
             "waited_s": round(info["started"] - info.get("queued", info["started"]), 1),
         }
         speech.log({"caller": info["caller"], **{k: v for k, v in result.items() if k != "summary"}, "text": spoken[:500], **options})
@@ -1370,6 +1475,16 @@ class Handler(BaseHTTPRequestHandler):
             voiced = voice_request(body["voiceover"], folder) if body.get("voiceover") else None
             duration = body.get("duration")
             flows = clip.check_workflows(config)
+            if voiced and voiced["sync"] and name in flows:
+                wf = flows[name][0]
+                if "lip_sync" not in wf:
+                    makes = [n for n, (w, problem) in flows.items() if "lip_sync" in w and problem is None]
+                    raise DenError(
+                        f"workflow {name} can't lip-sync"
+                        + (f"; these can: {', '.join(makes)}" if makes else "; no clip workflow here can")
+                    )
+                if body.get("sound") is False:
+                    raise DenError("lip-sync makes the clip's sound from the voice: it needs sound on")
             if voiced and duration is None and name in flows:
                 # Long enough for the script, within what the workflow allows.
                 length = clip.voiceover_length(voiced["cues"])
@@ -1382,7 +1497,9 @@ class Handler(BaseHTTPRequestHandler):
             }
             graph, params, uploads, sheet = clip.build(config, duration=duration, **build)
             if voiced:
-                params["voiceover"] = voiced["voice"] or "default"
+                params["voiceover"] = "recording" if voiced["audio"] else voiced["voice"] or "default"
+                if voiced["sync"]:
+                    params["lip_sync"] = True
                 # Kept to build the graph again if the spoken voice turns out longer than planned.
                 voiced["build"] = {**build, "seed": params["seed"]}
             # Refuse now what admit would refuse later, rather than hand out an id that fails.

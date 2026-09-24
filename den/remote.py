@@ -94,7 +94,21 @@ def spoken_here(spec):
     voice = spec.get("voice")
     if voice and Path(voice).expanduser().is_file():
         spec["voice"] = image.file_object(voice)
+    if spec.get("audio") and not image.is_file_object(spec["audio"]):
+        spec["audio"] = image.file_object(spec["audio"])
     return spec
+
+
+def transcribe(caller, recording, language=None):
+    """Progress lines of a transcription there, the recording here sent as bytes; the SRT is
+    saved here next to the recording."""
+    request = {"audio": image.file_object(recording), **({"language": language} if language else {})}
+    for msg in client(caller).transcribe(**request):
+        if "result" in msg:
+            here = Path(recording).expanduser().with_suffix(".srt")
+            here.write_text(msg["result"]["srt"])
+            msg = {**msg, "result": {**msg["result"], "path": str(here)}}
+        yield msg
 
 
 def speak(caller, request):
@@ -105,8 +119,10 @@ def speak(caller, request):
     for msg in client(caller).speak(**request, bytes=True):
         if "result" in msg:
             result = dict(msg["result"])
-            spoken = request.get("text") or request.get("srt") or "voice"
+            spoken = request.get("text") or " ".join(request.get("lines") or []) or request.get("srt") or "voice"
             path, copies = speech.save(base64.b64decode(result.pop("audio")), spoken[:200], out)
+            if result.get("srt"):
+                path.with_suffix(".srt").write_text(result["srt"])
             msg = {**msg, "result": {**result, "path": str(path), "copies": [str(p) for p in copies]}}
         yield msg
 

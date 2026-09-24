@@ -278,11 +278,26 @@ def cmd_voice(args):
         answer = remote.add_voice("cli", name, recording, args.replace) if where else client.add_voice(name, recording, args.replace)
         print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
         return
+    if args.transcribe:
+        recording = str(Path(args.transcribe).expanduser().resolve())
+        stream = remote.transcribe("cli", recording, args.language) if where else client.transcribe(
+            audio=recording, **({"language": args.language} if args.language else {})
+        )
+        for msg in stream:
+            if _print_image_step(msg):
+                pass
+            elif "transcribing" in msg:
+                print(f"transcribing {msg['transcribing']} ...", flush=True)
+            elif "result" in msg:
+                r = msg["result"]
+                print(r["srt"])
+                print(f"[{len(r['segments'])} line(s) · {r['duration']:g}s of audio · {r['seconds']}s] -> {r['path']}", file=sys.stderr)
+        return
     if args.rm:
         answer = remote.remove_voice("cli", args.rm) if where else client.remove_voice(args.rm)
         print(f"voice {args.rm} removed; voices: {', '.join(answer['voices']) or 'none'}")
         return
-    if args.text is None and args.srt is None:
+    if args.text is None and args.srt is None and args.lines is None:
         listing = remote.voices("cli") if where else client.voices()
         if listing.get("unavailable"):
             print(f"speech can't run: {listing['unavailable']}")
@@ -295,6 +310,7 @@ def cmd_voice(args):
     request = {
         "text": args.text,
         "srt": Path(args.srt).expanduser().read_text() if args.srt else None,
+        "lines": Path(args.lines).expanduser().read_text().splitlines() if args.lines else None,
         "voice": voice,
         "language": args.language,
         "exaggeration": args.exaggeration,
@@ -315,6 +331,7 @@ def cmd_voice(args):
                 r = msg["result"]
                 for path in [r["path"], *r["copies"]]:
                     print(path, flush=True)
+                print(f"script at the spoken times: {Path(r['path']).with_suffix('.srt')}", file=sys.stderr)
                 for note in r["notes"]:
                     print(f"note: {note}", file=sys.stderr)
                 waited = f", waited {r['waited_s']:.0f}s" if r["waited_s"] >= 1 else ""
@@ -329,8 +346,15 @@ def _voiceover_arg(args):
     if not args.voiceover:
         return None
     path = Path(args.voiceover).expanduser()
-    spoken = {"srt": path.read_text()} if path.suffix.lower() == ".srt" and path.is_file() else {"text": args.voiceover}
-    extra = {"voice": args.voice, "language": args.language}
+    if path.suffix.lower() == ".srt" and path.is_file():
+        spoken = {"srt": path.read_text()}
+    elif path.suffix.lower() in speech.AUDIO_SUFFIXES and path.is_file():
+        spoken = {"audio": str(path.resolve())}  # a recording is the voice-over itself
+    elif path.is_file():
+        spoken = {"lines": path.read_text().splitlines()}  # a text file: lines in turn
+    else:
+        spoken = {"text": args.voiceover}
+    extra = {"voice": args.voice, "language": args.language, "sync": args.lip_sync or None}
     return {**spoken, **{k: v for k, v in extra.items() if v}}
 
 
@@ -926,10 +950,15 @@ def main(argv=None):
     )
     p.add_argument(
         "--voiceover", metavar="SRT|TEXT",
-        help="a voice-over: an SRT script (each line at its time; the clip lasts to its end) or a line of text, "
+        help="a voice-over: an SRT script (each line at its time; the clip lasts to its end), a text file of "
+        "lines (spoken in turn), a recording (used as it is), or a line of text, "
         "over the clip's own sound or as its sound track",
     )
     p.add_argument("--voice", help="with --voiceover: a voice from the library (den voice), or a recording's path")
+    p.add_argument(
+        "--lip-sync", action="store_true",
+        help="with --voiceover: make the clip to the voice, so a person on screen speaks it (workflows that say lip-sync)",
+    )
     p.add_argument("--language", help="with --voiceover: language code (default: en)")
     p.add_argument(
         "--keyframe", action="append", default=[], metavar="PATH[@AT]",
@@ -956,6 +985,7 @@ def main(argv=None):
     )
     p.add_argument("text", nargs="?", help="what to say, from the start (or use --srt)")
     p.add_argument("--srt", help="an SRT script: each line spoken at its time, on one track")
+    p.add_argument("--lines", help="a text file of lines to speak in turn: den times them and writes the SRT")
     p.add_argument("-v", "--voice", help="a voice from the library, or a recording's path (default: the model's own)")
     p.add_argument("-l", "--language", help="language code, e.g. en, de, fr (default: en; den voice lists them)")
     p.add_argument("--exaggeration", type=float, help="expressiveness, 0.25–2 (default 0.5)")
@@ -966,6 +996,10 @@ def main(argv=None):
     p.add_argument("--add", nargs=2, metavar=("NAME", "RECORDING"), help="keep a recording in the voice library")
     p.add_argument("--replace", action="store_true", help="with --add: replace a voice of that name")
     p.add_argument("--rm", metavar="NAME", help="remove a voice from the library")
+    p.add_argument(
+        "--transcribe", metavar="RECORDING",
+        help="write down what a recording says, as a timed SRT (Whisper; -l for its language)",
+    )
     p.set_defaults(func=cmd_voice)
 
     p = sub.add_parser("pose", help="the pose library: list, save a photo's pose, rename or delete saved poses")

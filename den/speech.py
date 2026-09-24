@@ -37,6 +37,7 @@ LOG_PATH = Path(os.environ.get("DEN_SPEECH_LOG", core._STATE_HOME / "den/speech.
 START_TIMEOUT_S = 1800
 STOP_TIMEOUT_S = 20
 LINE_TIMEOUT_S = 300
+LINE_GAP_S = 0.4  # between lines spoken in turn, when a script gives no times
 AUDIO_SUFFIXES = (".wav", ".mp3", ".m4a", ".flac", ".ogg", ".opus", ".aac")
 LANGUAGES = {
     "ar": "Arabic", "da": "Danish", "de": "German", "el": "Greek", "en": "English", "es": "Spanish",
@@ -130,6 +131,25 @@ class Server:
             raise DenError(f"speech failed: {message}")
         return raw
 
+    def convert(self, recording):
+        """A recording in any format as a WAV like the spoken lines."""
+        status, kind, raw = self._call("POST", "/convert", {"audio": str(recording)}, timeout=LINE_TIMEOUT_S)
+        if status != 200 or not kind.startswith("audio/"):
+            raise DenError(f"couldn't read the recording: {_error(raw)}")
+        return raw
+
+    def transcribe(self, recording, language=None):
+        """{segments: [{start, end, text}], text, duration} of a recording's speech (Whisper)."""
+        body = {"audio": str(recording), **({"language": language} if language else {})}
+        try:
+            # The first call downloads Whisper (about 1.6 GB) and loads it.
+            status, _, raw = self._call("POST", "/transcribe", body, timeout=START_TIMEOUT_S)
+        except OSError as e:
+            raise DenError(f"the speech server didn't answer: {e}; see {SERVER_LOG}") from e
+        if status != 200:
+            raise DenError(f"transcription failed: {_error(raw)}")
+        return json.loads(raw)
+
     def stop(self):
         if self.proc is not None and self.proc.poll() is None:
             self.proc.send_signal(signal.SIGTERM)
@@ -143,6 +163,13 @@ class Server:
             self.log.close()
             self.log = None
         SOCKET.unlink(missing_ok=True)
+
+
+def _error(raw):
+    try:
+        return json.loads(raw).get("error")
+    except (json.JSONDecodeError, AttributeError):
+        return raw[:200].decode(errors="replace")
 
 
 # --- scripts ---
@@ -178,11 +205,19 @@ def parse_srt(text):
     return sorted(cues, key=lambda c: c["start"])
 
 
-def script(srt=None, text=None):
-    """The cues to speak: an SRT script (its text, or the absolute path of an .srt file), or one
-    line of text spoken from the start."""
-    if bool(srt) == bool(text):
-        raise DenError("give either an SRT script or a text to speak")
+def script(srt=None, text=None, lines=None):
+    """The cues to speak: an SRT script (its text, or the absolute path of an .srt file), lines
+    spoken in turn with no times given (den times them and writes the SRT), or one text spoken
+    from the start."""
+    if sum(bool(x) for x in (srt, text, lines)) != 1:
+        raise DenError("give one of: an SRT script, lines to speak in turn, or a text")
+    if lines:
+        if isinstance(lines, str):
+            lines = lines.splitlines()
+        spoken = [str(line).strip() for line in lines if str(line).strip()]
+        if not spoken:
+            raise DenError("the lines are empty")
+        return [{"start": None, "end": None, "text": line} for line in spoken]
     if srt and "\n" not in srt and srt.strip().lower().endswith(".srt"):
         path = Path(srt.strip()).expanduser()
         if not path.is_absolute() or not path.is_file():
@@ -202,7 +237,17 @@ def spoken_properties():
             "type": "string",
             "description": "An SRT script, each line spoken at its time: its text, or the absolute path of an .srt file.",
         },
-        "text": {"type": "string", "description": "Or one text to speak from the start, instead of srt."},
+        "lines": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Or lines to speak in turn, with no times: den times them from the speech and returns the SRT.",
+        },
+        "text": {"type": "string", "description": "Or one text to speak from the start."},
+        "audio": {
+            "type": "string",
+            "description": "Or a recording's absolute path, used as it is instead of speaking a script "
+            "(e.g. the user's own narration); a script alongside only names its lines.",
+        },
         "voice": {
             "type": "string",
             "description": "A voice from the library"
@@ -314,6 +359,10 @@ def assemble(cues, lines):
             rate = line_rate
         elif line_rate != rate:
             raise DenError("the spoken lines came back at different sample rates")
+        if cue["start"] is None:
+            # Lines without times follow each other, a breath apart; the SRT records where they fell.
+            cue["start"] = round(len(track) / rate + (LINE_GAP_S if track else 0.3), 3)
+            cue["end"] = round(cue["start"] + len(samples) / rate, 3)
         at = round(cue["start"] * rate)
         if len(track) > at:
             notes.append(f"line {i} starts {(len(track) - at) / rate:.1f}s late: the line before ran long")
@@ -334,6 +383,34 @@ def assemble(cues, lines):
         w.setframerate(rate)
         w.writeframes(track.tobytes())
     return out.getvalue(), round(len(track) / rate, 2), notes
+
+
+def pad(data, seconds):
+    """A WAV with silence added at the end to last `seconds`, or as it is when it's longer."""
+    samples, rate = _pcm(data)
+    missing = round(seconds * rate) - len(samples)
+    if missing > 0:
+        samples.extend(array.array("h", bytes(2 * missing)))
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(samples.tobytes())
+    return out.getvalue()
+
+
+def _stamp(seconds):
+    ms = round(seconds * 1000)
+    return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+
+
+def to_srt(cues):
+    """An SRT script of the cues, at their times."""
+    return "\n".join(
+        f"{i}\n{_stamp(c['start'])} --> {_stamp(c['end'] if c.get('end') is not None else c['start'] + 2)}\n{c['text']}\n"
+        for i, c in enumerate(cues, 1)
+    )
 
 
 def slug(text, length=40):

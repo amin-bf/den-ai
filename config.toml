@@ -348,6 +348,9 @@ strength = { default = 1.0, recommended = [0.5, 1.0], allowed = [0, 1.5] }
 #   frames     node whose IMAGE output is the decoded frames, for the contact sheet
 #   sound      "node.input" that receives the decoded audio, for a model that makes sound: its
 #              clips have a sound track, and sound = false takes the input and its decoder out
+#   lip_sync   { input = "node.input" that takes the audio latent, vae = the audio VAE node }, for
+#              a model that makes sound and picture together: a voice-over with sync is encoded
+#              there and kept fixed, and the picture is made to it (ADR 0010)
 #   family, model  as for image workflows: [image.loras] entries of that family are offered to
 #              the clip workflow too, chained after the node whose MODEL output they patch
 #   keyframes  [{ input = "node.input" or a list, at = 0 | "end" | "NN%" | "any", frame =
@@ -421,6 +424,7 @@ size = ["11"]
 fps = "22.fps"
 frames = "21"
 sound = "22.audio"
+lip_sync = { input = "14.audio_latent", vae = "4" }
 family = "ltx23"
 model = "1"
 duration = { input = ["11.length", "13.frames_number"], frame_step = 8, recommended = [3, 5], allowed = [1, 8] }

@@ -14,6 +14,7 @@ import json
 import sys
 import threading
 import time
+from pathlib import Path
 
 from den import clip, core, image, poses, remote, speech
 from den.core import DenError
@@ -245,6 +246,7 @@ def list_tools():
     # Speech runs on the image side (ADR 0010): listed when that side can run and speech is installed.
     if image.unavailable(config, state) is None and speech.unavailable() is None:
         tools.append(voice_tool(speech.request_spec()))
+        tools.append(transcribe_tool())
     return tools
 
 
@@ -271,7 +273,26 @@ def remote_tools(name):
     voice = offered.get("voice")  # only where speech runs there (ADR 0010)
     if voice and spec["image_on"]:
         tools.append(voice_tool(voice, name))
+        tools.append(transcribe_tool(name))
     return tools
+
+
+def transcribe_tool(remote_name=None):
+    where = f"This runs on {remote_name}; the recording is a file here, sent as bytes, and the SRT is saved here. " if remote_name else ""
+    return {
+        "name": "transcribe_audio",
+        "description": where + "Write down what a recording says, as an SRT with each line at the time it was said "
+        "(Whisper large-v3-turbo, many languages). For subtitles, or a script to speak again in another voice "
+        "(generate_voice) or to put on a clip. The den-voice skill has the recipes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "audio": {"type": "string", "description": "Absolute path of the recording (wav, mp3, m4a, …)."},
+                "language": {"type": "string", "description": "Its language as a code, e.g. en, de; default: detected."},
+            },
+            "required": ["audio"],
+        },
+    }
 
 
 def voice_tool(spec, remote_name=None):
@@ -302,6 +323,8 @@ def progress_text(msg):
         return f"unloading the LLM ({', '.join(msg['unloading'])})"
     if "starting" in msg or "stopping" in msg:
         return f"{'starting' if 'starting' in msg else 'stopping'} {msg.get('starting') or msg.get('stopping')}"
+    if "transcribing" in msg:
+        return f"transcribing {msg['transcribing']}"
     if "speaking" in msg:
         s = msg["speaking"]
         return f"speaking line {s['line']} of {s['of']}"
@@ -389,9 +412,29 @@ def generate_image(args, progress_token):
     return content
 
 
+def transcribe_audio(args, progress_token):
+    recording = str(args.get("audio") or "")
+    language = args.get("language")
+    config = core.load_config()
+    stream = (
+        remote.transcribe("claude", recording, language) if core.remote_name()
+        else core.broker(config, "claude").transcribe(audio=recording, **({"language": language} if language else {}))
+    )
+    result, step = None, 0
+    for msg in stream:
+        if "result" in msg:
+            result = msg["result"]
+        elif progress_token is not None and (text := progress_text(msg)):
+            step += 1
+            notify(progress_token, step, text)
+    if result is None:
+        raise DenError("the broker ended the transcription without a result")
+    return f"{result['srt']}\n[{len(result['segments'])} line(s) · {result['duration']:g}s of audio] saved: {result['path']}"
+
+
 def generate_voice(args, progress_token):
     config = core.load_config()
-    keys = ("srt", "text", "voice", "language", "exaggeration", "cfg_weight", "temperature", "seed", "out")
+    keys = ("srt", "lines", "text", "voice", "language", "exaggeration", "cfg_weight", "temperature", "seed", "out")
     request = {k: args[k] for k in keys if args.get(k) is not None}
     result, step = None, 0
     stream = remote.speak("claude", request) if core.remote_name() else core.broker(config, "claude").speak(**request)
@@ -404,6 +447,7 @@ def generate_voice(args, progress_token):
     if result is None:
         raise DenError("the broker ended the voice request without a result")
     lines = [f"saved: {result['path']}"] + [f"copied to: {p}" for p in result["copies"]]
+    lines.append(f"script at the spoken times: {Path(result['path']).with_suffix('.srt')}")
     lines += [f"note: {note}" for note in result["notes"]]
     waited = f", waited {result['waited_s']:.0f}s" if result["waited_s"] >= 1 else ""
     lines.append(f"[{' · '.join([*result['summary'], f'{result['seconds']}s{waited}'])}]")
@@ -567,6 +611,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name == "transcribe_audio":
+            text = transcribe_audio(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_voice":
             text = generate_voice(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "get_clip":

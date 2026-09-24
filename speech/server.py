@@ -7,6 +7,10 @@ makes, not in den's own Python: Chatterbox pins a torch and transformers of its 
     POST /speak   {text, language, voice?, exaggeration?, cfg_weight?, temperature?, seed?}
                   -> audio/wav, 16-bit mono at the model's rate; voice is the path of a recording
                   to clone (without one, the model's own voice)
+    POST /convert {audio} -> audio/wav, 16-bit mono at the model's rate: a recording in any format
+                  as den's own tracks are, so a voice-over can be one
+    POST /transcribe {audio, language?} -> {language, segments: [{start, end, text}]}: Whisper
+                  large-v3-turbo, loaded on the first call, so a voice job never loads it
 """
 
 import argparse
@@ -23,6 +27,9 @@ model = None
 load_error = None
 lock = threading.Lock()  # one generation at a time: the model keeps one voice's conditioning
 voice_state = {"voice": None, "exaggeration": None, "default": None}
+WHISPER = "openai/whisper-large-v3-turbo"
+whisper = None
+device_name = "cpu"
 
 
 def load(device):
@@ -31,8 +38,10 @@ def load(device):
         import torch
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
+        global device_name
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+        device_name = device
         print(f"loading Chatterbox Multilingual V3 on {device}", flush=True)
         m = ChatterboxMultilingualTTS.from_pretrained(device=device, t3_model="v3")
         voice_state["default"] = m.conds
@@ -78,6 +87,57 @@ def speak(body):
     return out.getvalue()
 
 
+def convert(body):
+    """A recording as a 16-bit mono WAV at the speech model's rate."""
+    import librosa
+    import numpy
+
+    path = str(body.get("audio") or "")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"no recording at {path}")
+    rate = model.sr if model is not None else 24_000
+    samples, _ = librosa.load(path, sr=rate, mono=True)
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes((numpy.clip(samples, -1, 1) * 32767).astype(numpy.int16).tobytes())
+    return out.getvalue()
+
+
+def transcribe(body):
+    """Timed segments of a recording's speech."""
+    global whisper
+    import librosa
+    import torch
+    from transformers import pipeline
+
+    path = str(body.get("audio") or "")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"no recording at {path}")
+    with lock:
+        if whisper is None:
+            print(f"loading {WHISPER} on {device_name}", flush=True)
+            whisper = pipeline(
+                "automatic-speech-recognition", model=WHISPER, device=device_name,
+                dtype=torch.float16 if device_name != "cpu" else torch.float32,
+            )
+        samples, _ = librosa.load(path, sr=16_000, mono=True)
+        kwargs = {"language": body["language"]} if body.get("language") else {}
+        result = whisper(
+            {"raw": samples, "sampling_rate": 16_000}, return_timestamps=True, chunk_length_s=30,
+            generate_kwargs={"task": "transcribe", **kwargs},
+        )
+    segments = []
+    for chunk in result.get("chunks") or []:
+        start, end = chunk.get("timestamp") or (None, None)
+        text = str(chunk.get("text") or "").strip()
+        if text and start is not None:
+            segments.append({"start": round(float(start), 3), "end": round(float(end if end is not None else start + 2), 3), "text": text})
+    return {"segments": segments, "text": str(result.get("text") or "").strip(), "duration": round(len(samples) / 16_000, 2)}
+
+
 class Handler(BaseHTTPRequestHandler):
     def address_string(self):  # a UNIX socket has no client address
         return "den"
@@ -100,7 +160,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": f"no {self.path}"})
 
     def do_POST(self):
-        if self.path != "/speak":
+        if self.path == "/transcribe":
+            try:
+                self._json(200, transcribe(json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")))
+            except (ValueError, TypeError, json.JSONDecodeError, FileNotFoundError) as e:
+                self._json(400, {"error": str(e)})
+            except Exception as e:
+                self._json(500, {"error": f"{type(e).__name__}: {e}"})
+            return
+        if self.path not in ("/speak", "/convert"):
             self._json(404, {"error": f"no {self.path}"})
             return
         if model is None:
@@ -108,7 +176,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-            data = speak(body)
+            data = convert(body) if self.path == "/convert" else speak(body)
         except (ValueError, TypeError, json.JSONDecodeError, FileNotFoundError) as e:
             self._json(400, {"error": str(e)})
             return

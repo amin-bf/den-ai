@@ -400,6 +400,10 @@ class BrokerClient(Ollama):
         """Progress lines of a voice job (ADR 0010); the last one carries "result"."""
         return self._stream("/voice", request)
 
+    def transcribe(self, **request):
+        """Progress lines of a transcription (Whisper); the last one carries the timed SRT."""
+        return self._stream("/transcribe", request)
+
     def voices(self):
         """The voice library there, the languages, and why speech can't run (or None)."""
         return self._request("GET", "/voices", timeout=30)

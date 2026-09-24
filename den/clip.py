@@ -384,8 +384,31 @@ def add_voiceover(graph, wf, track, duration):
         graph[video]["inputs"]["audio"] = [trimmed, 0]
 
 
+def add_lipsync(graph, wf, track, duration):
+    """Make the clip to a voice (an uploaded file's name, as long as the clip): its audio latent is
+    the encoded voice, masked so sampling keeps it, and the model draws the picture to match, lips
+    included. `lip_sync` in a workflow names the input that takes the audio latent and the audio
+    VAE node. The saved clip carries the voice itself, not its trip through the VAE."""
+    spec = wf.get("lip_sync")
+    if not spec:
+        raise DenError("this workflow can't lip-sync: it doesn't make sound with the picture")
+    loaded, trimmed, encoded, mask, kept = (str(VOICE_NODE + i) for i in (0, 3, 4, 5, 6))
+    graph[loaded] = {"class_type": "LoadAudio", "inputs": {"audio": track}}
+    graph[trimmed] = {"class_type": "TrimAudioDuration", "inputs": {"audio": [loaded, 0], "start_index": 0.0, "duration": float(duration)}}
+    graph[encoded] = {"class_type": "LTXVAudioVAEEncode", "inputs": {"audio": [trimmed, 0], "audio_vae": [str(spec["vae"]), 0]}}
+    graph[mask] = {"class_type": "SolidMask", "inputs": {"value": 0.0, "width": 1024, "height": 1024}}
+    graph[kept] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": [encoded, 0], "mask": [mask, 0]}}
+    node, _, field = spec["input"].partition(".")
+    if field not in graph.get(node, {}).get("inputs", {}):
+        raise DenError(f"workflow mapping {spec['input']!r} doesn't match a node input in the graph")
+    graph[node]["inputs"][field] = [kept, 0]
+    for video in (n for n, s in graph.items() if s.get("class_type") == "CreateVideo"):
+        graph[video]["inputs"]["audio"] = [trimmed, 0]
+
+
 def voiceover_length(cues):
-    """How long a clip must be to hold an SRT voice-over: to its last line's end, and a breath."""
+    """How long a clip must be to hold an SRT voice-over: to its last line's end, and a breath.
+    None for lines without times, whose length is only known once they're spoken."""
     ends = [c["end"] for c in cues if c.get("end") is not None]
     return round(max(ends) + 0.5, 2) if ends else None
 
@@ -413,7 +436,7 @@ def summary_parts(params):
     if "sound" in params:
         parts.append("with sound" if params["sound"] else "sound off")
     if params.get("voiceover"):
-        parts.append(f"voice-over {params['voiceover']}")
+        parts.append(f"{'lip-synced' if params.get('lip_sync') else 'voice-over'} {params['voiceover']}")
     return parts
 
 
@@ -448,6 +471,8 @@ def describe_options(config, name, wf):
         if "sound" in wf
         else "sound: none, the clip is silent"
     )
+    if "lip_sync" in wf:
+        lines.append("lip-sync: takes a voice-over with sync, and makes the picture to it (a person on screen speaks it)")
     if "negative" in wf:
         # A sampler at cfg 1 skips the negative pass, so a negative only works with a higher cfg.
         cfg = _graph_value(graph, specs["cfg"]["input"]) if "cfg" in specs else None
@@ -534,7 +559,15 @@ def request_spec(config, flows, default):
                             "description": "A voice-over, spoken before the clip is made and mixed over its "
                             "sound (or as its sound track on a silent workflow). With an SRT and no duration, "
                             "the clip lasts to the script's end, and longer if the voice runs long.",
-                            "properties": speech.spoken_properties(),
+                            "properties": {
+                                **speech.spoken_properties(),
+                                "sync": {
+                                    "type": "boolean",
+                                    "description": "Lip-sync: the clip is made to the voice, so a person on screen "
+                                    "speaks the lines. Only workflows whose options say lip-sync; say in the prompt who "
+                                    "speaks. Default false: a narrator over the clip.",
+                                },
+                            },
                         }
                     }
                     if speech.unavailable() is None
@@ -598,6 +631,7 @@ def client_spec(config, state):
         "keyframes": {name: len(wf.get("keyframes", [])) for name, wf in flows.items()},
         # Which make sound, for a client that offers sound only where there is some.
         "sound": {name: "sound" in wf for name, wf in flows.items()},
+        "lip_sync": {name: "lip_sync" in wf for name, wf in flows.items()},
         # The LoRAs each takes, for a client that offers them as a list.
         "loras": {
             name: {

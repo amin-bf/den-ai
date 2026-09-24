@@ -80,7 +80,9 @@ def settings(config):
 
 
 def workflows(config):
-    return settings(config).get("workflows", {})
+    """The workflows den offers: an entry with enabled = false (e.g. an example in config.toml that
+    config.local.toml turns off, since a private one does its job) is left out everywhere."""
+    return {name: wf for name, wf in settings(config).get("workflows", {}).items() if wf.get("enabled", True)}
 
 
 def load_graph(name):

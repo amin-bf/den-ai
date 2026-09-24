@@ -40,7 +40,8 @@ def settings(config):
 
 
 def workflows(config):
-    return settings(config).get("workflows", {})
+    """The clip workflows den offers, without those set enabled = false (as image.workflows)."""
+    return {name: wf for name, wf in settings(config).get("workflows", {}).items() if wf.get("enabled", True)}
 
 
 def check_workflows(config, folders=True):

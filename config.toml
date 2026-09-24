@@ -346,6 +346,8 @@ strength = { default = 1.0, recommended = [0.5, 1.0], allowed = [0, 1.5] }
 #   duration   { input = "node.input" of the frame count, frame_step = n (frames are a multiple
 #              of n, plus one), recommended = [low, high], allowed = [low, high] } in seconds
 #   frames     node whose IMAGE output is the decoded frames, for the contact sheet
+#   enabled    false leaves the workflow out everywhere, e.g. set in config.local.toml to hide an
+#              example that a private workflow replaces (image workflows take it too)
 #   sound      "node.input" that receives the decoded audio, for a model that makes sound: its
 #              clips have a sound track, and sound = false takes the input and its decoder out
 #   lip_sync   { input = "node.input" that takes the audio latent, vae = the audio VAE node }, for

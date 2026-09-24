@@ -16,6 +16,7 @@ import fcntl
 import json
 import os
 import random
+import re
 import statistics
 import time
 from pathlib import Path
@@ -242,7 +243,8 @@ def build(config, name, prompt, negative=None, seed=None, size=None, duration=No
     """(graph, parameters used, uploads, sheet node). Raises DenError on bad input.
 
     keyframes is [{image: path, at?}]; options holds the settings (steps, cfg, sampler,
-    scheduler) and loras ([{name, strength}], [image.loras] entries of the workflow's family).
+    scheduler), loras ([{name, strength}], [image.loras] entries of the workflow's family) and
+    sound (a bool, for a workflow that makes sound: false leaves the sound track out).
     uploads lists (LoadImage node, path) for the keyframes, which the broker uploads
     and fills in (image.fill_uploads).
     """
@@ -287,6 +289,8 @@ def build(config, name, prompt, negative=None, seed=None, size=None, duration=No
         inputs = graph[size_nodes[0]]["inputs"] if size_nodes else {}
         width, height = inputs.get("width"), inputs.get("height")
 
+    sound = _set_sound(flows, name, wf, graph, options.get("sound"))
+
     fps = _fps(wf, graph)
     length = wf["duration"]
     if duration is None:
@@ -314,6 +318,7 @@ def build(config, name, prompt, negative=None, seed=None, size=None, duration=No
         "frames": frames,
         "fps": fps,
         **({"size_from": sized_by} if sized_by else {}),
+        **({"sound": sound} if sound is not None else {}),
     }
     params |= image.apply_settings(name, wf.get("settings", {}), graph, options)
     if options.get("loras"):
@@ -323,6 +328,43 @@ def build(config, name, prompt, negative=None, seed=None, size=None, duration=No
         params["keyframes"] = placed
     sheet = _add_sheet(graph, str(wf["frames"]), frames) if "frames" in wf else None
     return graph, params, uploads, sheet
+
+
+def _set_sound(flows, name, wf, graph, wanted):
+    """Whether the clip gets its sound track: None for a workflow that makes none. `sound` in a
+    workflow names the input that receives the decoded audio (e.g. CreateVideo's audio); sound
+    off takes that input out, and the decoder with it, so ComfyUI doesn't decode it."""
+    if wanted not in (None, True, False):
+        raise DenError(f"sound must be true or false, got {wanted!r}")
+    if "sound" not in wf:
+        if wanted:
+            makes = [n for n, (w, problem) in flows.items() if "sound" in w and problem is None]
+            raise DenError(
+                f"workflow {name} makes silent clips; "
+                + (f"for sound use {', '.join(makes)}" if makes else "no clip workflow here makes sound")
+            )
+        return None
+    node, _, field = wf["sound"].partition(".")
+    if field not in graph.get(node, {}).get("inputs", {}):
+        raise DenError(f"workflow mapping {wf['sound']!r} doesn't match a node input in the graph")
+    if wanted is False:
+        source = graph[node]["inputs"].pop(field)
+        # The decoder feeds only the sound track, so it goes too.
+        if isinstance(source, list) and not any(
+            value == source for spec in graph.values() for value in spec["inputs"].values()
+        ):
+            graph.pop(source[0], None)
+        return False
+    return True
+
+
+def has_sound(path):
+    """Whether an MP4 or MOV file holds a sound track: its handler box says soun."""
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return False
+    return re.search(rb"hdlr.{8}soun", data, re.DOTALL) is not None
 
 
 def summary_parts(params):
@@ -336,6 +378,8 @@ def summary_parts(params):
     parts += [f"lora {lora['name']} {lora['strength']}" for lora in params.get("loras", [])]
     if params.get("keyframes"):
         parts.append(f"{len(params['keyframes'])} keyframe(s)")
+    if "sound" in params:
+        parts.append("with sound" if params["sound"] else "sound off")
     return parts
 
 
@@ -365,6 +409,11 @@ def describe_options(config, name, wf):
         + "; time to make grows with it"
     )
     specs = wf.get("settings", {})
+    lines.append(
+        "sound: made with the picture, from the prompt (end it with the sounds); sound false leaves it out"
+        if "sound" in wf
+        else "sound: none, the clip is silent"
+    )
     if "negative" in wf:
         # A sampler at cfg 1 skips the negative pass, so a negative only works with a higher cfg.
         cfg = _graph_value(graph, specs["cfg"]["input"]) if "cfg" in specs else None
@@ -441,6 +490,11 @@ def request_spec(config, flows, default):
                 "seed": {"type": "integer", "description": "Reuse one to change a single thing between clips."},
                 "size": {"type": "string", "description": "WIDTHxHEIGHT, e.g. 1280x704."},
                 "duration": {"type": "number", "description": "Length of the clip in seconds."},
+                "sound": {
+                    "type": "boolean",
+                    "description": "Whether the clip gets a sound track, on a workflow whose options say it makes sound "
+                    "(default true there); asking a silent workflow for sound is refused. Describe the sounds in the prompt.",
+                },
                 "keyframes": {
                     "type": "array",
                     "description": "Images the clip must show at given moments; the first starts it.",
@@ -492,6 +546,8 @@ def client_spec(config, state):
         "workflows": list(flows),
         # How many keyframes each takes, for a client that offers a keyframe per row.
         "keyframes": {name: len(wf.get("keyframes", [])) for name, wf in flows.items()},
+        # Which make sound, for a client that offers sound only where there is some.
+        "sound": {name: "sound" in wf for name, wf in flows.items()},
         # The LoRAs each takes, for a client that offers them as a list.
         "loras": {
             name: {

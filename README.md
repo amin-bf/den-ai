@@ -406,7 +406,8 @@ den clip --id 12 --wait                         # pick it up later
   `end`); the first starts it. A workflow says how many it takes and where. Without a `--size`,
   a clip takes its start keyframe's shape.
 - **Sound:** LTX-2.3 makes the audio with the picture, so its clips have a sound track; the
-  others are silent. Describe the sounds in the prompt (ambience, footsteps, a line of dialogue in
+  others are silent. `den clip` lists which make sound; `--no-sound` leaves the track out, and
+  asking a silent workflow for sound is refused. The summary says whether the file has one. Describe the sounds in the prompt (ambience, footsteps, a line of dialogue in
   quotes, which a person on screen then speaks); without that you get ambient sound at most.
 - **Duration** is in seconds, within the workflow's range; den turns it into the frame count
   the model wants.

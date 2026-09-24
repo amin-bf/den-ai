@@ -374,7 +374,7 @@ CLIP_POLL_S = 3
 
 def generate_clip(args):
     config = core.load_config()
-    keys = ("prompt", "workflow", "negative", "seed", "size", "duration", "keyframes", *image.SETTINGS, "loras", "out")
+    keys = ("prompt", "workflow", "negative", "seed", "size", "duration", "sound", "keyframes", *image.SETTINGS, "loras", "out")
     # A small copy of the contact sheet comes back with the finished clip, for get_clip to show.
     request = {k: args[k] for k in keys if args.get(k) is not None} | {"preview": True}
     where = core.remote_name()

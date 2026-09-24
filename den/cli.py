@@ -612,6 +612,7 @@ def cmd_clip(args):
         "seed": args.seed,
         "size": args.size,
         "duration": args.duration,
+        "sound": args.sound,
         "keyframes": [_keyframe_arg(value) for value in args.keyframe] or None,
         "steps": args.steps,
         "cfg": args.cfg,
@@ -836,6 +837,10 @@ def main(argv=None):
     p.add_argument("--seed", type=int, help="default: random")
     p.add_argument("--size", help="WIDTHxHEIGHT, e.g. 1280x704 (default: the workflow's)")
     p.add_argument("-d", "--duration", type=float, help="length in seconds (den clip lists each workflow's range)")
+    p.add_argument(
+        "--sound", action=argparse.BooleanOptionalAction,
+        help="give the clip a sound track, on workflows that make sound (default there: on); describe the sounds in the prompt",
+    )
     p.add_argument(
         "--keyframe", action="append", default=[], metavar="PATH[@AT]",
         help="an image the clip must show; AT is seconds, a percentage (50%%) or end, default 0 for "

@@ -799,6 +799,9 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
         shown = image.preview(comfy, drawn) if body.get("preview") and drawn else None
         params = record["params"]
         waited = round(info["started"] - info.get("queued", info["started"]), 1)
+        # Whether the saved file has a sound track, as opposed to whether one was asked for.
+        if params.get("sound") and not clip.has_sound(path):
+            params = {**params, "sound": False}
         record["result"] = {
             **params,
             "summary": clip.summary_parts(params),
@@ -1178,7 +1181,7 @@ class Handler(BaseHTTPRequestHandler):
         emit({"result": result})
 
     def _clip(self, body):
-        """POST /clip {prompt, workflow?, negative?, seed?, size?, duration?, keyframes? [{image,
+        """POST /clip {prompt, workflow?, negative?, seed?, size?, duration?, sound?, keyframes? [{image,
         at?}], steps?, cfg?, sampler?, scheduler?, loras?, out?, preview?}: check the request, then make
         the clip as a detached request. Answers {id, estimate_s, summary} at once; GET /clip?id=N
         tells how it goes. A keyframe's image is an absolute path, or bytes from another machine.
@@ -1206,7 +1209,7 @@ class Handler(BaseHTTPRequestHandler):
                 keyframes.append({**keyframe, "image": path})
             graph, params, uploads, sheet = clip.build(
                 config, name, body.get("prompt") or "", body.get("negative"), body.get("seed"),
-                body.get("size"), body.get("duration"), keyframes, {key: body.get(key) for key in (*image.SETTINGS, "loras")},
+                body.get("size"), body.get("duration"), keyframes, {key: body.get(key) for key in (*image.SETTINGS, "loras", "sound")},
             )
             # Refuse now what admit would refuse later, rather than hand out an id that fails.
             self.broker._check_available("image", config, core.load_state(config))

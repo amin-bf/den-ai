@@ -617,6 +617,53 @@ private fun FieldInput(model: AppModel, field: Field) {
     }
 }
 
+/** A Delete button that asks first: a pose or a voice is gone for every client of this den. */
+@Composable
+private fun ConfirmedDelete(kind: String, name: String, delete: () -> Unit) {
+    var asking by remember(name) { mutableStateOf(false) }
+    OutlinedButton(onClick = { asking = true }) { Text("Delete") }
+    if (asking) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text("Delete the $kind $name?") },
+            text = { Text("It's removed from the den's library, for every client. This can't be undone.") },
+            confirmButton = { TextButton(onClick = { asking = false; delete() }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+// --- 6. voices ---
+
+/** The den's voice library: each voice with what it is, to listen to or delete (ADR 0010). */
+@Composable
+fun VoicesScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
+    Title("Voices")
+    if (NotConnected(model)) return@Page
+    val voice = model.voiceInfo()
+    if (voice == null) {
+        Text("This den has no speech installed.")
+        return@Page
+    }
+    model.voiceNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    val toc = voice.optJSONArray("toc")
+    if (toc == null || toc.length() == 0) {
+        Text("No voices yet: design one or record one on the Image screen's Clip tab.")
+        return@Page
+    }
+    for (i in 0 until toc.length()) {
+        val row = toc.getJSONObject(i)
+        val name = row.getString("name")
+        Text(name + (row.optString("source").takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleSmall)
+        row.optString("description").takeIf { it.isNotEmpty() && it != "null" }?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { model.listen(name) }) { Text("Listen") }
+            ConfirmedDelete("voice", name) { model.deleteVoice(name) }
+        }
+        HorizontalDivider()
+    }
+}
+
 // --- 5. poses ---
 
 @Composable
@@ -642,6 +689,7 @@ fun PosesScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
         Text(selected, style = MaterialTheme.typography.titleMedium)
         model.poseDetails?.let { SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) } }
         model.poseImages.forEach { Image(it.asImageBitmap(), selected, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+        ConfirmedDelete("pose", selected) { model.deletePose(selected) }
         return@Page
     }
     // Making one is its own flow, in NewPose.kt; a saved pose shows up in the list below.

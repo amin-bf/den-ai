@@ -143,6 +143,14 @@ class DenClient(private val transport: Transport) {
 
     fun poses(): JSONObject = request("GET", "/poses", null, 30_000)
 
+    /** POST /poses {name, remove}: delete a saved pose, when the user asks. */
+    fun removePose(name: String): JSONObject =
+        request("POST", "/poses", JSONObject().put("name", name).put("remove", true), 30_000)
+
+    /** POST /voices {name, remove}: delete a voice, when the user asks. */
+    fun removeVoice(name: String): JSONObject =
+        request("POST", "/voices", JSONObject().put("name", name).put("remove", true), 30_000)
+
     fun pose(name: String): JSONObject =
         request("GET", "/poses?name=" + URLEncoder.encode(name, "UTF-8"), null, 30_000)
 

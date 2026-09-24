@@ -48,8 +48,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val TABS = listOf("Connect", "Status", "Chat", "Ask", "Image", "Poses")
-private val GLYPHS = listOf("⚿", "◉", "✎", "?", "▣", "♙")
+private val TABS = listOf("Connect", "Status", "Chat", "Ask", "Image", "Poses", "Voices")
+private val GLYPHS = listOf("⚿", "◉", "✎", "?", "▣", "♙", "♪")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -87,7 +87,8 @@ fun DenApp(model: AppModel) {
             2 -> ChatScreen(model, modifier)
             3 -> AskScreen(model, modifier)
             4 -> ImageScreen(model, modifier)
-            else -> PosesScreen(model, modifier)
+            5 -> PosesScreen(model, modifier)
+            else -> VoicesScreen(model, modifier)
         }
     }
 }

@@ -881,6 +881,35 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     // --- poses ---
 
+    /** Delete a saved pose on the den, after the user confirmed it. */
+    fun deletePose(name: String) {
+        val c = client ?: return
+        io {
+            try {
+                c.removePose(name)
+                withContext(Dispatchers.Main) { openPose(null) }
+                loadPoses()
+            } catch (e: Exception) {
+                posesError = e.message
+            }
+        }
+    }
+
+    /** Delete a voice on the den, after the user confirmed it. */
+    fun deleteVoice(name: String) {
+        val c = client ?: return
+        io {
+            try {
+                c.removeVoice(name)
+                if (clipVoice == name) clipVoice = null
+                voiceNote = "voice $name deleted"
+                loadStatus(c)
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
+    }
+
     fun loadPoses() {
         val c = client ?: return
         loadingPoses = true

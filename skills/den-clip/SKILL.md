@@ -64,6 +64,17 @@ who **speaks the lines**, pass `sync: true` in the voiceover, on a workflow whos
 lip-sync: the voice goes into the model and the picture is made to it. Say in the prompt who
 speaks and to whom ("he says to the camera"); keep the rest of the sound to ambience.
 
+So there are two ways to make someone on screen talk, both lip-synced:
+
+- **A line in quotes in the prompt**, on a workflow that makes sound: the model makes the voice
+  and the lips together, so they match by construction. Quick, one call, but the voice is one
+  the model invents, and it picks the timing. Not tested on this den yet: check the result.
+- **A voice-over with `sync`**: a chosen or cloned voice, the script's words and timing, the
+  picture made to it. For a known voice, a given script, or several lines at set moments.
+
+Don't do both in one clip: with `sync` the clip's sound is the voice-over alone, and a quoted
+line in the prompt only confuses who says what.
+
 ## The working loop
 
 1. **Make the look as stills first** (den-image) and get them approved.

@@ -398,7 +398,7 @@ fi
 if [ "$with_speech" = 1 ]; then
   step "speech"
   py="$SPEECH_DIR/.venv/bin/python"
-  if [ -x "$py" ] && "$py" -c "import chatterbox.mtl_tts" 2>/dev/null; then
+  if [ -x "$py" ] && "$py" -c "import chatterbox.mtl_tts, silero_vad" 2>/dev/null; then
     ok "Chatterbox in $SPEECH_DIR/.venv"
   else
     have uv || die "uv is required to install the speech model (https://docs.astral.sh/uv/)"
@@ -407,7 +407,8 @@ if [ "$with_speech" = 1 ]; then
     if [ -n "$SPEECH_TORCH_INDEX" ]; then
       uv pip install --quiet --python "$py" torch==2.6.0 torchaudio==2.6.0 --index-url "$SPEECH_TORCH_INDEX"
     fi
-    uv pip install --quiet --python "$py" "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@$CHATTERBOX_REF"
+    uv pip install --quiet --python "$py" "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@$CHATTERBOX_REF" \
+      "silero-vad==6.2.3"
     did "installed Chatterbox ${CHATTERBOX_REF:0:8} in $SPEECH_DIR/.venv (its model, about 3.2 GB, downloads on first use)"
   fi
   # The voice designer (Qwen3-TTS VoiceDesign) makes a voice's sample from a description, which

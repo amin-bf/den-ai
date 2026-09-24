@@ -33,9 +33,15 @@ library). No chat model of den's, no pi, no phone.
   server, and talks to it over a private UNIX socket.
 - **Memory is always on; what to keep is decided at the end.** Every turn is written to the
   session's transcript as it happens, so a crash loses nothing. `live_stop` returns the transcript,
-  and the user decides: keep it under a name (`~/.local/share/den/conversations/`), drop it, or
-  have Claude turn it into something else. Undecided sessions are kept like voice drafts, the
-  last few.
+  and the user decides: keep it under a name (`~/.local/share/den/conversations/`), delete it,
+  have den's own LLM summarize it (the summarize task, so the transcript stays on the machine;
+  the summary is kept beside it), or have Claude turn it into something else. Every session is
+  kept until then, with no limit: it's text. `list_conversations` and `read_conversation` let a
+  later session pick up an earlier conversation.
+- **A turn ends by what was said, never while the user speaks.** After a pause, den waits 0.6 s
+  after a finished sentence, 1.8 s after a very short answer ("No.", often the start of more) and
+  2.5 s after words that don't sound finished ("maybe that's gonna"), and not at all while the
+  user is speaking or Whisper is still writing down their last words.
 
 ## Consequences
 

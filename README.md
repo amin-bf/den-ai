@@ -479,6 +479,29 @@ den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your ow
   voice with the microphone, and records your narration: its words come back as the script, and
   the recording itself can be the voice-over. `transcribe_audio` is Claude's and pi's tool for it. Chatterbox marks its audio with an inaudible watermark.
 
+### Live conversation
+
+Claude can talk with you by voice at the PC ([ADR 0011](docs/adr/0011-live-conversation.md)):
+den listens through the microphone (Whisper) and speaks Claude's replies in a voice from the
+library, and you can interrupt it mid-sentence. Ask Claude to talk; it starts live mode itself.
+
+- **It takes the whole machine**: every other request (images, clips, pi, delegation) is refused
+  until it ends, and it ends by itself after ten minutes without an exchange.
+- **Audio** goes through PipeWire's echo canceller, loaded for the session, so the voice from
+  speakers isn't taken for you; headphones work too.
+- **Every conversation is kept** (`~/.local/state/den/live/`) until you decide: keep it under a
+  name (`~/.local/share/den/conversations/`), delete it, or have den's own LLM summarize it.
+
+```sh
+den live on -v narrator # by hand; Claude's live_start does the same
+den live off            # ends it and prints the transcript
+den live list           # every conversation, with its summary
+den live show ID        # one transcript
+den live summary ID     # a summary by den's LLM, kept beside it
+den live keep ID NAME   # keep it under a name
+den live rm ID          # delete it
+```
+
 ### The pose library
 
 den keeps **saved poses**: a pose skeleton drawn once from a photo and kept under a name, so later

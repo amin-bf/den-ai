@@ -21,8 +21,23 @@ images, clips and the local model all wait.
 3. **End** when they say so ("stop", "that's all", "bye", "end the conversation"), or after two
    silences in a row with a check in between ("are you still there?"): `live_stop`.
 4. **Then ask in text** what to do with the transcript `live_stop` returned: keep it under a name
-   (`keep_conversation`), drop it (`drop_conversation`), or something else (a summary, notes, a
-   task list). Memory is always on until they decide.
+   (`keep_conversation`), delete it (`delete_conversation`), have den's own LLM summarize it
+   (`summarize_conversation`, the transcript never leaves the machine), or something else
+   (notes, a task list). Every session is kept until they decide, so nothing is lost meanwhile.
+
+## Earlier conversations
+
+`list_conversations` shows every conversation, newest first, kept or not decided yet, with its
+summary where there is one; `read_conversation` gives one's transcript. To pick up where you
+left off, read the summary (or the transcript) before `live_start`, and say in your greeting
+what you remember. Delete one only when the user asks.
+
+## Voice and language
+
+`live_start` takes the voice and language; `talk` switches either from that turn on, when the
+user asks ("talk in grandpa's voice", "let's speak German"). A voice switch takes about a second.
+`language: "auto"` lets den detect what the user speaks; you still pass the language you answer
+in when it changes, since the voice needs it to pronounce your words.
 
 ## How to speak
 

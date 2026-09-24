@@ -1068,7 +1068,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/voices/design" and self.command == "POST":
                 self._stream_request(self._voice_design, json.loads(self._read_body() or b"{}"))
             elif path == "/voices" and self.command == "GET":
-                self._send_json(200, self._voices())
+                query = parse_qs(urlsplit(self.path).query)
+                name = query.get("name", [None])[0]
+                self._send_json(200, self._voice_one(name, bool(query.get("bytes"))) if name else self._voices())
             elif path == "/voices" and self.command == "POST":
                 self._send_json(200, self._voice_add(json.loads(self._read_body() or b"{}")))
             elif path == "/pose" and self.command == "POST":
@@ -1284,7 +1286,7 @@ class Handler(BaseHTTPRequestHandler):
             data = speech.design(description, language, body.get("seed"), check)
         finally:
             self.broker.finish(req_id)
-        path = speech.keep_voice(name, data, bool(body.get("replace")))
+        path = speech.keep_voice(name, data, bool(body.get("replace")), description, language, body.get("seed"))
         samples, rate = speech._pcm(data)
         seconds = round(time.time() - began, 1)
         log(f"#{req_id} {info['caller']} POST /voices/design -> {path.name} in {seconds}s")
@@ -1299,25 +1301,44 @@ class Handler(BaseHTTPRequestHandler):
     def _voices(self):
         return {
             "voices": sorted(speech.voices()),
+            # What each voice is, for choosing one: the list_voices tool shows this, not the tool text.
+            "toc": speech.toc(),
             "languages": speech.LANGUAGES,
             "unavailable": speech.unavailable(),
             # Voices from a description, where the designer is installed (ADR 0010).
             "design_languages": list(speech.DESIGN_LANGUAGES) if speech.design_unavailable() is None else [],
         }
 
+    def _voice_one(self, name, with_bytes):
+        """GET /voices?name=N: one voice's details; with bytes, its sample too (to listen to it)."""
+        info = speech.voice_info(name)
+        path = info.pop("path")
+        if with_bytes:
+            info["sample"] = {"name": Path(path).name, "base64": speech.as_bytes(path)}
+        return info
+
     def _voice_add(self, body):
-        """POST /voices {name, recording: path or {name, base64}, replace?}: keep a voice, or with
-        {name, remove: true} remove one."""
+        """POST /voices {name, recording: path or {name, base64}, description?, replace?}: keep a
+        voice. {name, remove: true} removes one, {name, rename_to} renames it, and {name,
+        description} alone changes what it says about itself."""
+        name = str(body.get("name") or "")
         if body.get("remove"):
-            speech.remove_voice(str(body.get("name") or ""))
-            log(f"{self._caller()} POST /voices -> removed {body.get('name')}")
-            return {"removed": body.get("name"), "voices": sorted(speech.voices())}
+            speech.remove_voice(name)
+            log(f"{self._caller()} POST /voices -> removed {name}")
+            return {"removed": name, "voices": sorted(speech.voices())}
+        if body.get("rename_to"):
+            speech.rename_voice(name, str(body["rename_to"]))
+            log(f"{self._caller()} POST /voices -> renamed {name} to {body['rename_to']}")
+            return {"voice": body["rename_to"], "voices": sorted(speech.voices())}
+        if body.get("description") and not body.get("recording"):
+            speech.describe_voice(name, str(body["description"]))
+            return {"voice": name, "voices": sorted(speech.voices())}
         folder = tempfile.mkdtemp(prefix="den-voice-")
         try:
             recording = body.get("recording")
             if image.is_file_object(recording):
                 recording = image._write_input(folder, recording)
-            path = speech.add_voice(str(body.get("name") or ""), recording or "", bool(body.get("replace")))
+            path = speech.add_voice(name, recording or "", bool(body.get("replace")), body.get("description"))
         finally:
             shutil.rmtree(folder, ignore_errors=True)
         log(f"{self._caller()} POST /voices -> {path.name}")

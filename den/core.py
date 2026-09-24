@@ -408,13 +408,25 @@ class BrokerClient(Ollama):
         """The voice library there, the languages, and why speech can't run (or None)."""
         return self._request("GET", "/voices", timeout=30)
 
-    def add_voice(self, name, recording, replace=False):
+    def add_voice(self, name, recording, replace=False, description=None):
         """Keep a recording as a voice: its path here, or {name, base64} from elsewhere."""
-        return self._request("POST", "/voices", {"name": name, "recording": recording, "replace": replace}, timeout=60)
+        body = {"name": name, "recording": recording, "replace": replace, **({"description": description} if description else {})}
+        return self._request("POST", "/voices", body, timeout=60)
 
     def design_voice(self, **request):
         """Progress lines of designing a voice from a description; the last one carries the result."""
         return self._stream("/voices/design", request)
+
+    def voice(self, name, with_bytes=False):
+        """One voice's details, and its sample with with_bytes."""
+        query = urllib.parse.urlencode({"name": name, **({"bytes": 1} if with_bytes else {})})
+        return self._request("GET", f"/voices?{query}", timeout=60)
+
+    def rename_voice(self, name, new):
+        return self._request("POST", "/voices", {"name": name, "rename_to": new}, timeout=30)
+
+    def describe_voice(self, name, description):
+        return self._request("POST", "/voices", {"name": name, "description": description}, timeout=30)
 
     def remove_voice(self, name):
         return self._request("POST", "/voices", {"name": name, "remove": True}, timeout=30)

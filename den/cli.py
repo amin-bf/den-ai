@@ -275,7 +275,10 @@ def cmd_voice(args):
     if args.add:
         name, recording = args.add
         recording = str(Path(recording).expanduser().resolve())
-        answer = remote.add_voice("cli", name, recording, args.replace) if where else client.add_voice(name, recording, args.replace)
+        answer = (
+            remote.add_voice("cli", name, recording, args.replace, args.description) if where
+            else client.add_voice(name, recording, args.replace, args.description)
+        )
         print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
         return
     if args.design:
@@ -307,6 +310,21 @@ def cmd_voice(args):
                 print(r["srt"])
                 print(f"[{len(r['segments'])} line(s) · {r['duration']:g}s of audio · {r['seconds']}s] -> {r['path']}", file=sys.stderr)
         return
+    broker = remote.client("cli") if where else client
+    if args.show:
+        info = broker.voice(args.show)
+        for key in ("name", "description", "source", "language", "seed", "created", "seconds"):
+            if info.get(key) is not None:
+                print(f"{key:12} {info[key]}")
+        return
+    if args.mv:
+        answer = broker.rename_voice(*args.mv)
+        print(f"voice {args.mv[0]} is now {answer['voice']}; voices: {', '.join(answer['voices'])}")
+        return
+    if args.describe:
+        broker.describe_voice(*args.describe)
+        print(f"voice {args.describe[0]} described")
+        return
     if args.rm:
         answer = remote.remove_voice("cli", args.rm) if where else client.remove_voice(args.rm)
         print(f"voice {args.rm} removed; voices: {', '.join(answer['voices']) or 'none'}")
@@ -315,7 +333,11 @@ def cmd_voice(args):
         listing = remote.voices("cli") if where else client.voices()
         if listing.get("unavailable"):
             print(f"speech can't run: {listing['unavailable']}")
-        print("voices:    " + (", ".join(listing["voices"]) or "none yet (den voice --add NAME RECORDING)"))
+        if not listing["voices"]:
+            print("voices:    none yet (den voice --add NAME RECORDING, or --design NAME DESCRIPTION)")
+        for row in listing.get("toc") or [{"name": n} for n in listing["voices"]]:
+            made = f" [{row['source']}]" if row.get("source") else ""
+            print(f"  {row['name']:<14}{made} {row.get('description') or '(no description: den voice --describe NAME TEXT)'}")
         print("languages: " + ", ".join(f"{code} {name}" for code, name in listing["languages"].items()))
         return
     voice = args.voice
@@ -1011,7 +1033,11 @@ def main(argv=None):
     p.add_argument("--seed", type=int, help="default: random")
     p.add_argument("-o", "--out", help="also copy the track here (a file, or a directory ending in /)")
     p.add_argument("--add", nargs=2, metavar=("NAME", "RECORDING"), help="keep a recording in the voice library")
-    p.add_argument("--replace", action="store_true", help="with --add: replace a voice of that name")
+    p.add_argument("--replace", action="store_true", help="with --add or --design: replace a voice of that name")
+    p.add_argument("--description", help="with --add: what the voice is, e.g. \"my own voice, calm\"")
+    p.add_argument("--show", metavar="NAME", help="a voice's details: what it is, how it was made")
+    p.add_argument("--mv", nargs=2, metavar=("OLD", "NEW"), help="rename a voice")
+    p.add_argument("--describe", nargs=2, metavar=("NAME", "TEXT"), help="set what a voice is")
     p.add_argument("--rm", metavar="NAME", help="remove a voice from the library")
     p.add_argument(
         "--design", nargs=2, metavar=("NAME", "DESCRIPTION"),

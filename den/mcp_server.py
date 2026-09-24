@@ -246,6 +246,7 @@ def list_tools():
     # Speech runs on the image side (ADR 0010): listed when that side can run and speech is installed.
     if image.unavailable(config, state) is None and speech.unavailable() is None:
         tools.append(voice_tool(speech.request_spec()))
+        tools.append(list_voices_tool())
         tools.append(transcribe_tool())
         if speech.design_unavailable() is None:
             tools.append(design_tool())
@@ -275,10 +276,27 @@ def remote_tools(name):
     voice = offered.get("voice")  # only where speech runs there (ADR 0010)
     if voice and spec["image_on"]:
         tools.append(voice_tool(voice, name))
+        tools.append(list_voices_tool(name))
         tools.append(transcribe_tool(name))
         if voice.get("design_languages"):
             tools.append(design_tool(name))
     return tools
+
+
+def list_voices_tool(remote_name=None):
+    """list_voices; its text never names a voice, so keeping one doesn't change the tools (as list_poses)."""
+    where = f"The voice library is on {remote_name}. " if remote_name else ""
+    return {
+        "name": "list_voices",
+        "description": where + "The voice library: each voice's name, what it sounds like and how it was made "
+        "(designed from a description, or recorded). Call it once per conversation before choosing a voice for "
+        "generate_voice or a clip's voiceover, and keep the list; with a name, one voice's details (its "
+        "description, language, seed, length).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "One voice, for its details."}},
+        },
+    }
 
 
 def design_tool(remote_name=None):
@@ -444,6 +462,21 @@ def generate_image(args, progress_token):
     if shown:
         content.append({"type": "image", "data": shown["base64"], "mimeType": shown["mime"]})
     return content
+
+
+def list_voices(name=None):
+    broker = remote.client("claude") if core.remote_name() else core.broker(core.load_config(), "claude")
+    if name:
+        info = broker.voice(name)
+        return "\n".join(f"{k}: {info[k]}" for k in ("name", "description", "source", "language", "seed", "created", "seconds") if info.get(k) is not None)
+    rows = broker.voices().get("toc") or []
+    if not rows:
+        return "No voices yet: design_voice makes one from a description; the user can add a recording (den voice --add)."
+    lines = []
+    for r in rows:
+        made = f" [{r['source']}]" if r.get("source") else ""
+        lines.append(f"- {r['name']}{made}: {r.get('description') or '(no description)'}")
+    return "Voices:\n" + "\n".join(lines)
 
 
 def design_voice(args, progress_token):
@@ -665,6 +698,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name == "list_voices":
+            text = list_voices(args.get("name"))
         elif name == "design_voice":
             text = design_voice(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "transcribe_audio":

@@ -132,9 +132,9 @@ def voices(caller):
     return client(caller).voices()
 
 
-def add_voice(caller, name, recording, replace=False):
+def add_voice(caller, name, recording, replace=False, description=None):
     """Keep a recording here as a voice there, sent as bytes."""
-    return client(caller).add_voice(name, image.file_object(recording), replace)
+    return client(caller).add_voice(name, image.file_object(recording), replace, description)
 
 
 def design_voice(caller, request):

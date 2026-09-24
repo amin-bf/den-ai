@@ -301,7 +301,6 @@ def script(srt=None, text=None, lines=None):
 
 def spoken_properties():
     """The schema of what to say and how: shared by the voice tool and a clip's voice-over."""
-    names = sorted(voices())
     return {
         "srt": {
             "type": "string",
@@ -320,9 +319,8 @@ def spoken_properties():
         },
         "voice": {
             "type": "string",
-            "description": "A voice from the library"
-            + (f" ({', '.join(names)})" if names else " (none yet: den voice --add NAME RECORDING)")
-            + ", or the absolute path of a recording to clone. Default: the model's own voice.",
+            "description": "A voice from the library by name (list_voices shows them, with what each sounds "
+            "like), or the absolute path of a recording to clone. Default: the model's own voice.",
         },
         "language": {"type": "string", "enum": sorted(LANGUAGES), "description": "Language of the text. Default: en."},
     }
@@ -379,39 +377,97 @@ def voice_path(voice):
     )
 
 
-def add_voice(name, recording, replace=False):
-    """Keep a recording in the library under name; returns its path there."""
+def _meta_path(name):
+    return VOICES_DIR / f"{name}.json"
+
+
+def _write_meta(name, meta):
+    _meta_path(name).write_text(json.dumps({k: v for k, v in meta.items() if v is not None}, ensure_ascii=False, indent=2) + "\n")
+
+
+def voice_info(name):
+    """One voice's details: {name, description, source, language, seed, created, seconds, path}.
+    A voice kept before details were (a bare recording) has only its name, path and length."""
+    path = voices().get(name)
+    if not path:
+        raise DenError(f"no voice {name!r}; voices: {', '.join(voices()) or 'none yet'}")
+    try:
+        meta = json.loads(_meta_path(name).read_text())
+    except (OSError, json.JSONDecodeError):
+        meta = {}
+    info = {"name": name, **meta, "path": str(path)}
+    if path.suffix.lower() == ".wav":
+        try:
+            with wave.open(str(path)) as w:
+                info["seconds"] = round(w.getnframes() / w.getframerate(), 1)
+        except (wave.Error, OSError):
+            pass
+    return info
+
+
+def toc():
+    """[{name, description, source}] of every voice, for choosing one."""
+    rows = []
+    for name in voices():
+        info = voice_info(name)
+        rows.append({k: info.get(k) for k in ("name", "description", "source", "language")})
+    return rows
+
+
+def _check_new(name, replace):
     if not _NAME.fullmatch(name):
         raise DenError(f"a voice name is lower case letters, digits and dashes, got {name!r}")
+    existing = voices().get(name)
+    if existing and not replace:
+        raise DenError(f"voice {name!r} exists; replace it with --replace")
+    VOICES_DIR.mkdir(parents=True, exist_ok=True)
+    if existing:
+        existing.unlink()
+        _meta_path(name).unlink(missing_ok=True)
+
+
+def add_voice(name, recording, replace=False, description=None):
+    """Keep a recording in the library under name, with what it is; returns its path there."""
     source = Path(recording).expanduser()
     if not source.is_file():
         raise DenError(f"no recording at {source}")
     if source.suffix.lower() not in AUDIO_SUFFIXES:
         raise DenError(f"not an audio file den knows ({', '.join(AUDIO_SUFFIXES)}): {source.name}")
-    existing = voices().get(name)
-    if existing and not replace:
-        raise DenError(f"voice {name!r} exists; replace it with --replace")
-    VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    if existing:
-        existing.unlink()
+    _check_new(name, replace)
     target = VOICES_DIR / f"{name}{source.suffix.lower()}"
     shutil.copyfile(source, target)
+    _write_meta(name, {"description": description or None, "source": "recorded", "created": time.strftime("%Y-%m-%d")})
     return target
 
 
-def keep_voice(name, data, replace=False):
-    """Keep WAV bytes (a designed sample) in the library under name; returns its path."""
-    if not _NAME.fullmatch(name):
-        raise DenError(f"a voice name is lower case letters, digits and dashes, got {name!r}")
-    existing = voices().get(name)
-    if existing and not replace:
-        raise DenError(f"voice {name!r} exists; replace it with --replace")
-    VOICES_DIR.mkdir(parents=True, exist_ok=True)
-    if existing:
-        existing.unlink()
+def keep_voice(name, data, replace=False, description=None, language=None, seed=None):
+    """Keep a designed sample (WAV bytes) under name, with how it was made; returns its path."""
+    _check_new(name, replace)
     target = VOICES_DIR / f"{name}.wav"
     target.write_bytes(data)
+    _write_meta(name, {"description": description, "source": "designed", "language": language, "seed": seed,
+                       "created": time.strftime("%Y-%m-%d")})
     return target
+
+
+def describe_voice(name, description):
+    """Set or change what a voice is, e.g. for a recording kept without a description."""
+    info = voice_info(name)
+    meta = {k: info.get(k) for k in ("source", "language", "seed", "created")}
+    _write_meta(name, {**meta, "description": description})
+
+
+def rename_voice(old, new):
+    path = voices().get(old)
+    if not path:
+        raise DenError(f"no voice {old!r}")
+    if not _NAME.fullmatch(new):
+        raise DenError(f"a voice name is lower case letters, digits and dashes, got {new!r}")
+    if new in voices():
+        raise DenError(f"voice {new!r} exists")
+    path.rename(path.with_name(f"{new}{path.suffix}"))
+    if _meta_path(old).exists():
+        _meta_path(old).rename(_meta_path(new))
 
 
 def remove_voice(name):
@@ -419,6 +475,7 @@ def remove_voice(name):
     if not path:
         raise DenError(f"no voice {name!r}")
     path.unlink()
+    _meta_path(name).unlink(missing_ok=True)
 
 
 # --- the track ---

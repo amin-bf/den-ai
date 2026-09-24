@@ -511,10 +511,12 @@ Claude Code and pi both read. `setup.sh` links each one into `~/.claude/skills/`
 | Skill | What it teaches |
 |---|---|
 | `den-image` | Using den's image tools well: the working loop (defaults, one change per step, same seed), a recurring character built in stages the user approves (face, outfit, pose, place, then one combined call), which recipe fits which goal (edit, references, pose reference, the pose library, a recurring character in one call), and the traps found in tests (a skeleton shows neither facing nor which limb is in front, faces at hard angles, negative prompts on distilled models) |
+| `den-clip` | Clips: the look as stills first (from `den-image`), keyframes made by editing one still, a person between two stills, sound from the prompt, a voice-over on a clip, and the measured traps (weak camera instructions, negatives at cfg 1, what a clip costs) |
+| `den-voice` | Voice-overs: recording a voice, writing an SRT script whose lines fit their times (about 2.5 words a second), languages, expressiveness and pacing, and checking a take you can't hear by asking |
 
 A skill carries strategy; the tool descriptions carry the options, which change as models are
 added. An agent reads a skill's `SKILL.md` when a task matches, and its `references/` only when
-it needs the detail. In pi, `/skill:den-image` loads it by hand.
+it needs the detail. In pi, `/skill:den-image` (or `den-clip`, `den-voice`) loads one by hand.
 
 ## `den` cheatsheet
 

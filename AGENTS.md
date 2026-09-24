@@ -63,7 +63,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `CONTEXT.md` | Glossary: the domain's terms and the words to avoid. Use them in code, docs and tool text. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `generate_voice`, `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `den/skills.py` | den's own skills as the broker serves them: `GET /skills` lists them, `GET /skill` gives one's text or a reference, so a client elsewhere can load one into a conversation when its user asks ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
-| `skills/` | den's own agent skills (Agent Skills format), versioned: `den-image` teaches the image tools' recipes and measured traps. `setup.sh` links each into `~/.claude/skills/` and `~/.agents/skills/`. |
+| `skills/` | den's own agent skills (Agent Skills format), versioned: `den-image` (images), `den-clip` (clips, which build on its stills) and `den-voice` (voice-overs) teach their tools' recipes and measured traps. `setup.sh` links each into `~/.claude/skills/` and `~/.agents/skills/`. |
 | `clients/android/` | Android client (Kotlin, Compose): the den on another machine from a phone, over an SSH channel per request with a key made on the device; Status, Ask, Image and Poses. Its own README ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
 | `integrations/pi/den.ts` | pi extension: the `generate_image` tool, `/imagine`, inline images and the broker status in pi's footer. `setup.sh` links it into pi's extensions folder. |
 | `docs/adr/` | Decisions and their reasons. Read the relevant one before changing an area. |
@@ -166,8 +166,9 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and
   pi don't ask for a copy, and an unsupported `/view?preview` falls back to the text result
   ([ADR 0004](docs/adr/0004-releasing-the-machine.md)).
-- **A skill teaches strategy, a tool description the options.** `skills/den-image` holds the
-  recipes and the measured traps; the workflows, settings and ranges stay in the tool text,
+- **A skill teaches strategy, a tool description the options.** Each skill in `skills/` holds
+  its recipes and measured traps, one skill per kind of result (image, clip, voice), pointing
+  to the others where they meet; the workflows, settings and ranges stay in the tool text,
   built from `config.toml`, so the skill never lists what changes when a model is added. A new
   lesson from a test goes into the skill's `references/lessons.md` with the test behind it.
 - **Delegation is opt-in per task.** Only enabled tasks appear in the tool's `task` enum,

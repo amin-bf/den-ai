@@ -143,7 +143,15 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   ComfyUI's models folder. Add one as `<name>.json` (API format) plus `[image.workflows.<name>]`
   (or `[clip.workflows.<name>]`): in `workflows/` and `config.toml` when it's a shareable example
   on public models, in `~/.config/den/workflows/` and `config.local.toml` when it isn't. An
-  example a private workflow replaces is hidden with `enabled = false` in `config.local.toml`. A model
+  example a private workflow replaces is hidden with `enabled = false` in `config.local.toml`.
+- **The private workflows are the ones in use; the tracked ones are examples.** Every
+  improvement to a workflow (a mapping key such as `sound` or `lip_sync`, new graph nodes, a
+  fix, a better default) lands in the private workflow that uses that model first, in
+  `~/.config/den/workflows/` and `config.local.toml`, and is tested there. The tracked example is
+  then brought along, so the repo shows the feature on public files, but it's never the only
+  place a feature exists. After a change, compare the private graph and entry with their example:
+  the same nodes and mapping keys, differing only in model files, cfg and notes. An example that
+  a private workflow replaces stays `enabled = false` locally, so clients see one of the two. A model
   that can edit gets an edit variant too (`<name>-edit.json`, `[image.workflows.<name>.edit]`).
   Descriptions say style and prompt format only. An edit takes `strength` too: it blends the
   result back over its input, because a klein edit re-renders the whole frame and repaints

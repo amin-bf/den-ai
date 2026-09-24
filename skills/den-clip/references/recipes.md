@@ -206,3 +206,37 @@ Whisper is your ears. Five calls:
 Report what you checked: the transcript beside the lines. Whether the lips truly follow the
 words still shows only when someone watches, so say that too. Tested: the keeper clip above,
 transcribed from its mp4, came back word for word.
+
+## A recurring character speaks, in a voice chosen for them
+
+A character the user keeps (a profile of their looks, a portrait of them) says a few lines,
+lip-synced, in a voice of their own. The profile usually describes only how they look; the voice
+is chosen with the user once and kept under the character's name.
+
+1. **A voice already?** `list_voices`: if one is the character's (by name or description), go to 4.
+2. **Two contrasting drafts** from what the profile says (age, manner, where they're from):
+   `design_voice` twice, e.g. "warm, smooth, slightly low; relaxed and calm" and "bright, clear,
+   lively; a smile in the tone". Try both on the **same line** with `generate_voice` and
+   `draft:ID`, and give the user both tracks side by side (the clones, not the samples).
+3. **The user picks**; `save_voice` that draft under the character's name. Its description is
+   kept, so the voice can be made again. Neither fits: a new pair nearer to what they said.
+4. **The start frame**: the character's own portrait, the file the user names and nothing else
+   of theirs. A large, frontal close-up lip-syncs best (den-image makes one in stages if there's
+   none); the clip takes its shape.
+5. **The clip**, on a workflow whose options say lip-sync:
+   ```json
+   {"workflow": "ltx23",
+    "prompt": "A close-up portrait of <the character's fixed looks, briefly>, looking straight into the camera. She speaks softly and warmly, her lips moving naturally as she talks, a small smile at the end. Soft even light, plain background. The camera is static.",
+    "keyframes": [{"image": "/path/portrait.png"}],
+    "voiceover": {"lines": ["Hey, I didn't think you'd make it tonight.", "Come on, the view from up here is worth it."],
+                  "voice": "<the character's voice>", "sync": true}}
+   ```
+6. **Check** while the image side is still loaded: the contact sheet (the face stays theirs, the
+   mouth moves on the words) and `transcribe_audio` on the clip's mp4 (the words). Report both,
+   and that the lips following the words shows only when someone watches.
+
+Tested: a 24-year-old character described by her looks only; drafts at about 200 Hz and 370 Hz,
+the user chose the lower; her frontal close-up portrait as the start frame, two lines lip-synced
+on ltx23 in 219 s (6.33 s, portrait 608x864); the face held, the mouth moved, and Whisper heard
+both lines word for word. If other clients are busy, the clip waits its turn: never release the
+machine or cancel them to go first.

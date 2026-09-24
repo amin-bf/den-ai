@@ -109,6 +109,7 @@ when lines must land at given moments.
 | The user's own narration, as it is | **the recording as the voice-over** (`audio`), transcribed for its script | 1 + 2 |
 | A clip with a narrator | den-clip, **clip with a voice-over** | 2 |
 | A character saying the user's recorded lines, lip-synced | den-clip, **a character who says your lines** (design, transcribe, lip-sync) | 4 |
+| A recurring character's own voice, then a lip-synced clip of them | den-clip, **a recurring character speaks** (two drafts, save, lip-sync) | 7–8 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

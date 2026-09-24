@@ -108,6 +108,7 @@ request or restart the broker to go first; say the clip is queued. Checks that n
 | A person who says the lines | **lip-synced clip**: a voice-over with `sync`, the speaker named in the prompt | 2 (+ stills) |
 | A character with another voice saying the user's lines, in their timing | **a character who says your lines**: design the voice, record, transcribe, lip-sync | 4 |
 | A talking character with nobody recording or listening | **with no human in the loop**: design, lip-sync your lines, check them through Whisper | 5 |
+| A recurring character speaking in a voice of their own | **a recurring character speaks**: two drafts, the user picks, their portrait, lip-sync, check | 7–8 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

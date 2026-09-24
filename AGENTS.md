@@ -12,8 +12,8 @@ ComfyUI, and voice-overs from a speech model, all on top of the GPU broker.
   model; Ollama is the model store (downloads, and which GGUF file a model is). Models are split
   between GPU and RAM ([ADR 0005](docs/adr/0005-llama-server.md)).
 - **Integration:** a stdlib-only MCP server exposes `local_llm` (delegation), `generate_image`,
-  `generate_clip`, `generate_voice`, `transcribe_audio` and `release_resources` (hand the machine back) to Claude
-  Code; pi's extension and the Android client offer the same through the broker.
+  `generate_clip`, `generate_voice`, `transcribe_audio` and `release_resources` (hand the machine
+  back) to Claude Code; pi's extension and the Android client offer the same through the broker.
 - **GPU broker:** `den serve` (user unit `den.service`, `127.0.0.1:11435`) sits in front
   of llama-server, ComfyUI and the speech server. The CLI, the MCP server and pi all go
   through it ([ADR 0002](docs/adr/0002-gpu-broker.md)).
@@ -94,12 +94,12 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **Voices are kept like poses, and no tool text lists them.** The voice library is
   `~/.local/share/den/voices/` (`DEN_VOICES`), outside the repo: each voice's sample and a
   `NAME.json` with its description, how it was made (designed or recorded), language, seed and
-  date, so a model chooses by what a voice sounds like and a designed one can be made again.
-  A model finds voices with `list_voices`; `generate_voice` and a clip's voiceover only say the
+  date, so a model chooses by what a voice sounds like and a designed one can be made again. A
+  model finds voices with `list_voices`; `generate_voice` and a clip's voiceover only say the
   library exists, because a tool whose text changes with every voice makes pi reread its
-  conversation. A designed voice is a draft (`draft:ID`) until `save_voice` keeps it, once the user
-  has heard it. `den voice --mv`, `--describe` and `--rm` rename, describe and delete; no tool
-  deletes a voice, as none deletes a pose.
+  conversation. A designed voice is a draft (`draft:ID`) until `save_voice` keeps it, once the
+  user has heard it. `den voice --mv`, `--describe` and `--rm` rename, describe and delete, and
+  the phone's Voices tab deletes after asking; no tool deletes a voice, as none deletes a pose.
 - **Speech runs in a venv of its own, on the image side.** Chatterbox pins a torch and
   transformers that ComfyUI's venv has moved past, so installing it there would break image and
   clip generation; `setup.sh` gives it `~/.local/share/den/speech/` (`SPEECH_DIR`) instead. There
@@ -154,18 +154,18 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   (or `[clip.workflows.<name>]`): in `workflows/` and `config.toml` when it's a shareable example
   on public models, in `~/.config/den/workflows/` and `config.local.toml` when it isn't. An
   example a private workflow replaces is hidden with `enabled = false` in `config.local.toml`.
-- **The private workflows are the ones in use; the tracked ones are examples.** Every
-  improvement to a workflow (a mapping key such as `sound` or `lip_sync`, new graph nodes, a
-  fix, a better default) lands in the private workflow that uses that model first, in
+- **The private workflows are the ones in use; the tracked ones are examples.** Every improvement
+  to a workflow (a mapping key such as `sound` or `lip_sync`, new graph nodes, a fix, a better
+  default) lands in the private workflow that uses that model first, in
   `~/.config/den/workflows/` and `config.local.toml`, and is tested there. The tracked example is
   then brought along, so the repo shows the feature on public files, but it's never the only
   place a feature exists. After a change, compare the private graph and entry with their example:
   the same nodes and mapping keys, differing only in model files, cfg and notes. An example that
-  a private workflow replaces stays `enabled = false` locally, so clients see one of the two. A model
-  that can edit gets an edit variant too (`<name>-edit.json`, `[image.workflows.<name>.edit]`).
-  Descriptions say style and prompt format only. An edit takes `strength` too: it blends the
-  result back over its input, because a klein edit re-renders the whole frame and repaints
-  colours the instruction never mentioned.
+  a private workflow replaces stays `enabled = false` locally, so clients see one of the two. A
+  model that can edit gets an edit variant too (`<name>-edit.json`,
+  `[image.workflows.<name>.edit]`). Descriptions say style and prompt format only. An edit takes
+  `strength` too: it blends the result back over its input, because a klein edit re-renders the
+  whole frame and repaints colours the instruction never mentioned.
 - **A guide image can be an ordinary photo where den has the preprocessor.** `canny` is built
   into ComfyUI; the rest are `[image.preprocessors]` entries naming a model file, and a type is
   offered as drawn from a photo once that file is downloaded — otherwise it still takes a
@@ -175,11 +175,12 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   prompt names it by number. `save_maps` keeps every map den draws beside the result, listed apart
   from `paths` ([ADR 0003](docs/adr/0003-image-generation.md)).
 - **Saved poses live outside the repo, and no tool text lists them.** The pose library is in
-  `~/.local/share/den/poses/` (`DEN_POSES`), with a copy of each source photo, so nothing of it is
-  versioned. A model finds poses with `list_poses`; the image tool only says the library exists,
-  because a tool whose text changes on every save makes pi reread its conversation. A model
-  saves (a taken name needs `replace`); only `den pose mv` / `rm` rename or delete
-  ([ADR 0003](docs/adr/0003-image-generation.md)).
+  `~/.local/share/den/poses/` (`DEN_POSES`), with a copy of each source photo, so nothing of it
+  is versioned. A model finds poses with `list_poses`; the image tool only says the library
+  exists, because a tool whose text changes on every save makes pi reread its conversation. A
+  model saves (a taken name needs `replace`); only people rename or delete: `den pose mv` / `rm`,
+  or the phone's Delete (`POST /poses` with `remove`), never a tool ([ADR
+  0003](docs/adr/0003-image-generation.md)).
 - **An image result is paths, plus a small copy when asked for.** `POST /image` takes
   `preview`, and only Claude's MCP tool sets it: ComfyUI re-encodes the output as a small JPEG
   so that model can look at what it made. The saved file stays the full-size PNG, the CLI and

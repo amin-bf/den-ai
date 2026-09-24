@@ -10,8 +10,12 @@ gallery (`Pictures/den/`), clips to `Movies/den/`.
 Screens: **Connect**, **Status** (mode, model, load, tasks, workflows), **Chat** (see below),
 **Ask** (run a delegated task, optionally with a file, and give a verdict), **Image** (prompt,
 workflow, the workflow's settings, an optional input image to edit; progress streams while it
-runs), **Clip** (on the Image screen's second tab, below) and **Poses** (browse the saved pose
-library).
+runs), **Clip** (on the Image screen's second tab, below), **Poses** (browse the saved pose
+library, make a pose, and delete one) and **Voices** (the voice library: each voice with what it
+is, to listen to or delete).
+
+Deleting a pose or a voice asks first: it's gone from the den's library for every client. No
+tool of a model deletes either; only a person does, here or with `den pose rm` / `den voice --rm`.
 
 ## Clips and voice-overs
 

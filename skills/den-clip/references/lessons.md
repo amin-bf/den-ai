@@ -32,3 +32,8 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   silence (−91 dB) around it, so no ambience from the prompt. 136 s for 5 s. A recording (an
   M4A) instead of a script went the same way in 143 s. Whether the lips follow the words shows
   only in the video, not on the contact sheet: ask the user.
+- **A quoted line at cfg 1 comes out slurred.** The keeper (ltx23-distilled, cfg 1, one keyframe)
+  prompted to say "Tonight, someone else will keep the light." spoke for 3 s with his mouth moving,
+  but Whisper heard "The nigher, summer else will hick the light.": the line's rhythm, not its
+  words. The model card says a higher cfg gives more talking; for words that must be understood,
+  use a voice-over with `sync`.

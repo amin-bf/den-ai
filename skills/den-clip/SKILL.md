@@ -69,7 +69,7 @@ So there are two ways to make someone on screen talk, both lip-synced:
 - **A line in quotes in the prompt**, on a workflow that makes sound: the model makes the voice
   and the lips together, so they match by construction. Quick, one call, but the voice is one
   the model invents from the prompt (describe it: "a raspy old man's voice", "a child's high voice"),
-  it picks the timing, and the words may come out slurred (see lessons). Check the result.
+  it picks the timing, and at cfg 1 the words come out slurred: pass `cfg` 3 (see lessons).
 - **A voice-over with `sync`**: a chosen or cloned voice, the script's words and timing, the
   picture made to it. For a known voice, a given script, or several lines at set moments.
 

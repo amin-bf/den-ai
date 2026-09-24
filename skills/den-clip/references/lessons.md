@@ -35,5 +35,6 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
 - **A quoted line at cfg 1 comes out slurred.** The keeper (ltx23-distilled, cfg 1, one keyframe)
   prompted to say "Tonight, someone else will keep the light." spoke for 3 s with his mouth moving,
   but Whisper heard "The nigher, summer else will hick the light.": the line's rhythm, not its
-  words. The model card says a higher cfg gives more talking; for words that must be understood,
-  use a voice-over with `sync`.
+  words. The same seed at cfg 3, the voice described ("a deep, clear, slow voice"), gave
+  "Tenaya, someone else will heave the light.": most words clear, in 172 s instead of 117 s.
+  For a quoted line use cfg 3; for words that must all be understood, a voice-over with `sync`.

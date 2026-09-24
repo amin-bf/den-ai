@@ -408,9 +408,11 @@ class BrokerClient(Ollama):
         """Progress lines of taking the machine for a live conversation; the last carries the session."""
         return self._stream("/live/start", request)
 
-    def live_talk(self, say, wait_s=120):
-        """Speak say, then wait for the user's next utterance (ADR 0011)."""
-        return self._request("POST", "/live/talk", {"say": say, "wait_s": wait_s}, timeout=wait_s + 600)
+    def live_talk(self, say, wait_s=120, voice=None, language=None):
+        """Speak say, then wait for the user's next utterance (ADR 0011); voice and language switch
+        from this turn on."""
+        body = {"say": say, "wait_s": wait_s, **({"voice": voice} if voice else {}), **({"language": language} if language else {})}
+        return self._request("POST", "/live/talk", body, timeout=wait_s + 600)
 
     def live_stop(self):
         return self._request("POST", "/live/stop", {}, timeout=60)
@@ -420,6 +422,18 @@ class BrokerClient(Ollama):
 
     def live_drop(self, session):
         return self._request("POST", "/live/drop", {"session": session}, timeout=30)
+
+    def conversations(self):
+        return self._request("GET", "/conversations", timeout=30)["conversations"]
+
+    def conversation(self, ref):
+        return self._request("GET", f"/conversations?{urllib.parse.urlencode({'id': ref})}", timeout=30)
+
+    def delete_conversation(self, ref):
+        return self._request("POST", "/conversations", {"id": ref, "remove": True}, timeout=30)
+
+    def save_summary(self, ref, summary):
+        return self._request("POST", "/conversations", {"id": ref, "summary": summary}, timeout=30)
 
     def voices(self):
         """The voice library there, the languages, and why speech can't run (or None)."""
@@ -604,3 +618,21 @@ def record_feedback(call_id, verdict, note=""):
         return {"type": "feedback", "id": call_id, "ts": int(time.time()), "verdict": verdict, "note": note}
 
     _locked_log(add)
+
+
+SUMMARY_INSTRUCTIONS = (
+    "Summarize this spoken conversation between the user and Claude: what it was about, what was "
+    "decided or agreed, open questions, and anything the user asked to be done. Short bullet points; "
+    "keep names, numbers and decisions exact; nothing that isn't in the transcript."
+)
+
+
+def summarize_conversation(config, ref, caller="cli"):
+    """A conversation's summary by den's own LLM (the summarize task), saved beside it. Returns it."""
+    client = broker(config, caller)
+    text = client.conversation(ref)["transcript"]
+    if not text.strip():
+        raise DenError(f"conversation {ref} has nothing in it to summarize")
+    answer, stats = run_task(config, load_state(config), "summarize", SUMMARY_INSTRUCTIONS, text=text, caller=caller)
+    client.save_summary(ref, answer)
+    return answer, stats

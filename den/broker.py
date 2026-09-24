@@ -452,7 +452,10 @@ class Broker:
         log(f"live conversation {session} on (voice {voice or 'default'}, {language})")
         return session
 
-    def live_talk(self, say, wait_s):
+    def live_talk(self, say, wait_s, voice=None, language=None):
+        voice_file = speech.voice_path(voice) if voice else None
+        if language and language != "auto" and language not in speech.LANGUAGES:
+            raise DenError(f"unknown language {language!r}; one of: auto, {', '.join(speech.LANGUAGES)}")
         with self.cond:
             if not self.live or self.live.get("state") != "on":
                 raise DenError("no live conversation is on (live_start begins one)")
@@ -460,9 +463,13 @@ class Broker:
                 raise DenError("a talk is already running in this conversation")
             self.live["talking"] = True
             session = self.live["session"]
+            switched = {k: v for k, v in (("voice", voice), ("language", language)) if v and v != self.live.get(k)}
+            self.live.update(switched)
+        if switched:
+            speech.record_turn(session, {"who": "den", "event": "switch", **switched})
         began = round(time.time(), 1)  # when Claude's line starts, not when the user's answer ends
         try:
-            answer = self.live_engine.talk(say, wait_s)
+            answer = self.live_engine.talk(say, wait_s, voice_file, language)
         finally:
             with self.cond:
                 if self.live:
@@ -1159,9 +1166,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_request(self._live_start, json.loads(self._read_body() or b"{}"))
             elif path == "/live/talk" and self.command == "POST":
                 body = json.loads(self._read_body() or b"{}")
-                self._send_json(200, self.broker.live_talk(str(body.get("say") or ""), float(body.get("wait_s") or 120)))
+                self._send_json(200, self.broker.live_talk(
+                    str(body.get("say") or ""), float(body.get("wait_s") or 120), body.get("voice"), body.get("language")
+                ))
             elif path == "/live/stop" and self.command == "POST":
                 self._send_json(200, self.broker.live_stop())
+            elif path == "/conversations" and self.command == "GET":
+                ref = parse_qs(urlsplit(self.path).query).get("id", [None])[0]
+                self._send_json(200, speech.read_conversation(ref) if ref else {"conversations": speech.conversations()})
+            elif path == "/conversations" and self.command == "POST":
+                # Deleting one is the user's decision; a summary is saved beside the conversation.
+                body = json.loads(self._read_body() or b"{}")
+                if body.get("remove"):
+                    speech.delete_conversation(body.get("id"))
+                    log(f"{self._caller()} POST /conversations -> deleted {body.get('id')}")
+                    self._send_json(200, {"deleted": body.get("id")})
+                elif body.get("summary"):
+                    speech.save_summary(body.get("id"), str(body["summary"]))
+                    self._send_json(200, {"summarized": body.get("id")})
+                else:
+                    raise DenError("POST /conversations takes {id, remove: true} or {id, summary}")
             elif path == "/live/keep" and self.command == "POST":
                 body = json.loads(self._read_body() or b"{}")
                 kept = speech.keep_session(str(body.get("session") or ""), str(body.get("name") or ""))
@@ -1367,8 +1391,8 @@ class Handler(BaseHTTPRequestHandler):
         """POST /live/start {voice?, language?, exaggeration?}: take the machine for a live
         conversation (ADR 0011). Streams progress; ends with {"result": {session}}."""
         language = str(body.get("language") or "en").lower()
-        if language not in speech.LANGUAGES:
-            raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
+        if language != "auto" and language not in speech.LANGUAGES:
+            raise DenError(f"unknown language {language!r}; one of: auto, {', '.join(speech.LANGUAGES)}")
         session = self.broker.live_start(body.get("voice"), language, float(body.get("exaggeration") or 0.5), emit, self._caller_gone)
         emit({"result": {"session": session}})
 

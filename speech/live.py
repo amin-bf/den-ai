@@ -6,7 +6,8 @@ Whisper writes down what the user says, and Chatterbox speaks in a voice from th
 goes through PipeWire's echo canceller, so den's own voice is never taken for the user.
 
     GET  /health  {ready, error}
-    POST /talk    {say?, wait_s?} -> speaks `say` sentence by sentence, then waits for the user's
+    POST /talk    {say?, wait_s?, voice?, language?} -> from this turn on in voice (a recording's
+                  path) and language ("auto": Whisper detects it); speaks `say` sentence by sentence, then waits for the user's
                   next utterance: {heard, interrupted, spoken, unspoken, silence}. The user
                   speaking over the voice stops it at once (interrupted, and how far it got);
                   something said before the call came in is returned without speaking at all.
@@ -153,7 +154,8 @@ def sentences(text):
 def synthesize(sentence):
     import torch
 
-    wav = models["tts"].generate(sentence, language_id=models["language"] or "en", exaggeration=models["exaggeration"])
+    with models["tts_lock"]:
+        wav = models["tts"].generate(sentence, language_id=models["speak_language"], exaggeration=models["exaggeration"])
     return wav.squeeze().clamp(-1, 1).mul(32767).to(torch.int16).cpu().numpy().tobytes()
 
 
@@ -219,9 +221,23 @@ def speak(text, target):
 # --- the conversation ---
 
 
+def switch(voice=None, language=None):
+    """Another voice or language from this turn on: the voice's recording is read once (about a
+    second); a language applies to speaking and listening, "auto" letting Whisper detect it."""
+    if language:
+        models["language"] = None if language == "auto" else language
+        if language != "auto":
+            models["speak_language"] = language
+    if voice and voice != models.get("voice"):
+        with models["tts_lock"]:
+            models["tts"].prepare_conditionals(voice, exaggeration=models["exaggeration"])
+        models["voice"] = voice
+
+
 def talk(body, targets):
     say = str(body.get("say") or "").strip()
     wait_s = float(body.get("wait_s") or 120)
+    switch(body.get("voice"), body.get("language"))
     with talk_lock:
         # Something said while Claude was thinking comes first: its reply may no longer fit.
         if say and not heard.empty():
@@ -288,7 +304,10 @@ def load(args):
         if args.voice:
             tts.prepare_conditionals(args.voice, exaggeration=args.exaggeration)
         models["tts"] = tts
-        models["language"] = args.language
+        models["tts_lock"] = threading.Lock()
+        models["voice"] = args.voice
+        models["language"] = None if args.language == "auto" else args.language
+        models["speak_language"] = args.language if args.language != "auto" else "en"
         models["exaggeration"] = args.exaggeration
         state["ready"] = True
         log("ready")

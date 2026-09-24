@@ -297,7 +297,7 @@ def live_tools():
                 "type": "object",
                 "properties": {
                     "voice": {"type": "string", "description": "Your voice: a name from list_voices. Default: the model's own."},
-                    "language": {"type": "string", "enum": sorted(speech.LANGUAGES), "description": "Default: en."},
+                    "language": {"type": "string", "enum": ["auto", *sorted(speech.LANGUAGES)], "description": "Default: en; auto lets den detect what the user speaks."},
                     "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2 (default 0.5)."},
                 },
             },
@@ -314,14 +314,49 @@ def live_tools():
                 "properties": {
                     "say": {"type": "string", "description": "What you say, as you'd speak it (no markdown, lists or code)."},
                     "wait_s": {"type": "number", "description": "How long to listen for an answer (default 120 s)."},
+                    "voice": {"type": "string", "description": "Switch to this voice (list_voices) from this turn on, e.g. when the user asks."},
+                    "language": {
+                        "type": "string", "enum": ["auto", *sorted(speech.LANGUAGES)],
+                        "description": "Switch language from this turn on, for speaking and listening; auto: den detects what "
+                        "the user speaks (you still choose the language you answer in).",
+                    },
                 },
             },
         },
         {
             "name": "live_stop",
             "description": "End the live conversation and give the machine back. Returns the transcript: ask the user "
-            "what to do with it (keep_conversation under a name, drop_conversation, or something else, like a summary).",
+            "what to do with it (keep_conversation under a name, delete_conversation, summarize_conversation, or "
+            "something else). It's kept meanwhile, so nothing is lost if they decide later.",
             "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "list_conversations",
+            "description": "The user's spoken conversations with you (live sessions): the ones not decided on yet and "
+            "the ones kept under a name, newest first, each with when, how long, how it opened and its summary if "
+            "there is one. Use it to pick up an earlier conversation.",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "read_conversation",
+            "description": "One conversation's transcript (who said what, where you were interrupted), with its summary "
+            "first if there is one.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "description": "A session id or a kept conversation's name."}},
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "summarize_conversation",
+            "description": "Have den's own local LLM summarize a conversation (what it was about, decisions, open "
+            "questions, requests) and keep the summary beside it; the transcript never leaves the machine. Not while "
+            "a live conversation is on.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "description": "A session id or a kept conversation's name."}},
+                "required": ["id"],
+            },
         },
         {
             "name": "keep_conversation",
@@ -336,12 +371,12 @@ def live_tools():
             },
         },
         {
-            "name": "drop_conversation",
-            "description": "Delete a live conversation's transcript, when the user doesn't want it kept.",
+            "name": "delete_conversation",
+            "description": "Delete a conversation (a session or a kept one) and its summary, only when the user asks.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"session": {"type": "string", "description": "The session id."}},
-                "required": ["session"],
+                "properties": {"id": {"type": "string", "description": "A session id or a kept conversation's name."}},
+                "required": ["id"],
             },
         },
     ]
@@ -363,20 +398,35 @@ def live_call(name, args, progress_token):
             "(a short greeting), and keep calling talk for every exchange."
         )
     if name == "talk":
-        answer = broker.live_talk(str(args.get("say") or ""), float(args.get("wait_s") or 120))
+        answer = broker.live_talk(str(args.get("say") or ""), float(args.get("wait_s") or 120), args.get("voice"), args.get("language"))
         return json.dumps({k: v for k, v in answer.items() if v not in (None, [], False, "")}, ensure_ascii=False)
     if name == "live_stop":
         answer = broker.live_stop()
         return (
             f"live conversation {answer['session']} ended after {answer['minutes']} min; den is free again.\n\n"
-            f"{answer['transcript']}\n\nAsk the user what to do with it: keep it (keep_conversation), drop it "
-            "(drop_conversation), or something else."
+            f"{answer['transcript']}\n\nAsk the user what to do with it: keep it under a name (keep_conversation), "
+            "delete it (delete_conversation), summarize it with den's LLM (summarize_conversation), or something else."
         )
     if name == "keep_conversation":
         return f"kept: {broker.live_keep(str(args.get('session')), str(args.get('name')))['kept']}"
-    if name == "drop_conversation":
-        broker.live_drop(str(args.get("session")))
-        return "dropped."
+    if name == "list_conversations":
+        rows = broker.conversations()
+        if not rows:
+            return "No conversations yet."
+        lines = []
+        for r in rows:
+            head = f"- {r['id']} ({'kept' if r['kind'] == 'kept' else 'not decided'}, {r['when']}, {r['turns']} turns)"
+            lines.append(head + (f"\n  summary: {r['summary']}" if r.get("summary") else f"\n  opens: {r['opening']}"))
+        return "\n".join(lines)
+    if name == "read_conversation":
+        c = broker.conversation(str(args.get("id")))
+        return (f"Summary:\n{c['summary']}\n\n" if c.get("summary") else "") + f"Transcript ({c['id']}, {c['kind']}):\n{c['transcript']}"
+    if name == "summarize_conversation":
+        answer, stats = core.summarize_conversation(core.load_config(), str(args.get("id")), caller="claude")
+        return f"{answer}\n\n[saved beside {args.get('id')} · {stats['model']}, {stats['seconds']}s]"
+    if name == "delete_conversation":
+        broker.delete_conversation(str(args.get("id")))
+        return f"deleted {args.get('id')}."
     raise DenError(f"unknown tool {name!r}")
 
 
@@ -825,7 +875,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
-        elif name in ("live_start", "talk", "live_stop", "keep_conversation", "drop_conversation"):
+        elif name in ("live_start", "talk", "live_stop", "keep_conversation", "list_conversations",
+                      "read_conversation", "summarize_conversation", "delete_conversation"):
             text = live_call(name, args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "save_voice":
             text = save_voice(args)

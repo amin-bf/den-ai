@@ -250,7 +250,6 @@ LIVE_SOCKET = SOCKET.parent / "live.sock"
 LIVE_LOG = core._STATE_HOME / "den/live-engine.log"
 LIVE_DIR = core._STATE_HOME / "den/live"  # every session's transcript, until it's kept or dropped
 CONVERSATIONS_DIR = Path(os.environ.get("DEN_CONVERSATIONS") or _DATA_HOME / "den/conversations")
-SESSIONS_KEPT = 10
 
 
 class LiveEngine:
@@ -306,9 +305,11 @@ class LiveEngine:
                 raise DenError(f"the live engine wasn't ready after {START_TIMEOUT_S}s; see {LIVE_LOG}")
             time.sleep(1)
 
-    def talk(self, say, wait_s):
+    def talk(self, say, wait_s, voice_file=None, language=None):
+        body = {"say": say, "wait_s": wait_s, **({"voice": str(voice_file)} if voice_file else {}),
+                **({"language": language} if language else {})}
         try:
-            status, answer = self._call("POST", "/talk", {"say": say, "wait_s": wait_s}, timeout=wait_s + 300)
+            status, answer = self._call("POST", "/talk", body, timeout=wait_s + 300)
         except OSError as e:
             raise DenError(f"the live engine didn't answer: {e}; see {LIVE_LOG}") from e
         if status != 200:
@@ -336,11 +337,7 @@ class LiveEngine:
 def new_session():
     """A new session's id; its transcript is written turn by turn, so a crash loses nothing."""
     LIVE_DIR.mkdir(parents=True, exist_ok=True)
-    session = time.strftime("%Y%m%d-%H%M%S")
-    old = sorted(LIVE_DIR.glob("*.jsonl"))
-    for path in old[: max(0, len(old) - SESSIONS_KEPT + 1)]:
-        path.unlink()
-    return session
+    return time.strftime("%Y%m%d-%H%M%S")  # every session is kept: it's text, and small
 
 
 def record_turn(session, turn):
@@ -351,7 +348,7 @@ def record_turn(session, turn):
 def session_turns(session):
     path = LIVE_DIR / f"{session}.jsonl"
     if not re.fullmatch(r"[0-9-]+", str(session)) or not path.is_file():
-        raise DenError(f"no live session {session!r}; den keeps the last {SESSIONS_KEPT}")
+        raise DenError(f"no live session {session!r}")
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
@@ -367,26 +364,90 @@ def transcript(session):
                 lines.append(f"[{clock}] Claude: {said}{cut}")
         elif turn["who"] == "user":
             lines.append(f"[{clock}] User: {turn['text']}")
+        elif turn.get("event") == "switch":
+            changed = ", ".join(f"{k} {turn[k]}" for k in ("voice", "language") if turn.get(k))
+            lines.append(f"[{clock}] (switched to {changed})")
         # den's own entries (start, stop) mark the session, not the conversation.
     return "\n".join(lines)
 
 
+def _conversation(ref):
+    """(kind, path) of a conversation: a session not decided on yet (its id), or a kept one (its name)."""
+    ref = str(ref or "")
+    if re.fullmatch(r"[0-9]{8}-[0-9]{6}", ref) and (LIVE_DIR / f"{ref}.jsonl").is_file():
+        return "session", LIVE_DIR / f"{ref}.jsonl"
+    if _NAME.fullmatch(ref) and (CONVERSATIONS_DIR / f"{ref}.md").is_file():
+        return "kept", CONVERSATIONS_DIR / f"{ref}.md"
+    raise DenError(f"no conversation {ref!r}: a session id (20260924-212720) or a kept conversation's name")
+
+
+def _summary_path(path):
+    return path.with_name(path.stem + ".summary.md")
+
+
+def conversations():
+    """Every conversation, newest first: [{id, kind, when, turns, opening, summary}]. Sessions not
+    decided on and kept conversations alike; a summary where one was made."""
+    rows = []
+    for path in LIVE_DIR.glob("*.jsonl") if LIVE_DIR.is_dir() else []:
+        turns = [t for t in session_turns(path.stem) if t["who"] in ("user", "claude")]
+        opening = next((t["text"] for t in turns if t["who"] == "user"), "")
+        rows.append({"id": path.stem, "kind": "session", "when": path.stat().st_mtime, "turns": len(turns), "opening": opening[:120]})
+    for path in CONVERSATIONS_DIR.glob("*.md") if CONVERSATIONS_DIR.is_dir() else []:
+        if path.name.endswith(".summary.md"):
+            continue
+        text = path.read_text()
+        opening = next((line.split("User: ", 1)[1] for line in text.splitlines() if "User: " in line), "")
+        rows.append({"id": path.stem, "kind": "kept", "when": path.stat().st_mtime,
+                     "turns": text.count("] Claude:") + text.count("] User:"), "opening": opening[:120]})
+    for row in rows:
+        path = _conversation(row["id"])[1]
+        summary = _summary_path(path)
+        row["summary"] = summary.read_text().strip()[:300] if summary.is_file() else None
+        row["when"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(row["when"]))
+    return sorted(rows, key=lambda r: r["when"], reverse=True)
+
+
+def read_conversation(ref):
+    """A conversation's transcript as text, with its summary first where there is one."""
+    kind, path = _conversation(ref)
+    text = transcript(path.stem) if kind == "session" else path.read_text()
+    summary = _summary_path(path)
+    return {"id": path.stem, "kind": kind, "transcript": text,
+            "summary": summary.read_text().strip() if summary.is_file() else None}
+
+
+def save_summary(ref, text):
+    _, path = _conversation(ref)
+    _summary_path(path).write_text(text.strip() + "\n")
+
+
+def delete_conversation(ref):
+    _, path = _conversation(ref)
+    path.unlink()
+    _summary_path(path).unlink(missing_ok=True)
+
+
 def keep_session(session, name):
-    """Keep a session's transcript as a conversation under name; returns its path."""
+    """Keep a session under name: its transcript moves to the kept conversations, with its summary."""
     if not _NAME.fullmatch(name):
         raise DenError(f"a conversation's name is lower case letters, digits and dashes, got {name!r}")
-    text = transcript(session)
+    kind, path = _conversation(session)
+    if kind != "session":
+        raise DenError(f"{session!r} is kept already")
     CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
     target = CONVERSATIONS_DIR / f"{name}.md"
     if target.exists():
         raise DenError(f"a conversation {name!r} exists")
-    target.write_text(f"# {name}\n\n{text}\n")
+    target.write_text(f"# {name}\n\nSession {session}\n\n{transcript(session)}\n")
+    if _summary_path(path).is_file():
+        _summary_path(path).rename(_summary_path(target))
+    path.unlink()
     return target
 
 
 def drop_session(session):
-    session_turns(session)
-    (LIVE_DIR / f"{session}.jsonl").unlink()
+    delete_conversation(session)
 
 
 # --- scripts ---

@@ -281,6 +281,21 @@ def cmd_live(args):
         answer = client.live_stop()
         print(answer["transcript"] or "(nothing was said)")
         print(f"[session {answer['session']} · {answer['minutes']} min]", file=sys.stderr)
+    elif args.action == "list":
+        for r in client.conversations():
+            print(f"{r['id']:<22} {r['kind']:<8} {r['when']}  {r['turns']:>3} turns  {r.get('summary') or r['opening']}"[:200])
+    elif args.action == "show":
+        c = client.conversation(args.id)
+        print((f"Summary:\n{c['summary']}\n\n" if c.get("summary") else "") + c["transcript"])
+    elif args.action == "summary":
+        answer, stats = core.summarize_conversation(config, args.id)
+        print(answer)
+        print(f"[{stats['model']}, {stats['seconds']}s; saved beside {args.id}]", file=sys.stderr)
+    elif args.action == "rm":
+        client.delete_conversation(args.id)
+        print(f"deleted {args.id}")
+    elif args.action == "keep":
+        print(client.live_keep(args.id, args.name)["kept"])
     else:
         live = client.status().get("live")
         print(f"live: {live['state']} (session {live.get('session')}, voice {live.get('voice') or 'default'})" if live else "live: off")
@@ -1089,7 +1104,9 @@ def main(argv=None):
     p.set_defaults(func=cmd_voice)
 
     p = sub.add_parser("live", help="a live spoken conversation with Claude: den's microphone and voice, exclusively")
-    p.add_argument("action", choices=["on", "off", "status"])
+    p.add_argument("action", choices=["on", "off", "status", "list", "show", "summary", "keep", "rm"])
+    p.add_argument("id", nargs="?", help="with show, summary, keep, rm: a session id or a kept conversation's name")
+    p.add_argument("name", nargs="?", help="with keep: the name to keep it under")
     p.add_argument("-v", "--voice", help="with on: the voice to speak in")
     p.add_argument("-l", "--language", help="with on: the language (default en)")
     p.set_defaults(func=cmd_live)

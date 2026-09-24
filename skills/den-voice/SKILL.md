@@ -81,6 +81,7 @@ when lines must land at given moments.
 | A kind of voice nobody recorded (old, young, a woman, a child) | **a designed voice**, then any of the above | 1 + 1 |
 | The user's own narration, as it is | **the recording as the voice-over** (`audio`), transcribed for its script | 1 + 2 |
 | A clip with a narrator | den-clip, **clip with a voice-over** | 2 |
+| A character saying the user's recorded lines, lip-synced | den-clip, **a character who says your lines** (design, transcribe, lip-sync) | 4 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

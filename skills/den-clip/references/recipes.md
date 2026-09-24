@@ -147,3 +147,33 @@ speaker's face is visible and large enough to see the mouth, then:
 - The voice is made first and fixed in the model; the clip's sound is the voice itself, so
   ambience from the prompt doesn't come through.
 - `lines` let den time the script from the speech; the result carries the SRT at those times.
+
+## A character who says your lines, in your timing
+
+The user performs the lines (their pace, pauses, emphasis) and a character with another voice
+says them on screen, lip-synced: an old keeper, a child, a woman. Four calls:
+
+1. **The character's voice**, once (`design_voice`, den-voice), unless the library has it:
+   ```json
+   {"name": "grandpa", "description": "An old man in his eighties with a deep, warm, slightly raspy voice, speaking slowly and calmly."}
+   ```
+2. **The user records the lines** as they want them said: on the phone, Record narration; or any
+   recording they give you.
+3. **Their timing as a script** (`transcribe_audio`): an SRT with each line where they said it.
+   Read it: fix a misheard word or a number written as digits before it's spoken again.
+   ```json
+   {"audio": "/path/narration.m4a", "language": "en"}
+   ```
+4. **The clip**, the character speaking that SRT in the designed voice, lip-synced:
+   ```json
+   {"workflow": "ltx23",
+    "prompt": "An old lighthouse keeper looks straight into the camera and speaks slowly and warmly, his lips and beard moving as he talks. The camera is static, a medium close-up.",
+    "keyframes": [{"image": "/path/keeper.png"}],
+    "voiceover": {"srt": "/path/narration.srt", "voice": "grandpa", "sync": true}}
+   ```
+
+The words and pauses are the user's, the voice is the character's, and the lips follow it.
+Tested: `grandpa` designed from the description above, the keeper saying "Tonight, someone else
+will keep the light." lip-synced on `ltx23`; Whisper heard the clip word for word. For the
+user's own voice on screen instead, skip steps 1 and 3 and pass the recording as `audio` with
+`sync`.

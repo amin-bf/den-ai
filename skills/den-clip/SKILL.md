@@ -96,6 +96,7 @@ line in the prompt only confuses who says what.
 | A clip with sound | **clip with sound**: a workflow that makes it, the sounds at the end of the prompt | 2 |
 | A clip with a narrator | **clip with a voice-over**: an SRT script in a voice from the library | 2 |
 | A person who says the lines | **lip-synced clip**: a voice-over with `sync`, the speaker named in the prompt | 2 (+ stills) |
+| A character with another voice saying the user's lines, in their timing | **a character who says your lines**: design the voice, record, transcribe, lip-sync | 4 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

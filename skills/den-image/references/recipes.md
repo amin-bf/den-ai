@@ -194,7 +194,7 @@ and leaves the detail free.
 ```
 
 One paragraph: the subject and what it does, the setting and light, the camera. The default
-(LTX) wants it long and detailed. Judge on the contact sheet `get_clip` returns: four frames,
+(`ltxv-13b`) wants it long and detailed. Judge on the contact sheet `get_clip` returns: four frames,
 first to last. Try a new motion at 2–3 seconds before the full length.
 
 ## Clip from an approved still
@@ -232,6 +232,6 @@ moment a still, **by editing the first one**, then pass all of them:
    ```
 
 `at` is seconds, a percentage or `"end"`; the tool description says how many keyframes each
-workflow takes (LTX: a start and two more anywhere; Wan 5B: the start only). Stills generated
+workflow takes (`ltxv-13b`: a start and two more anywhere; Wan 5B: the start only). Stills generated
 separately instead of edited differ in every detail, and the clip morphs between them. Check on
 the contact sheet that it passed through each keyframe.

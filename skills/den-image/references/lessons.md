@@ -119,12 +119,12 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
 - **Camera instructions are weak.** "The camera stays still" still gave a slow drift to the
   right, and a lamp "beam sweeping across the sky" didn't appear. Put the motion you need most
   first, and don't count on a static camera.
-- **Wan 5B takes about a minute per second of clip** (186 s and 196 s for 3 s at 20 steps); LTX
+- **Wan 5B takes about a minute per second of clip** (186 s and 196 s for 3 s at 20 steps); LTX 13B
   about a sixth of that (39 s for 3 s, 69 s for 4 s with three keyframes). A shorter duration
   is the cheap way to try a motion before the full length.
 - **Keyframes made by editing one still give a clip that changes, not one that morphs.** Dusk,
   then twilight and night made by klein edits of the dusk still (same rocks, same framing), at
-  0, 50 % and the end of a 4-second clip: LTX and Wan Fun Inpaint both passed through all
+  0, 50 % and the end of a 4-second clip: LTX 13B and Wan Fun Inpaint both passed through all
   three, with the light changing gradually and no visible seam. The waves kept moving
   throughout, though no keyframe showed them move.
 

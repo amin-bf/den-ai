@@ -20,7 +20,8 @@ can't carry: how to reach a goal in one call or several, and the traps that were
   list; `list_poses` with a name shows one pose: its skeleton, its stand-in photo and their
   paths.
 - **`generate_clip`** / **`get_clip`**: a short video clip, silent. It takes a minute or more
-  (LTX about 15 s of work per second of clip, Wan 5B about a minute), so `generate_clip` answers with an id and `get_clip` waits for it and shows a
+  (`ltxv-13b` about 15 s of work per second of clip, Wan 5B about a minute, larger models
+  longer), so `generate_clip` answers with an id and `get_clip` waits for it and shows a
   contact sheet: four frames, first to last, in a 2x2 grid. Extras by workflow: `keyframes`,
   `negative`, `loras`, `size`, `duration`.
 - **`release_resources`** (Claude): hand the machine back when the image work is done.
@@ -49,8 +50,8 @@ through the keyframe. A clip LoRA is for what the video model does itself, such 
 motion or a style of footage.
 
 Judge the result on the contact sheet: whether the motion went where the prompt asked, and
-whether it passed through the keyframes. Release the machine after a batch of clips: the clip
-model holds about 14 GB of RAM.
+whether it passed through the keyframes. Release the machine after a batch of clips: a clip
+model holds 14 GB of RAM or more.
 
 ## A person, an outfit, a pose and a place: build it in stages, with the user
 

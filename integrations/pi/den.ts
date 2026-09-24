@@ -38,6 +38,7 @@ import {
 
 const TOOL = "generate_image";
 const CLIP_TOOL = "generate_clip";
+const VOICE_TOOL = "generate_voice";
 const CLIP_POLL_MS = 3000;
 /** The pose library's tools, listed alongside the image tool; their text never lists the library. */
 const POSE_TOOLS = ["list_poses", "save_pose"];
@@ -63,6 +64,11 @@ type Spec = {
   /** Saved pose names, for /imagine's completions. */
   poses?: string[];
   pose_tools?: Record<string, { description: string; parameters: Record<string, any> }>;
+  /** The voice tool's spec (ADR 0010), where speech is installed. */
+  voice?: {
+    description: string;
+    parameters: { type: "object"; properties: Record<string, any>; required?: string[] };
+  };
   /** The clip tool's spec (ADR 0009); an older den has none. */
   clip?: {
     clip_on: boolean;
@@ -232,9 +238,10 @@ function progressText(msg: Record<string, any>): string | null {
     return `waiting: ${msg.waiting.reason}${running ? ` (running: ${running})` : ""}`;
   }
   if (msg.unloading) return `unloading the LLM (${msg.unloading.join(", ")})`;
-  if (msg.starting) return "starting ComfyUI";
+  if (msg.starting) return `starting ${msg.starting}`;
+  if (msg.speaking) return `speaking line ${msg.speaking.line} of ${msg.speaking.of}`;
   if (msg.drawing) return `drawing the pose for ${msg.drawing.name}`;
-  if (msg.stopping) return "stopping ComfyUI";
+  if (msg.stopping) return `stopping ${msg.stopping}`;
   if (msg.generating) {
     const g = msg.generating;
     const [workflow, ...rest] = g.summary as string[];
@@ -285,6 +292,8 @@ type ClipResult = {
   copies: string[];
   seconds: number;
   waited_s: number;
+  voiceover_track?: string;
+  notes?: string[];
 };
 
 type ClipView = {
@@ -336,6 +345,8 @@ function brokerJson<T = any>(broker: string, method: string, path: string, body?
 function clipText(r: ClipResult): string {
   const lines = [`saved: ${r.path}`, ...r.copies.map((p) => `copied to: ${p}`)];
   if (r.sheet) lines.push(`contact sheet: ${r.sheet}`);
+  if (r.voiceover_track) lines.push(`voice-over track: ${r.voiceover_track}`);
+  for (const note of r.notes ?? []) lines.push(`note: ${note}`);
   lines.push(`[${[...r.summary, `${r.seconds}s${r.waited_s >= 1 ? `, waited ${Math.round(r.waited_s)}s` : ""}`].join(" · ")}]`);
   return lines.join("\n");
 }
@@ -567,6 +578,8 @@ export default function (pi: ExtensionAPI) {
     const clip = s?.clip;
     const clipReady = !!(clip?.clip_on && clip.workflows.length && clip.description && clip.parameters);
     syncTool(CLIP_TOOL, clipReady ? JSON.stringify([clip!.description, clip!.parameters]) : null, () => clipToolDefinition(s!));
+    const voice = s?.voice;
+    syncTool(VOICE_TOOL, voice ? JSON.stringify([voice.description, voice.parameters]) : null, () => voiceToolDefinition(s!));
     return spec;
   }
 
@@ -770,6 +783,35 @@ export default function (pi: ExtensionAPI) {
         if (options.isPartial) return new Text(theme.fg("muted", text || "sending to the broker"), 0, 0);
         if (context.isError || !result.details?.result) return new Text(theme.fg("error", text), 0, 0);
         return generationView(result.details, theme, (context.state.views ??= new Map()), context.showImages);
+      },
+    };
+  }
+
+  function voiceToolDefinition(s: Spec) {
+    const voice = s.voice!;
+    return {
+      name: VOICE_TOOL,
+      label: "Generate voice",
+      description:
+        `${voice.description}\n` +
+        "Like generate_image this unloads you: write your reply first and call generate_voice last.",
+      promptSnippet: "Speak a text or an SRT script as a voice-over track (local speech model)",
+      parameters: voice.parameters,
+
+      async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
+        const broker = (spec ?? s).broker;
+        const request: Record<string, any> = { ...params };
+        // A script or a recording given as a path is a file here: the broker wants it absolute.
+        if (typeof params.srt === "string" && !params.srt.includes("\n")) request.srt = absolutePath(params.srt, ctx.cwd);
+        if (typeof params.voice === "string" && /[/.]/.test(params.voice)) request.voice = absolutePath(params.voice, ctx.cwd);
+        if (typeof params.out === "string") request.out = absolutePath(params.out, ctx.cwd);
+        const r = await requestBroker<Record<string, any>>(broker, request, signal, (msg) => {
+          const text = progressText(msg);
+          if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
+        }, "/voice");
+        const lines = [`saved: ${r.path}`, ...r.copies.map((p: string) => `copied to: ${p}`), ...r.notes.map((n: string) => `note: ${n}`)];
+        lines.push(`[${[...r.summary, `${r.seconds}s`].join(" · ")}]`);
+        return { content: [{ type: "text", text: `${lines.join("\n")}\nThe user can listen to it; you can't.` }], details: r, terminate: true };
       },
     };
   }

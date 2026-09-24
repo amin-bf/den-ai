@@ -302,6 +302,9 @@ in `~/ComfyUI/models` (`COMFYUI_DIR` overrides the location); `den image` says w
   workflow built on files only you have, or one you'd rather keep to yourself. A graph there
   wins over the repo's of the same name, so you can also change an example without touching
   the repo.
+- **Hide an example** your own workflow replaces with `enabled = false` under its name in
+  `config.local.toml` (`[clip.workflows.ltx23-distilled]`, `[image.workflows.<name>]`): no client
+  sees it, and a request for it is refused as unknown.
 
 To add one, build it in the web UI, export it with Workflow → Export (API), save it as
 `<name>.json` in one of those folders and add its `[image.workflows.<name>]` entry (or

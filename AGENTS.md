@@ -142,7 +142,8 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **Workflows, not model names:** a workflow is available when its graph's model files are in
   ComfyUI's models folder. Add one as `<name>.json` (API format) plus `[image.workflows.<name>]`
   (or `[clip.workflows.<name>]`): in `workflows/` and `config.toml` when it's a shareable example
-  on public models, in `~/.config/den/workflows/` and `config.local.toml` when it isn't. A model
+  on public models, in `~/.config/den/workflows/` and `config.local.toml` when it isn't. An
+  example a private workflow replaces is hidden with `enabled = false` in `config.local.toml`. A model
   that can edit gets an edit variant too (`<name>-edit.json`, `[image.workflows.<name>.edit]`).
   Descriptions say style and prompt format only. An edit takes `strength` too: it blends the
   result back over its input, because a klein edit re-renders the whole frame and repaints

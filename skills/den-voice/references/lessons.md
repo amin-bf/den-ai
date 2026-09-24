@@ -23,3 +23,6 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
   then cloned by Chatterbox on one line: median pitch 130 → 122 Hz, 172 → 172 Hz and 526 →
   444 Hz, still clearly apart. Designing took 59 s the first time (the download), then 15–18 s;
   each sample came out 12–18 s long.
+- **Whisper reads a finished clip's mp4 directly.** The lip-synced keeper clip, passed as it was,
+  came back "Tonight, someone else will keep the light." word for word: a way to check a clip's
+  speech without anyone listening.

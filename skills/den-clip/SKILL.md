@@ -81,7 +81,8 @@ line in the prompt only confuses who says what.
 1. **Make the look as stills first** (den-image) and get them approved.
 2. **Try the motion short**: 2–3 seconds, the workflow's defaults. Note the seed.
 3. **Judge the contact sheet**: four frames, first to last. *Claude:* look at it and say what you
-   see. *pi:* you don't see it; ask the user. You can't hear a clip's sound: ask how it sounds.
+   see. *pi:* you don't see it; ask the user. You can't hear a clip's sound: for speech,
+   `transcribe_audio` on the clip's mp4 tells you the words; for the rest, ask how it sounds.
 4. **Change one thing, reuse the seed**, then make the full length.
 5. **Finish.** *Claude:* `release_resources`. *pi:* nothing to do.
 
@@ -97,6 +98,7 @@ line in the prompt only confuses who says what.
 | A clip with a narrator | **clip with a voice-over**: an SRT script in a voice from the library | 2 |
 | A person who says the lines | **lip-synced clip**: a voice-over with `sync`, the speaker named in the prompt | 2 (+ stills) |
 | A character with another voice saying the user's lines, in their timing | **a character who says your lines**: design the voice, record, transcribe, lip-sync | 4 |
+| A talking character with nobody recording or listening | **with no human in the loop**: design, lip-sync your lines, check them through Whisper | 5 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

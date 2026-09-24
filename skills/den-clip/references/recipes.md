@@ -177,3 +177,29 @@ Tested: `grandpa` designed from the description above, the keeper saying "Tonigh
 will keep the light." lip-synced on `ltx23`; Whisper heard the clip word for word. For the
 user's own voice on screen instead, skip steps 1 and 3 and pass the recording as `audio` with
 `sync`.
+
+## A talking character, with no human in the loop
+
+The same result as the recipe above, when nobody records or listens: you write the lines, and
+Whisper is your ears. Five calls:
+
+1. **The character's still** (den-image): face visible and large enough to see the mouth.
+2. **Their voice** (`design_voice`) from the same idea of the character, unless the library has
+   a fitting one: `{"name": "grandpa", "description": "An old man in his eighties with a deep,
+   warm, slightly raspy voice, speaking slowly."}`
+3. **The clip**, the lines written by you (about 2.5 words a second, one thought per line) and
+   timed by den, lip-synced:
+   ```json
+   {"workflow": "ltx23",
+    "prompt": "An old lighthouse keeper looks straight into the camera and speaks slowly and warmly, his lips and beard moving as he talks. The camera is static, a medium close-up.",
+    "keyframes": [{"image": "/path/keeper.png"}],
+    "voiceover": {"lines": ["Tonight, someone else will keep the light."], "voice": "grandpa", "sync": true}}
+   ```
+4. **Look** at the contact sheet from `get_clip`: the face, the framing, the mouth open mid-word.
+5. **Listen through Whisper**: `transcribe_audio` on the clip's mp4, and compare the words with
+   your lines. They match: done. A word is off: the same clip with another `seed` in the
+   voiceover, once; still off, say so and hand the clip over with the transcript.
+
+Report what you checked: the transcript beside the lines. Whether the lips truly follow the
+words still shows only when someone watches, so say that too. Tested: the keeper clip above,
+transcribed from its mp4, came back word for word.

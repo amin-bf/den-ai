@@ -243,6 +243,152 @@ def _error(raw):
         return raw[:200].decode(errors="replace")
 
 
+# --- live conversation (ADR 0011) ---
+
+LIVE_ENGINE = core.ROOT / "speech/live.py"
+LIVE_SOCKET = SOCKET.parent / "live.sock"
+LIVE_LOG = core._STATE_HOME / "den/live-engine.log"
+LIVE_DIR = core._STATE_HOME / "den/live"  # every session's transcript, until it's kept or dropped
+CONVERSATIONS_DIR = Path(os.environ.get("DEN_CONVERSATIONS") or _DATA_HOME / "den/conversations")
+SESSIONS_KEPT = 10
+
+
+class LiveEngine:
+    """The live engine process (speech/live.py): microphone, voice and models, while live."""
+
+    def __init__(self):
+        self.proc = None
+        self.log = None
+
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def _call(self, method, path, body=None, timeout=10):
+        conn = UnixHTTPConnection(LIVE_SOCKET, timeout=timeout)
+        try:
+            data = None if body is None else json.dumps(body).encode()
+            conn.request(method, path, body=data, headers={"Content-Type": "application/json"})
+            resp = conn.getresponse()
+            return resp.status, json.loads(resp.read() or b"{}")
+        finally:
+            conn.close()
+
+    def start(self, voice_file, language, exaggeration, emit):
+        why = unavailable()
+        if why:
+            raise DenError(why)
+        LIVE_SOCKET.parent.mkdir(parents=True, exist_ok=True)
+        LIVE_SOCKET.unlink(missing_ok=True)
+        LIVE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        emit({"starting": "the live engine (microphone, Whisper, voice)"})
+        args = [str(PYTHON), str(LIVE_ENGINE), "--socket", str(LIVE_SOCKET), "--language", language,
+                "--exaggeration", str(exaggeration)]
+        if voice_file:
+            args += ["--voice", str(voice_file)]
+        self.log = open(LIVE_LOG, "w")
+        self.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
+        deadline = time.time() + START_TIMEOUT_S
+        while True:
+            if not self.running():
+                self.stop()
+                raise DenError(f"the live engine exited while loading; see {LIVE_LOG}")
+            try:
+                status, health = self._call("GET", "/health", timeout=5)
+                if health.get("error"):
+                    self.stop()
+                    raise DenError(f"the live engine didn't load: {health['error']}; see {LIVE_LOG}")
+                if health.get("ready"):
+                    return
+            except (OSError, json.JSONDecodeError):
+                pass
+            if time.time() > deadline:
+                self.stop()
+                raise DenError(f"the live engine wasn't ready after {START_TIMEOUT_S}s; see {LIVE_LOG}")
+            time.sleep(1)
+
+    def talk(self, say, wait_s):
+        try:
+            status, answer = self._call("POST", "/talk", {"say": say, "wait_s": wait_s}, timeout=wait_s + 300)
+        except OSError as e:
+            raise DenError(f"the live engine didn't answer: {e}; see {LIVE_LOG}") from e
+        if status != 200:
+            raise DenError(f"live: {answer.get('error')}")
+        return answer
+
+    def stop(self):
+        if self.running():
+            try:
+                self._call("POST", "/stop", {}, timeout=10)
+                self.proc.wait(15)
+            except (OSError, subprocess.TimeoutExpired):
+                self.proc.send_signal(signal.SIGTERM)
+                try:
+                    self.proc.wait(15)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+        self.proc = None
+        if self.log:
+            self.log.close()
+            self.log = None
+        LIVE_SOCKET.unlink(missing_ok=True)
+
+
+def new_session():
+    """A new session's id; its transcript is written turn by turn, so a crash loses nothing."""
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    session = time.strftime("%Y%m%d-%H%M%S")
+    old = sorted(LIVE_DIR.glob("*.jsonl"))
+    for path in old[: max(0, len(old) - SESSIONS_KEPT + 1)]:
+        path.unlink()
+    return session
+
+
+def record_turn(session, turn):
+    with open(LIVE_DIR / f"{session}.jsonl", "a") as f:
+        f.write(json.dumps({"t": round(time.time(), 1), **turn}, ensure_ascii=False) + "\n")
+
+
+def session_turns(session):
+    path = LIVE_DIR / f"{session}.jsonl"
+    if not re.fullmatch(r"[0-9-]+", str(session)) or not path.is_file():
+        raise DenError(f"no live session {session!r}; den keeps the last {SESSIONS_KEPT}")
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def transcript(session):
+    """A session as plain text: who said what, marking where the user cut Claude off."""
+    lines = []
+    for turn in session_turns(session):
+        clock = time.strftime("%H:%M:%S", time.localtime(turn["t"]))
+        if turn["who"] == "claude":
+            said = " ".join(turn.get("spoken") or [])
+            cut = f" [interrupted; not said: {' '.join(turn['unspoken'])}]" if turn.get("interrupted") else ""
+            if said or cut:
+                lines.append(f"[{clock}] Claude: {said}{cut}")
+        elif turn["who"] == "user":
+            lines.append(f"[{clock}] User: {turn['text']}")
+        # den's own entries (start, stop) mark the session, not the conversation.
+    return "\n".join(lines)
+
+
+def keep_session(session, name):
+    """Keep a session's transcript as a conversation under name; returns its path."""
+    if not _NAME.fullmatch(name):
+        raise DenError(f"a conversation's name is lower case letters, digits and dashes, got {name!r}")
+    text = transcript(session)
+    CONVERSATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    target = CONVERSATIONS_DIR / f"{name}.md"
+    if target.exists():
+        raise DenError(f"a conversation {name!r} exists")
+    target.write_text(f"# {name}\n\n{text}\n")
+    return target
+
+
+def drop_session(session):
+    session_turns(session)
+    (LIVE_DIR / f"{session}.jsonl").unlink()
+
+
 # --- scripts ---
 
 

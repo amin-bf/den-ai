@@ -250,6 +250,7 @@ def list_tools():
         tools.append(transcribe_tool())
         if speech.design_unavailable() is None:
             tools += [design_tool(), save_voice_tool()]
+        tools += live_tools()
     return tools
 
 
@@ -281,6 +282,102 @@ def remote_tools(name):
         if voice.get("design_languages"):
             tools += [design_tool(name), save_voice_tool(name)]
     return tools
+
+
+def live_tools():
+    """Claude's ears and voice through den (ADR 0011): a spoken conversation at this machine."""
+    return [
+        {
+            "name": "live_start",
+            "description": "Start a live spoken conversation with the user at this machine: den listens through "
+            "the microphone and speaks your replies in a voice from the library, and takes the whole machine "
+            "meanwhile (nothing else of den's runs). Only when the user asks for one. Then call talk for every "
+            "exchange, and live_stop at the end. The den-live skill has the rules.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "voice": {"type": "string", "description": "Your voice: a name from list_voices. Default: the model's own."},
+                    "language": {"type": "string", "enum": sorted(speech.LANGUAGES), "description": "Default: en."},
+                    "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2 (default 0.5)."},
+                },
+            },
+        },
+        {
+            "name": "talk",
+            "description": "One exchange of the live conversation: den speaks `say` (sentence by sentence) and returns "
+            "what the user says next. The user can interrupt you: then `interrupted` is true, `spoken` is what they "
+            "heard and `unspoken` the rest they didn't; answer what they said, don't repeat the unspoken part unless "
+            "it still matters. `said_first` means they spoke while you were thinking, so nothing of `say` was said. "
+            "`silence` means they said nothing for wait_s. Keep `say` short and conversational: it's heard, not read.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "say": {"type": "string", "description": "What you say, as you'd speak it (no markdown, lists or code)."},
+                    "wait_s": {"type": "number", "description": "How long to listen for an answer (default 120 s)."},
+                },
+            },
+        },
+        {
+            "name": "live_stop",
+            "description": "End the live conversation and give the machine back. Returns the transcript: ask the user "
+            "what to do with it (keep_conversation under a name, drop_conversation, or something else, like a summary).",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "keep_conversation",
+            "description": "Keep a live conversation's transcript under a name, when the user wants it kept.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "The session id from live_start or live_stop."},
+                    "name": {"type": "string", "description": "Lower case letters, digits and dashes."},
+                },
+                "required": ["session", "name"],
+            },
+        },
+        {
+            "name": "drop_conversation",
+            "description": "Delete a live conversation's transcript, when the user doesn't want it kept.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"session": {"type": "string", "description": "The session id."}},
+                "required": ["session"],
+            },
+        },
+    ]
+
+
+def live_call(name, args, progress_token):
+    broker = core.broker(core.load_config(), "claude")
+    if name == "live_start":
+        request = {k: args[k] for k in ("voice", "language", "exaggeration") if args.get(k) is not None}
+        result, step = None, 0
+        for msg in broker.live_start(**request):
+            if "result" in msg:
+                result = msg["result"]
+            elif progress_token is not None and (text := progress_text(msg)):
+                step += 1
+                notify(progress_token, step, text)
+        return (
+            f"live conversation {result['session']} on: den is listening. Call talk with your first words "
+            "(a short greeting), and keep calling talk for every exchange."
+        )
+    if name == "talk":
+        answer = broker.live_talk(str(args.get("say") or ""), float(args.get("wait_s") or 120))
+        return json.dumps({k: v for k, v in answer.items() if v not in (None, [], False, "")}, ensure_ascii=False)
+    if name == "live_stop":
+        answer = broker.live_stop()
+        return (
+            f"live conversation {answer['session']} ended after {answer['minutes']} min; den is free again.\n\n"
+            f"{answer['transcript']}\n\nAsk the user what to do with it: keep it (keep_conversation), drop it "
+            "(drop_conversation), or something else."
+        )
+    if name == "keep_conversation":
+        return f"kept: {broker.live_keep(str(args.get('session')), str(args.get('name')))['kept']}"
+    if name == "drop_conversation":
+        broker.live_drop(str(args.get("session")))
+        return "dropped."
+    raise DenError(f"unknown tool {name!r}")
 
 
 def list_voices_tool(remote_name=None):
@@ -728,6 +825,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name in ("live_start", "talk", "live_stop", "keep_conversation", "drop_conversation"):
+            text = live_call(name, args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "save_voice":
             text = save_voice(args)
         elif name == "list_voices":

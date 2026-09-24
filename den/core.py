@@ -404,6 +404,23 @@ class BrokerClient(Ollama):
         """Progress lines of a transcription (Whisper); the last one carries the timed SRT."""
         return self._stream("/transcribe", request)
 
+    def live_start(self, **request):
+        """Progress lines of taking the machine for a live conversation; the last carries the session."""
+        return self._stream("/live/start", request)
+
+    def live_talk(self, say, wait_s=120):
+        """Speak say, then wait for the user's next utterance (ADR 0011)."""
+        return self._request("POST", "/live/talk", {"say": say, "wait_s": wait_s}, timeout=wait_s + 600)
+
+    def live_stop(self):
+        return self._request("POST", "/live/stop", {}, timeout=60)
+
+    def live_keep(self, session, name):
+        return self._request("POST", "/live/keep", {"session": session, "name": name}, timeout=30)
+
+    def live_drop(self, session):
+        return self._request("POST", "/live/drop", {"session": session}, timeout=30)
+
     def voices(self):
         """The voice library there, the languages, and why speech can't run (or None)."""
         return self._request("GET", "/voices", timeout=30)

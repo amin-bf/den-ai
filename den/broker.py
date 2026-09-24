@@ -83,6 +83,7 @@ UNLOAD_TIMEOUT_S = 60
 COMFYUI_START_TIMEOUT_S = 180
 COMFYUI_STOP_TIMEOUT_S = 30
 IDLE_CHECK_S = 10
+LIVE_IDLE_S = 600  # a live session nobody talks in for this long ends by itself (ADR 0011)
 SIDES = ("llm", "image")
 DEFAULT_BATCH_SECONDS = 120
 DEFAULT_BATCH_REQUESTS = 4
@@ -133,6 +134,8 @@ class Broker:
         self.started = time.time()
         self.detached = {}  # id -> record of a detached request (a clip), running or finished
         self.speech = speech.Server()  # started for a voice job, stopped after it (ADR 0010)
+        self.live = None  # the live conversation, while there is one: den does nothing else (ADR 0011)
+        self.live_engine = speech.LiveEngine()
 
     # --- admission and the swap ---
 
@@ -151,6 +154,9 @@ class Broker:
         return self.loaded
 
     def _check_available(self, side, config, state):
+        if self.live is not None:
+            # Live mode has the machine to itself: nothing else loads until it ends.
+            raise DenError("den is in a live conversation; it takes requests again when that ends (den live off)")
         unavailable = _unavailable(side, config, state)
         if unavailable:
             raise DenError(unavailable)
@@ -408,10 +414,93 @@ class Broker:
                 self.swapping = None
                 self.cond.notify_all()
 
+    # --- live conversation (ADR 0011) ---
+
+    def live_start(self, voice, language, exaggeration, emit, caller_gone):
+        """Take the machine for a live conversation: finish what runs, free both sides, load the
+        live engine. Every other request is refused from the first moment. Returns the session id."""
+        voice_file = speech.voice_path(voice)
+        with self.cond:
+            if self.live is not None:
+                raise DenError("a live conversation is already on (den live off ends it)")
+            if self.releasing or self.pending_mode:
+                raise DenError("den is releasing or switching mode; retry once it's done")
+            self.live = {"state": "starting", "voice": voice, "language": language, "last": time.time(), "talking": False}
+            self.cond.notify_all()  # queued requests give up: den is going live
+        try:
+            self._drain(SIDES, False, emit, caller_gone, command="unload")
+            config = core.load_config()
+            with self.llm_lock:
+                self._stop_llm(emit)
+            self._unload_ollama(config, emit)
+            self._stop_comfyui(config, emit)
+            with self.cond:
+                self.loaded, self.swapping = None, None
+                self.cond.notify_all()
+            self.live_engine.start(voice_file, language, exaggeration, emit)
+        except BaseException:
+            self.live_engine.stop()
+            with self.cond:
+                self.live = None
+                self.swapping = None
+                self.cond.notify_all()
+            raise
+        session = speech.new_session()
+        with self.cond:
+            self.live.update(state="on", session=session, since=time.time(), last=time.time())
+        speech.record_turn(session, {"who": "den", "event": "start", "voice": voice, "language": language})
+        log(f"live conversation {session} on (voice {voice or 'default'}, {language})")
+        return session
+
+    def live_talk(self, say, wait_s):
+        with self.cond:
+            if not self.live or self.live.get("state") != "on":
+                raise DenError("no live conversation is on (live_start begins one)")
+            if self.live["talking"]:
+                raise DenError("a talk is already running in this conversation")
+            self.live["talking"] = True
+            session = self.live["session"]
+        began = round(time.time(), 1)  # when Claude's line starts, not when the user's answer ends
+        try:
+            answer = self.live_engine.talk(say, wait_s)
+        finally:
+            with self.cond:
+                if self.live:
+                    self.live["talking"] = False
+                    self.live["last"] = time.time()
+        if say:
+            speech.record_turn(session, {
+                "t": began, "who": "claude", "spoken": answer.get("spoken") or [], "unspoken": answer.get("unspoken") or [],
+                "interrupted": answer.get("interrupted", False), "said_first": answer.get("said_first", False),
+            })
+        if answer.get("heard"):
+            speech.record_turn(session, {"who": "user", "text": answer["heard"]})
+        return {**answer, "session": session}
+
+    def live_stop(self, reason="asked"):
+        with self.cond:
+            live, self.live = self.live, None
+            self.cond.notify_all()
+        self.live_engine.stop()
+        if not live or not live.get("session"):
+            raise DenError("no live conversation is on")
+        speech.record_turn(live["session"], {"who": "den", "event": "stop", "reason": reason})
+        log(f"live conversation {live['session']} off ({reason})")
+        return {"session": live["session"], "transcript": speech.transcript(live["session"]),
+                "minutes": round((time.time() - live.get("since", time.time())) / 60, 1)}
+
+    def stop_live_if_idle(self):
+        with self.cond:
+            live = self.live
+            idle = live and live.get("state") == "on" and not live["talking"] and time.time() - live["last"] > LIVE_IDLE_S
+        if idle:
+            self.live_stop(reason=f"nobody talked for {LIVE_IDLE_S // 60} minutes")
+
     def idle_loop(self):
         while True:
             time.sleep(IDLE_CHECK_S)
             try:
+                self.stop_live_if_idle()
                 self.stop_if_idle()
                 self.stop_llm_if_idle()
             except Exception as e:  # keep checking: one failed stop mustn't end the timeout
@@ -571,6 +660,7 @@ class Broker:
             "num_ctx": config["llm"].get("num_ctx", 8192),
             "pending_mode": self.pending_mode,
             "releasing": list(self.releasing) or None,
+            "live": {k: v for k, v in self.live.items() if k in ("state", "session", "voice", "language", "since")} if self.live else None,
             "pressure": pressure,
             # Set while a side that isn't loaded would have to wait for the machine to settle.
             "too_busy": core.too_busy(config, pressure),
@@ -1065,6 +1155,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._stream_request(self._with_voice(self._voice), json.loads(self._read_body() or b"{}"))
             elif path == "/transcribe" and self.command == "POST":
                 self._stream_request(self._transcribe, json.loads(self._read_body() or b"{}"))
+            elif path == "/live/start" and self.command == "POST":
+                self._stream_request(self._live_start, json.loads(self._read_body() or b"{}"))
+            elif path == "/live/talk" and self.command == "POST":
+                body = json.loads(self._read_body() or b"{}")
+                self._send_json(200, self.broker.live_talk(str(body.get("say") or ""), float(body.get("wait_s") or 120)))
+            elif path == "/live/stop" and self.command == "POST":
+                self._send_json(200, self.broker.live_stop())
+            elif path == "/live/keep" and self.command == "POST":
+                body = json.loads(self._read_body() or b"{}")
+                kept = speech.keep_session(str(body.get("session") or ""), str(body.get("name") or ""))
+                self._send_json(200, {"kept": str(kept)})
+            elif path == "/live/drop" and self.command == "POST":
+                body = json.loads(self._read_body() or b"{}")
+                speech.drop_session(str(body.get("session") or ""))
+                self._send_json(200, {"dropped": body.get("session")})
+            elif path == "/live" and self.command == "GET":
+                session = parse_qs(urlsplit(self.path).query).get("session", [None])[0]
+                self._send_json(200, {"session": session, "transcript": speech.transcript(session)} if session else {"live": self.broker.status()["live"]})
             elif path == "/voices/design" and self.command == "POST":
                 self._stream_request(self._voice_design, json.loads(self._read_body() or b"{}"))
             elif path == "/voices" and self.command == "GET":
@@ -1254,6 +1362,15 @@ class Handler(BaseHTTPRequestHandler):
         seconds = round(time.time() - began, 1)
         log(f"#{req_id} {info['caller']} POST /transcribe {len(cues)} segment(s) -> {path} in {seconds}s")
         emit({"result": {"srt": srt, "text": heard["text"], "segments": cues, "duration": heard["duration"], "path": str(path), "seconds": seconds}})
+
+    def _live_start(self, body, emit):
+        """POST /live/start {voice?, language?, exaggeration?}: take the machine for a live
+        conversation (ADR 0011). Streams progress; ends with {"result": {session}}."""
+        language = str(body.get("language") or "en").lower()
+        if language not in speech.LANGUAGES:
+            raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
+        session = self.broker.live_start(body.get("voice"), language, float(body.get("exaggeration") or 0.5), emit, self._caller_gone)
+        emit({"result": {"session": session}})
 
     def _voice_design(self, body, emit):
         """POST /voices/design {description, name?, language?, seed?, replace?, bytes?}: make a voice

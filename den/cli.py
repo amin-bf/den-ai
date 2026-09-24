@@ -267,6 +267,25 @@ def _print_image_step(msg):
     return True
 
 
+def cmd_live(args):
+    """den live on|off|status: the live conversation's switch (ADR 0011); Claude starts one itself."""
+    config, _ = _load()
+    client = core.broker(config, "cli")
+    if args.action == "on":
+        for msg in client.live_start(**{k: v for k, v in {"voice": args.voice, "language": args.language}.items() if v}):
+            if _print_image_step(msg):
+                pass
+            elif "result" in msg:
+                print(f"live conversation {msg['result']['session']} on; den takes nothing else until: den live off")
+    elif args.action == "off":
+        answer = client.live_stop()
+        print(answer["transcript"] or "(nothing was said)")
+        print(f"[session {answer['session']} · {answer['minutes']} min]", file=sys.stderr)
+    else:
+        live = client.status().get("live")
+        print(f"live: {live['state']} (session {live.get('session')}, voice {live.get('voice') or 'default'})" if live else "live: off")
+
+
 def broker_client(where, client):
     """The broker a voice command talks to: this machine's, or the remote's (ADR 0007)."""
     return remote.client("cli") if where else client
@@ -1068,6 +1087,12 @@ def main(argv=None):
         help="write down what a recording says, as a timed SRT (Whisper; -l for its language)",
     )
     p.set_defaults(func=cmd_voice)
+
+    p = sub.add_parser("live", help="a live spoken conversation with Claude: den's microphone and voice, exclusively")
+    p.add_argument("action", choices=["on", "off", "status"])
+    p.add_argument("-v", "--voice", help="with on: the voice to speak in")
+    p.add_argument("-l", "--language", help="with on: the language (default en)")
+    p.set_defaults(func=cmd_live)
 
     p = sub.add_parser("pose", help="the pose library: list, save a photo's pose, rename or delete saved poses")
     pose_sub = p.add_subparsers(dest="pose_command")

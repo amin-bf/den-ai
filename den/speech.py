@@ -47,6 +47,7 @@ LANGUAGES = {
 }
 _NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 DESIGN_DIR = Path(os.environ.get("DESIGN_DIR") or _DATA_HOME / "den/voice-design")
+DRAFTS_KEPT = 20  # designed voices waiting to be listened to; older ones are dropped
 DESIGNER = core.ROOT / "speech/design.py"
 DESIGN_LOG = core._STATE_HOME / "den/voice-design.log"
 DESIGN_TIMEOUT_S = 1800  # the first run downloads the model (about 4.5 GB)
@@ -320,7 +321,8 @@ def spoken_properties():
         "voice": {
             "type": "string",
             "description": "A voice from the library by name (list_voices shows them, with what each sounds "
-            "like), or the absolute path of a recording to clone. Default: the model's own voice.",
+            "like), draft:ID for a designed voice not saved yet, or the absolute path of a recording to clone. "
+            "Default: the model's own voice.",
         },
         "language": {"type": "string", "enum": sorted(LANGUAGES), "description": "Language of the text. Default: en."},
     }
@@ -361,10 +363,56 @@ def voices():
     return {p.stem: p for p in sorted(VOICES_DIR.iterdir()) if p.suffix.lower() in AUDIO_SUFFIXES}
 
 
+def _drafts_dir():
+    return VOICES_DIR / ".drafts"
+
+
+def keep_draft(data, description, language=None, seed=None):
+    """Keep a designed sample as a draft, outside the library until it's saved; returns its id."""
+    folder = _drafts_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    draft = time.strftime("%Y%m%d-%H%M%S")
+    n = 0
+    while (folder / f"{draft}{f'-{n}' if n else ''}.wav").exists():
+        n += 1
+    draft = f"{draft}{f'-{n}' if n else ''}"
+    (folder / f"{draft}.wav").write_bytes(data)
+    (folder / f"{draft}.json").write_text(json.dumps(
+        {"description": description, "source": "designed", "language": language, "seed": seed,
+         "created": time.strftime("%Y-%m-%d")}, ensure_ascii=False, indent=2) + "\n")
+    for old in sorted(folder.glob("*.wav"))[:-DRAFTS_KEPT]:
+        old.unlink()
+        old.with_suffix(".json").unlink(missing_ok=True)
+    return draft
+
+
+def draft_path(draft):
+    path = _drafts_dir() / f"{draft}.wav"
+    if not re.fullmatch(r"[0-9-]+", str(draft)) or not path.is_file():
+        raise DenError(f"no draft voice {draft!r}; design_voice makes one (den keeps the last {DRAFTS_KEPT})")
+    return path
+
+
+def save_draft(draft, name, replace=False):
+    """Move a draft into the library under name, with how it was made; returns its path there."""
+    path = draft_path(draft)
+    try:
+        meta = json.loads(path.with_suffix(".json").read_text())
+    except (OSError, json.JSONDecodeError):
+        meta = {}
+    target = keep_voice(name, path.read_bytes(), replace, meta.get("description"), meta.get("language"), meta.get("seed"))
+    path.unlink()
+    path.with_suffix(".json").unlink(missing_ok=True)
+    return target
+
+
 def voice_path(voice):
-    """A voice's recording: a name from the library, or an absolute path. None for the model's own."""
+    """A voice's recording: a name from the library, draft:ID for a designed voice not saved yet,
+    or an absolute path. None for the model's own."""
     if not voice:
         return None
+    if str(voice).startswith("draft:"):
+        return str(draft_path(str(voice)[len("draft:"):]))
     known = voices()
     if voice in known:
         return str(known[voice])

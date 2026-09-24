@@ -267,6 +267,11 @@ def _print_image_step(msg):
     return True
 
 
+def broker_client(where, client):
+    """The broker a voice command talks to: this machine's, or the remote's (ADR 0007)."""
+    return remote.client("cli") if where else client
+
+
 def cmd_voice(args):
     config, _ = _load()
     # On another machine's den (ADR 0007): the files here go as bytes and the track comes back here.
@@ -281,9 +286,13 @@ def cmd_voice(args):
         )
         print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
         return
+    if args.save:
+        draft, name = args.save
+        answer = broker_client(where, client).save_draft(draft, name, args.replace)
+        print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
+        return
     if args.design:
-        name, description = args.design
-        request = {"name": name, "description": description, "replace": args.replace or None,
+        request = {"description": args.design, "name": args.keep_as, "replace": args.replace or None,
                    "language": args.language, "seed": args.seed}
         request = {k: v for k, v in request.items() if v is not None}
         for msg in remote.design_voice("cli", request) if where else client.design_voice(**request):
@@ -293,7 +302,15 @@ def cmd_voice(args):
                 print(f"designing the voice {msg['designing']} (the first time downloads the designer, about 4.5 GB) ...", flush=True)
             elif "result" in msg:
                 r = msg["result"]
-                print(f"voice {r['voice']} kept ({r['duration']:g}s sample, {r['seconds']}s); voices: {', '.join(r['voices'])}")
+                if r.get("voice"):
+                    print(f"voice {r['voice']} kept ({r['duration']:g}s sample, {r['seconds']}s); voices: {', '.join(r['voices'])}")
+                else:
+                    print(r["path"])
+                    print(
+                        f"draft {r['draft']} ({r['duration']:g}s sample, {r['seconds']}s): listen to it, try it with "
+                        f"-v draft:{r['draft']}, and keep it with: den voice --save {r['draft']} NAME",
+                        file=sys.stderr,
+                    )
         return
     if args.transcribe:
         recording = str(Path(args.transcribe).expanduser().resolve())
@@ -1040,10 +1057,12 @@ def main(argv=None):
     p.add_argument("--describe", nargs=2, metavar=("NAME", "TEXT"), help="set what a voice is")
     p.add_argument("--rm", metavar="NAME", help="remove a voice from the library")
     p.add_argument(
-        "--design", nargs=2, metavar=("NAME", "DESCRIPTION"),
-        help='make a voice from a description, e.g. grandpa "an old man with a deep, raspy, slow voice" '
-        "(-l for the sample's language, --seed, --replace)",
+        "--design", metavar="DESCRIPTION",
+        help='design a voice from a description, e.g. "an old man with a deep, raspy, slow voice": a draft to '
+        "listen to and try (-v draft:ID) before --save keeps it (-l for the sample's language, --seed)",
     )
+    p.add_argument("--keep-as", metavar="NAME", help="with --design: keep it at once under NAME, no draft")
+    p.add_argument("--save", nargs=2, metavar=("DRAFT", "NAME"), help="keep a designed draft voice under NAME")
     p.add_argument(
         "--transcribe", metavar="RECORDING",
         help="write down what a recording says, as a timed SRT (Whisper; -l for its language)",

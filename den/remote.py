@@ -138,8 +138,14 @@ def add_voice(caller, name, recording, replace=False, description=None):
 
 
 def design_voice(caller, request):
-    """Progress lines of designing a voice there; it's kept in that den's library."""
-    return client(caller).design_voice(**request)
+    """Progress lines of designing a voice there. A draft's sample comes back as bytes and is saved
+    here, so it can be listened to; the draft itself stays there until it's saved there."""
+    for msg in client(caller).design_voice(**request, bytes=True):
+        if "result" in msg and msg["result"].get("sample"):
+            result = dict(msg["result"])
+            path, _ = speech.save(base64.b64decode(result.pop("sample")), f"voice draft {result.get('draft') or result.get('voice')}")
+            msg = {**msg, "result": {**result, "path": str(path)}}
+        yield msg
 
 
 def remove_voice(caller, name):

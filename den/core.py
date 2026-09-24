@@ -422,6 +422,10 @@ class BrokerClient(Ollama):
         query = urllib.parse.urlencode({"name": name, **({"bytes": 1} if with_bytes else {})})
         return self._request("GET", f"/voices?{query}", timeout=60)
 
+    def save_draft(self, draft, name, replace=False):
+        """Keep a designed draft voice in the library under name."""
+        return self._request("POST", "/voices", {"draft": draft, "name": name, "replace": replace}, timeout=30)
+
     def rename_voice(self, name, new):
         return self._request("POST", "/voices", {"name": name, "rename_to": new}, timeout=30)
 

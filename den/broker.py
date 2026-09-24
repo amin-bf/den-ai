@@ -1248,17 +1248,18 @@ class Handler(BaseHTTPRequestHandler):
         emit({"result": {"srt": srt, "text": heard["text"], "segments": cues, "duration": heard["duration"], "path": str(path), "seconds": seconds}})
 
     def _voice_design(self, body, emit):
-        """POST /voices/design {name, description, language?, seed?, replace?, bytes?}: make a
-        voice from a description (Qwen3-TTS VoiceDesign speaks a sample in it) and keep it in the
-        voice library, where Chatterbox clones it like a recording. Streams progress and ends with
-        {"result": {voice, voices, duration, seconds}}."""
+        """POST /voices/design {description, name?, language?, seed?, replace?, bytes?}: make a voice
+        from a description (Qwen3-TTS VoiceDesign speaks a sample in it). Without a name it's a draft,
+        outside the library, to listen to and try (voice draft:ID) before POST /voices {draft, name}
+        keeps it; with a name it's kept at once. Streams progress and ends with {"result": {draft or
+        voice, path, duration, seconds}}, and the sample as bytes with bytes."""
         name = str(body.get("name") or "")
         description = str(body.get("description") or "").strip()
-        if not speech._NAME.fullmatch(name):
+        if name and not speech._NAME.fullmatch(name):
             raise DenError(f"a voice name is lower case letters, digits and dashes, got {name!r}")
         if not description:
             raise DenError("describe the voice, e.g. \"an old man with a deep, raspy, slow voice\"")
-        if name in speech.voices() and not body.get("replace"):
+        if name and name in speech.voices() and not body.get("replace"):
             raise DenError(f"voice {name!r} exists; replace it with replace")
         why = speech.design_unavailable()
         if why:
@@ -1286,14 +1287,17 @@ class Handler(BaseHTTPRequestHandler):
             data = speech.design(description, language, body.get("seed"), check)
         finally:
             self.broker.finish(req_id)
-        path = speech.keep_voice(name, data, bool(body.get("replace")), description, language, body.get("seed"))
         samples, rate = speech._pcm(data)
         seconds = round(time.time() - began, 1)
+        result = {"description": description, "duration": round(len(samples) / rate, 2), "seconds": seconds}
+        if name:
+            path = speech.keep_voice(name, data, bool(body.get("replace")), description, language, body.get("seed"))
+            result |= {"voice": name, "voices": sorted(speech.voices())}
+        else:
+            draft = speech.keep_draft(data, description, language, body.get("seed"))
+            path = speech.draft_path(draft)
+            result |= {"draft": draft, "path": str(path)}
         log(f"#{req_id} {info['caller']} POST /voices/design -> {path.name} in {seconds}s")
-        result = {
-            "voice": name, "voices": sorted(speech.voices()), "description": description,
-            "duration": round(len(samples) / rate, 2), "seconds": seconds,
-        }
         if body.get("bytes"):
             result["sample"] = speech.as_bytes(path)  # to listen to it there
         emit({"result": result})
@@ -1322,6 +1326,11 @@ class Handler(BaseHTTPRequestHandler):
         voice. {name, remove: true} removes one, {name, rename_to} renames it, and {name,
         description} alone changes what it says about itself."""
         name = str(body.get("name") or "")
+        if body.get("draft"):
+            # A designed voice someone listened to and liked: into the library, with how it was made.
+            path = speech.save_draft(str(body["draft"]), name, bool(body.get("replace")))
+            log(f"{self._caller()} POST /voices -> kept draft {body['draft']} as {path.name}")
+            return {"voice": name, "voices": sorted(speech.voices())}
         if body.get("remove"):
             speech.remove_voice(name)
             log(f"{self._caller()} POST /voices -> removed {name}")

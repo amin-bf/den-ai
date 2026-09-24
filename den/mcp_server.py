@@ -249,7 +249,7 @@ def list_tools():
         tools.append(list_voices_tool())
         tools.append(transcribe_tool())
         if speech.design_unavailable() is None:
-            tools.append(design_tool())
+            tools += [design_tool(), save_voice_tool()]
     return tools
 
 
@@ -279,7 +279,7 @@ def remote_tools(name):
         tools.append(list_voices_tool(name))
         tools.append(transcribe_tool(name))
         if voice.get("design_languages"):
-            tools.append(design_tool(name))
+            tools += [design_tool(name), save_voice_tool(name)]
     return tools
 
 
@@ -300,31 +300,50 @@ def list_voices_tool(remote_name=None):
 
 
 def design_tool(remote_name=None):
-    where = f"The voice is kept in {remote_name}'s library. " if remote_name else ""
+    where = f"The voice lives in {remote_name}'s library; the sample is saved here to listen to. " if remote_name else ""
     return {
         "name": "design_voice",
-        "description": where + "Make a new voice from a description and keep it in the voice library under a name, "
-        "for generate_voice and clip voice-overs (also lip-synced) from then on: Qwen3-TTS VoiceDesign speaks a "
-        "sample in that voice, which Chatterbox then clones. Describe age, gender, pitch, texture, pace and mood, "
-        "e.g. \"an old man with a deep, raspy, slow voice\", \"a cheerful eight-year-old girl with a high, "
-        "bright voice\". About a minute; the first time also downloads the designer. The den-voice skill has the "
-        "recipes.",
+        "description": where + "Design a new voice from a description: Qwen3-TTS VoiceDesign speaks a sample in it, "
+        "which Chatterbox then clones for generate_voice and clip voice-overs (also lip-synced). Describe age, "
+        "gender, pitch, texture, pace and mood, e.g. \"an old man with a deep, raspy, slow voice\", \"a cheerful "
+        "eight-year-old girl with a high, bright voice\". Without a name it's a draft, not in the library yet: "
+        "give the user the sample's path to listen to, and try it on a real line with voice draft:ID (generate_voice), "
+        "since the clone is what they'll hear. Keep it with save_voice only once the user likes it; not right: "
+        "design again with another seed or a sharper description. About a minute. The den-voice skill has the stages.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "The voice's name: lower case letters, digits and dashes."},
                 "description": {"type": "string", "description": "What the voice sounds like."},
                 "language": {
                     "type": "string", "enum": list(speech.DESIGN_LANGUAGES),
                     "description": "The sample's language (default en); the voice then speaks any of Chatterbox's.",
                 },
                 "seed": {"type": "integer", "description": "Another seed gives another voice for the same description."},
-                "replace": {"type": "boolean", "description": "Replace a voice of that name."},
+                "name": {"type": "string", "description": "Keep it at once under this name, with no draft: only when the user asked for that."},
+                "replace": {"type": "boolean", "description": "With name: replace a voice of that name."},
             },
-            "required": ["name", "description"],
+            "required": ["description"],
         },
     }
 
+
+def save_voice_tool(remote_name=None):
+    where = f"The voice is kept in {remote_name}'s library. " if remote_name else ""
+    return {
+        "name": "save_voice",
+        "description": where + "Keep a designed draft voice (design_voice) in the voice library under a name, with its "
+        "description, language and seed, once the user has heard it and likes it. From then on it's a voice like any "
+        "other: list_voices shows it, and generate_voice and clip voice-overs take its name.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "draft": {"type": "string", "description": "The draft's id, from design_voice."},
+                "name": {"type": "string", "description": "The voice's name: lower case letters, digits and dashes."},
+                "replace": {"type": "boolean", "description": "Replace a voice of that name."},
+            },
+            "required": ["draft", "name"],
+        },
+    }
 
 def transcribe_tool(remote_name=None):
     where = f"This runs on {remote_name}; the recording is a file here, sent as bytes, and the SRT is saved here. " if remote_name else ""
@@ -492,11 +511,22 @@ def design_voice(args, progress_token):
             notify(progress_token, step, text)
     if result is None:
         raise DenError("the broker ended the voice design without a result")
+    if result.get("voice"):
+        return (
+            f"voice {result['voice']} kept ({result['duration']:g}s sample, {result['seconds']}s). "
+            f"Voices: {', '.join(result['voices'])}. You can't hear it; ask the user to try it on a short line."
+        )
     return (
-        f"voice {result['voice']} kept ({result['duration']:g}s sample, {result['seconds']}s): "
-        f"use it as voice in generate_voice or a clip's voiceover. Voices: {', '.join(result['voices'])}. "
-        "You can't hear it; ask the user to try it on a short line."
+        f"draft {result['draft']}: a {result['duration']:g}s sample at {result['path']} ({result['seconds']}s). "
+        f"It isn't in the library yet. Give the user that path to listen to, or try it on a real line with "
+        f"generate_voice and voice draft:{result['draft']}; keep it with save_voice once they like it."
     )
+
+
+def save_voice(args):
+    broker = remote.client("claude") if core.remote_name() else core.broker(core.load_config(), "claude")
+    answer = broker.save_draft(str(args.get("draft") or ""), str(args.get("name") or ""), bool(args.get("replace")))
+    return f"voice {answer['voice']} kept in the library. Voices: {', '.join(answer['voices'])}."
 
 
 def transcribe_audio(args, progress_token):
@@ -698,6 +728,8 @@ def call_tool(req_id, params):
             text = generate_image(args, (params.get("_meta") or {}).get("progressToken"))
         elif name == "generate_clip":
             text = generate_clip(args)
+        elif name == "save_voice":
+            text = save_voice(args)
         elif name == "list_voices":
             text = list_voices(args.get("name"))
         elif name == "design_voice":

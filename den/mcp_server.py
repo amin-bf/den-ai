@@ -244,8 +244,7 @@ def list_tools():
         tools += clip_tools(clip.request_spec(config, clip.available(config), clip.settings(config).get("default_workflow")))
     # Speech runs on the image side (ADR 0010): listed when that side can run and speech is installed.
     if image.unavailable(config, state) is None and speech.unavailable() is None:
-        spec = speech.request_spec()
-        tools.append({"name": "generate_voice", "description": spec["description"], "inputSchema": spec["parameters"]})
+        tools.append(voice_tool(speech.request_spec()))
     return tools
 
 
@@ -269,7 +268,21 @@ def remote_tools(name):
     clips = offered.get("clip")  # an older broker offers none
     if clips and clips["clip_on"] and clips["workflows"]:
         tools += clip_tools(clips, name)
+    voice = offered.get("voice")  # only where speech runs there (ADR 0010)
+    if voice and spec["image_on"]:
+        tools.append(voice_tool(voice, name))
     return tools
+
+
+def voice_tool(spec, remote_name=None):
+    """generate_voice; spec is speech.request_spec, or a remote's."""
+    where = (
+        f"This runs on {remote_name}; an .srt path or a recording you pass is a file here, sent as "
+        f"content, a voice name is from {remote_name}'s library, and the track is saved here.\n\n"
+        if remote_name
+        else ""
+    )
+    return {"name": "generate_voice", "description": where + spec["description"], "inputSchema": spec["parameters"]}
 
 
 def progress_text(msg):
@@ -381,7 +394,8 @@ def generate_voice(args, progress_token):
     keys = ("srt", "text", "voice", "language", "exaggeration", "cfg_weight", "temperature", "seed", "out")
     request = {k: args[k] for k in keys if args.get(k) is not None}
     result, step = None, 0
-    for msg in core.broker(config, "claude").speak(**request):
+    stream = remote.speak("claude", request) if core.remote_name() else core.broker(config, "claude").speak(**request)
+    for msg in stream:
         if "result" in msg:
             result = msg["result"]
         elif progress_token is not None and (text := progress_text(msg)):

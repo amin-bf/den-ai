@@ -1149,7 +1149,12 @@ class Handler(BaseHTTPRequestHandler):
         }
 
     def _voice_add(self, body):
-        """POST /voices {name, recording: path or {name, base64}, replace?}: keep a voice."""
+        """POST /voices {name, recording: path or {name, base64}, replace?}: keep a voice, or with
+        {name, remove: true} remove one."""
+        if body.get("remove"):
+            speech.remove_voice(str(body.get("name") or ""))
+            log(f"{self._caller()} POST /voices -> removed {body.get('name')}")
+            return {"removed": body.get("name"), "voices": sorted(speech.voices())}
         folder = tempfile.mkdtemp(prefix="den-voice-")
         try:
             recording = body.get("recording")

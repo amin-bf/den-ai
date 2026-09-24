@@ -10,7 +10,7 @@ image comes back as bytes and is saved here the way a local den saves it.
 import base64
 from pathlib import Path
 
-from den import clip, core, image
+from den import clip, core, image, speech
 from den.core import DenError
 
 _checked = set()
@@ -97,6 +97,34 @@ def spoken_here(spec):
     return spec
 
 
+def speak(caller, request):
+    """Progress lines of a voice job there (ADR 0010), like BrokerClient.speak: the script and a
+    recording are read here and sent as content; the track comes back as bytes and is saved here."""
+    request = spoken_here(request)
+    out = request.pop("out", None)
+    for msg in client(caller).speak(**request, bytes=True):
+        if "result" in msg:
+            result = dict(msg["result"])
+            spoken = request.get("text") or request.get("srt") or "voice"
+            path, copies = speech.save(base64.b64decode(result.pop("audio")), spoken[:200], out)
+            msg = {**msg, "result": {**result, "path": str(path), "copies": [str(p) for p in copies]}}
+        yield msg
+
+
+def voices(caller):
+    """The voice library there, its languages, and why speech can't run (or None)."""
+    return client(caller).voices()
+
+
+def add_voice(caller, name, recording, replace=False):
+    """Keep a recording here as a voice there, sent as bytes."""
+    return client(caller).add_voice(name, image.file_object(recording), replace)
+
+
+def remove_voice(caller, name):
+    return client(caller).remove_voice(name)
+
+
 def generate_clip(caller, request):
     """Start a clip there (a detached request, ADR 0009): keyframes are files here, sent as
     bytes. {id, estimate_s, summary}; get_clip fetches it once done."""
@@ -130,6 +158,8 @@ def get_clip(caller, clip_id):
             view.get("prompt") or "",
             kept.get("out"),
         )
+        # The voice-over's own track stays there; the clip here carries it.
+        result.pop("voiceover_track", None)
         kept["result"] = {**result, "path": str(path), "sheet": str(sheet) if sheet else None, "copies": [str(p) for p in copies]}
     return {**view, "result": kept["result"]}
 

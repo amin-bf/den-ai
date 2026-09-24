@@ -408,6 +408,9 @@ class BrokerClient(Ollama):
         """Keep a recording as a voice: its path here, or {name, base64} from elsewhere."""
         return self._request("POST", "/voices", {"name": name, "recording": recording, "replace": replace}, timeout=60)
 
+    def remove_voice(self, name):
+        return self._request("POST", "/voices", {"name": name, "remove": True}, timeout=30)
+
     def save_pose(self, **request):
         """Progress lines of drawing and saving a pose; the last one carries "result".
 

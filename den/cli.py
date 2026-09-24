@@ -113,6 +113,9 @@ def cmd_status(args):
         active = [c for c in status.get("clips", []) if c["state"] in ("waiting", "running")]
         busy = f"; {len(active)} waiting or running (den clip --list)" if active else ""
         print(f"clip     workflows: {', '.join(clip.available(config)) or 'none can run (den clip)'}{busy}")
+        why = speech.unavailable()
+        voices = ", ".join(speech.voices()) or "none yet (den voice --add)"
+        print(f"speech   {f'not installed: {why}' if why else f'voices: {voices}'}")
     _print_pressure(config, status)
     _print_tasks(config, state)
     # Non-zero while Ollama is down, so a shell check or a notifier can watch this.
@@ -145,6 +148,9 @@ def _status_remote(name):
         active = [c for c in status.get("clips", []) if c["state"] in ("waiting", "running")]
         busy = f"; {len(active)} waiting or running (den clip --list)" if active else ""
         print(f"clip     workflows: {', '.join(clips['workflows']) or 'none can run there'}{busy}")
+    voice = offered.get("voice")  # only where speech runs there
+    if voice:
+        print(f"speech   voices: {', '.join(voice['voices']) or 'none yet there (den voice --add)'}")
     now = status["pressure"]
     load = f"load {now['load']:.1f} on {now['cpus']} cpus ({now['load_per_cpu']:.2f}/cpu)" if now["load"] is not None else "load unknown"
     ram = f"{now['free_ram_gb']:.1f} GB RAM free" if now["free_ram_gb"] is not None else "free RAM unknown"
@@ -263,27 +269,33 @@ def _print_image_step(msg):
 
 def cmd_voice(args):
     config, _ = _load()
-    client = core.broker(config, "cli")
+    # On another machine's den (ADR 0007): the files here go as bytes and the track comes back here.
+    where = core.remote_name()
+    client = None if where else core.broker(config, "cli")
     if args.add:
         name, recording = args.add
-        answer = client.add_voice(name, str(Path(recording).expanduser().resolve()), args.replace)
+        recording = str(Path(recording).expanduser().resolve())
+        answer = remote.add_voice("cli", name, recording, args.replace) if where else client.add_voice(name, recording, args.replace)
         print(f"voice {answer['voice']} kept; voices: {', '.join(answer['voices'])}")
         return
     if args.rm:
-        speech.remove_voice(args.rm)
-        print(f"voice {args.rm} removed")
+        answer = remote.remove_voice("cli", args.rm) if where else client.remove_voice(args.rm)
+        print(f"voice {args.rm} removed; voices: {', '.join(answer['voices']) or 'none'}")
         return
     if args.text is None and args.srt is None:
-        listing = client.voices()
+        listing = remote.voices("cli") if where else client.voices()
         if listing.get("unavailable"):
             print(f"speech can't run: {listing['unavailable']}")
         print("voices:    " + (", ".join(listing["voices"]) or "none yet (den voice --add NAME RECORDING)"))
         print("languages: " + ", ".join(f"{code} {name}" for code, name in listing["languages"].items()))
         return
+    voice = args.voice
+    if voice and Path(voice).expanduser().is_file():
+        voice = str(Path(voice).expanduser().resolve())  # a recording here, not a name there
     request = {
         "text": args.text,
         "srt": Path(args.srt).expanduser().read_text() if args.srt else None,
-        "voice": args.voice,
+        "voice": voice,
         "language": args.language,
         "exaggeration": args.exaggeration,
         "cfg_weight": args.cfg_weight,
@@ -291,8 +303,9 @@ def cmd_voice(args):
         "seed": args.seed,
         "out": _out_arg(args.out),
     }
+    request = {k: v for k, v in request.items() if v is not None}
     try:
-        for msg in client.speak(**{k: v for k, v in request.items() if v is not None}):
+        for msg in remote.speak("cli", request) if where else client.speak(**request):
             if _print_image_step(msg):
                 pass
             elif "speaking" in msg:
@@ -577,6 +590,8 @@ def _image_remote(args):
         if clips:
             clips.pop("listing", None)
             offered["clip"] = clips
+        if info.get("voice") and offered.get("image_on"):  # only where speech runs there (ADR 0010)
+            offered["voice"] = info["voice"]
         print(json.dumps({"broker": remote.client("cli").base_url, **offered}))
         return
     print(remote.info("cli")["image"]["listing"])

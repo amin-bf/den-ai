@@ -7,6 +7,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -686,9 +689,27 @@ fun PosesScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
     val selected = model.pose
     if (selected != null) {
         TextButton(onClick = { model.openPose(null) }) { Text("← all poses") }
-        Text(selected, style = MaterialTheme.typography.titleMedium)
-        model.poseDetails?.let { SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) } }
-        model.poseImages.forEach { Image(it.asImageBitmap(), selected, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+        // Swipe left for the next pose, right for the previous one; a small drag does nothing.
+        val threshold = with(LocalDensity.current) { 80.dp.toPx() }
+        Column(
+            Modifier.fillMaxWidth().pointerInput(selected) {
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { dragged = 0f },
+                    onDragEnd = {
+                        if (dragged < -threshold) model.stepPose(+1) else if (dragged > threshold) model.stepPose(-1)
+                    },
+                ) { _, dx -> dragged += dx }
+            },
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(selected, style = MaterialTheme.typography.titleMedium)
+            model.posePosition()?.let { (at, of) ->
+                Text("$at of $of · swipe for the next or previous", style = MaterialTheme.typography.bodySmall)
+            }
+            model.poseDetails?.let { SelectionContainer { Text(it, style = MaterialTheme.typography.bodySmall) } }
+            model.poseImages.forEach { Image(it.asImageBitmap(), selected, Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth) }
+        }
         ConfirmedDelete("pose", selected) { model.deletePose(selected) }
         return@Page
     }

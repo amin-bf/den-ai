@@ -881,6 +881,19 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     // --- poses ---
 
+    /** The open pose's place in the list, from 1, and the list's length; null when none is open. */
+    fun posePosition(): Pair<Int, Int>? {
+        val i = poseNames.indexOf(pose ?: return null)
+        return if (i < 0) null else (i + 1) to poseNames.size
+    }
+
+    /** Open the next (+1) or previous (-1) pose of the list; nothing past either end. */
+    fun stepPose(delta: Int) {
+        val i = poseNames.indexOf(pose ?: return)
+        val j = i + delta
+        if (i >= 0 && j in poseNames.indices) openPose(poseNames[j])
+    }
+
     /** Delete a saved pose on the den, after the user confirmed it. */
     fun deletePose(name: String) {
         val c = client ?: return
@@ -937,12 +950,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         io {
             try {
                 val p = c.pose(name)
-                poseDetails = p.optString("details")
                 val images = p.optJSONArray("images")
-                poseImages = (0 until (images?.length() ?: 0)).mapNotNull { i ->
+                val bitmaps = (0 until (images?.length() ?: 0)).mapNotNull { i ->
                     val b = Base64.decode(images!!.getJSONObject(i).getString("base64"), Base64.DEFAULT)
                     BitmapFactory.decodeByteArray(b, 0, b.size)
                 }
+                // Swiping on before this one arrived: only the pose still open is shown.
+                if (pose != name) return@io
+                poseDetails = p.optString("details")
+                poseImages = bitmaps
             } catch (e: Exception) {
                 posesError = e.message
             }

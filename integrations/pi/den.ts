@@ -40,6 +40,7 @@ const TOOL = "generate_image";
 const CLIP_TOOL = "generate_clip";
 const VOICE_TOOL = "generate_voice";
 const TRANSCRIBE_TOOL = "transcribe_audio";
+const DESIGN_TOOL = "design_voice";
 const CLIP_POLL_MS = 3000;
 /** The pose library's tools, listed alongside the image tool; their text never lists the library. */
 const POSE_TOOLS = ["list_poses", "save_pose"];
@@ -67,6 +68,8 @@ type Spec = {
   pose_tools?: Record<string, { description: string; parameters: Record<string, any> }>;
   /** The voice tool's spec (ADR 0010), where speech is installed. */
   voice?: {
+    /** The languages voices can be designed in; empty where the designer isn't installed. */
+    design_languages?: string[];
     description: string;
     parameters: { type: "object"; properties: Record<string, any>; required?: string[] };
   };
@@ -242,6 +245,7 @@ function progressText(msg: Record<string, any>): string | null {
   if (msg.starting) return `starting ${msg.starting}`;
   if (msg.speaking) return `speaking line ${msg.speaking.line} of ${msg.speaking.of}`;
   if (msg.transcribing) return `transcribing ${msg.transcribing}`;
+  if (msg.designing) return `designing the voice ${msg.designing}`;
   if (msg.drawing) return `drawing the pose for ${msg.drawing.name}`;
   if (msg.stopping) return `stopping ${msg.stopping}`;
   if (msg.generating) {
@@ -583,6 +587,8 @@ export default function (pi: ExtensionAPI) {
     const voice = s?.voice;
     syncTool(VOICE_TOOL, voice ? JSON.stringify([voice.description, voice.parameters]) : null, () => voiceToolDefinition(s!));
     syncTool(TRANSCRIBE_TOOL, voice ? "1" : null, () => transcribeToolDefinition(s!));
+    const designs = voice?.design_languages ?? [];
+    syncTool(DESIGN_TOOL, designs.length ? JSON.stringify(designs) : null, () => designToolDefinition(s!, designs));
     return spec;
   }
 
@@ -823,6 +829,42 @@ export default function (pi: ExtensionAPI) {
         lines.push(...r.notes.map((n: string) => `note: ${n}`));
         lines.push(`[${[...r.summary, `${r.seconds}s`].join(" · ")}]`);
         return { content: [{ type: "text", text: `${lines.join("\n")}\nThe user can listen to it; you can't.` }], details: r, terminate: true };
+      },
+    };
+  }
+
+  function designToolDefinition(s: Spec, languages: string[]) {
+    return {
+      name: DESIGN_TOOL,
+      label: "Design voice",
+      description:
+        "Make a new voice from a description and keep it in the voice library under a name, for generate_voice and " +
+        "clip voice-overs (also lip-synced) from then on. Describe age, gender, pitch, texture, pace and mood, e.g. " +
+        '"an old man with a deep, raspy, slow voice", "a cheerful eight-year-old girl with a high, bright voice". ' +
+        "About a minute. The den-voice skill has the recipes.",
+      promptSnippet: "Design a new voice from a description (local Qwen3-TTS)",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The voice's name: lower case letters, digits and dashes." },
+          description: { type: "string", description: "What the voice sounds like." },
+          language: { type: "string", enum: languages, description: "The sample's language (default en)." },
+          seed: { type: "integer", description: "Another seed gives another voice for the same description." },
+          replace: { type: "boolean", description: "Replace a voice of that name." },
+        },
+        required: ["name", "description"],
+      },
+
+      async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any) {
+        const broker = (spec ?? s).broker;
+        const r = await requestBroker<Record<string, any>>(broker, { ...params }, signal, (msg) => {
+          const text = progressText(msg);
+          if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
+        }, "/voices/design");
+        return {
+          content: [{ type: "text", text: `voice ${r.voice} kept (${r.duration}s sample). Voices: ${r.voices.join(", ")}. The user can listen to it; you can't.` }],
+          details: r,
+        };
       },
     };
   }

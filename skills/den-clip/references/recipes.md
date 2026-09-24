@@ -128,3 +128,22 @@ The sea is calm and silver.
   voice it's the model's own.
 - The result lists every line that ran past its time as a note; if the notes say so, spread the
   script's times and make it again with the same seed.
+
+## Lip-synced clip: a person who speaks
+
+The keeper says his lines himself instead of a narrator over him. Start from a still where the
+speaker's face is visible and large enough to see the mouth, then:
+
+```json
+{"workflow": "ltx23-distilled",
+ "prompt": "An old lighthouse keeper stands in the lamp room at night, the great lamp blazing beside him. He turns to the camera and says his lines quietly, his beard moving as he speaks. The camera is static, a medium close-up. Sound: wind against the glass.",
+ "keyframes": [{"image": "/path/keeper.png"}],
+ "voiceover": {"lines": ["For forty years, I kept this light burning.", "Tonight, someone else will keep it."],
+               "voice": "narrator", "sync": true}}
+```
+
+- `sync` works only on workflows whose options say lip-sync (the ones that make sound with the
+  picture); others refuse with the ones that can.
+- The voice is made first and fixed in the model; the clip's sound is the voice itself, so
+  ambience from the prompt doesn't come through.
+- `lines` let den time the script from the speech; the result carries the SRT at those times.

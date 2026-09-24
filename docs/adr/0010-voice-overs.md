@@ -41,6 +41,20 @@ should go over a clip made with any workflow, silent or not, and stand on its ow
 - **A voice-over goes into the clip's own graph.** On a workflow with sound, the clip's audio is
   turned down 8 dB and the voice merged over it; on a silent workflow, or with sound off, the
   voice is the sound track, trimmed to the clip. One ComfyUI run, no second pass over the video.
+- **Lip-sync puts the voice into the model instead of over the clip.** On a workflow that makes
+  sound and picture together (LTX-2.3; its `lip_sync` key names where the audio latent goes), a
+  voice-over with `sync` is padded to the clip's length, encoded by the audio VAE and kept fixed
+  with a zero noise mask, as ComfyUI's image-and-audio-to-video template does; the model draws
+  the picture to it, lips included. The saved clip carries the clean voice, not its trip through
+  the VAE. A voice-over without `sync` stays a narrator over the picture.
+- **Whisper writes down a recording.** `POST /transcribe` runs Whisper large-v3-turbo (MIT, about
+  1.6 GB, downloaded on first use) in the same speech server, loaded only when something is
+  transcribed; the transformers Chatterbox pins already carries it. A recording, the user's own
+  narration, can also be a voice-over as it is (`audio`), over a clip or lip-synced into it: the
+  speech server converts it to den's WAV, so it's measured, padded and mixed like a spoken track.
+- **Lines without times are timed by den.** `lines` are spoken in turn, 0.4 s apart, and every
+  voice job returns the SRT at the times its lines were actually spoken, saved next to the
+  track: subtitles for free, and a script to reuse with those times.
 - **Voices are recordings in a library outside the repo,** `~/.local/share/den/voices/`
   (`DEN_VOICES`), kept under a name (`den voice --add`, `POST /voices`, the phone). A request
   names a voice, passes a recording's path, or, from another machine, sends it as bytes.

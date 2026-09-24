@@ -5,12 +5,37 @@ A small Android client for a den on another machine. It uses that den's broker t
 model, workflows, pose library, logs) stays with the broker, and the app keeps none of it. No path
 of either machine crosses, only bytes: a file you attach goes as its name and contents, an input
 image as its name and bytes, and generated images come back as bytes and are saved to the phone's
-gallery (`Pictures/den/`).
+gallery (`Pictures/den/`), clips to `Movies/den/`.
 
 Screens: **Connect**, **Status** (mode, model, load, tasks, workflows), **Chat** (see below),
 **Ask** (run a delegated task, optionally with a file, and give a verdict), **Image** (prompt,
 workflow, the workflow's settings, an optional input image to edit; progress streams while it
-runs) and **Poses** (browse the saved pose library).
+runs), **Clip** (on the Image screen's second tab, below) and **Poses** (browse the saved pose
+library).
+
+## Clips and voice-overs
+
+The Clip tab makes a short video on the den ([ADR 0009](../../docs/adr/0009-clip-generation.md)):
+a prompt, a workflow, seconds, a size, keyframes (pictures from the phone at their moments) and
+the workflow's LoRAs. A clip is a detached request: it goes on if you leave the app, and is
+picked up again when you come back. The clip is saved to `Movies/den/` with its contact sheet
+shown, and its summary lists any notes.
+
+- **Sound:** a workflow that makes sound shows a Sound switch (on by default); describe the sounds
+  in the prompt. The others say they make silent clips.
+- **Voice-over** ([ADR 0010](../../docs/adr/0010-voice-overs.md)), where the den has speech: the
+  field takes an SRT script (typed, or **Load SRT**), several lines without times (the den
+  speaks them in turn and times them), or one line. Pick a voice and a language; on a workflow
+  that can, **Lip-sync** makes a person on screen speak it instead of a narrator over the picture.
+- **Record narration:** speak the lines yourself; the den writes down what you said (Whisper) and
+  the timed script lands in the field. **Use my recording** makes your recording the voice-over
+  itself (lip-synced too, with the switch); off, the chosen voice reads the script.
+- **The timed script** of the last clip: **Use the timed script** puts it back in the field,
+  **Save SRT** keeps it in `Download/den/`.
+- **A new voice:** type its name, then **Record** (about 10 seconds of natural speech, then Stop)
+  or **File** (a recording from the phone). It's kept in the den's voice library for everyone.
+
+The microphone is asked for the first time you record, and used only while you do.
 
 ## Chat
 
@@ -135,7 +160,7 @@ load nothing; Ask and Image load a model on that machine.
 
 - Reference images, guide images (`control`) and saved poses as inputs to an image; the Poses
   screen only browses the library.
-- LoRAs, upscaling and saving a pose.
+- LoRAs on images (clips have them), upscaling and saving a pose.
 - Editing an image from inside a chat: the tool generates, it doesn't take an input image.
 - Switching the mode, releasing the machine, picking the model or toggling tasks: do those on
   the broker's machine.

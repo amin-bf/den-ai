@@ -39,3 +39,30 @@ The user records about 10 seconds (see SKILL.md, "Recording a voice") and keeps 
 as `narrator`. For a one-off, pass the recording's path as `voice` instead.
 
 Try it on one short line before a whole script, and ask the user whether it sounds like them.
+
+## Lines in turn, timed by den
+
+```json
+{"lines": ["For forty years, I kept this light burning.", "Tonight, someone else will keep it."],
+ "voice": "narrator"}
+```
+
+Each line is spoken after the one before, a breath apart; the track lasts as long as the speech.
+The result names an `.srt` next to the track with the times the lines were spoken: use it as
+subtitles, or as the script of a clip's voice-over so the clip keeps those times.
+
+## The user's own narration
+
+The user speaks the lines themselves (on the phone: Clip pane, Record narration). Two ways on:
+
+1. **Their recording is the voice-over** as it is: pass it as `audio` in the clip's voiceover,
+   with `sync` for a person on screen to speak it. Nothing is spoken again.
+2. **Its words, in another voice**: `transcribe_audio` gives the SRT at the times they spoke;
+   pass that as the `srt` of `generate_voice` or a voiceover with another voice.
+
+```json
+{"audio": "/path/narration.m4a", "language": "en"}
+```
+
+Whisper writes numbers as digits ("40 years") and times its lines a little more coarsely than a
+script den spoke itself; read the SRT before speaking it again.

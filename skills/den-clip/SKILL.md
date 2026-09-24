@@ -59,6 +59,11 @@ language}) to `generate_clip`. With an SRT and no duration the clip lasts to the
 and longer if the voice runs long; the result lists every line that ran past its time. How to
 write the script and pick the voice: den-voice.
 
+A voice-over is a narrator: the picture doesn't know it, and no lips move. For a person on screen
+who **speaks the lines**, pass `sync: true` in the voiceover, on a workflow whose options say
+lip-sync: the voice goes into the model and the picture is made to it. Say in the prompt who
+speaks and to whom ("he says to the camera"); keep the rest of the sound to ambience.
+
 ## The working loop
 
 1. **Make the look as stills first** (den-image) and get them approved.
@@ -78,6 +83,7 @@ write the script and pick the voice: den-voice.
 | A clip of a person moving (a turn, a smile) | **a person between two stills**: start, an edit for the end | 2 images + 2 |
 | A clip with sound | **clip with sound**: a workflow that makes it, the sounds at the end of the prompt | 2 |
 | A clip with a narrator | **clip with a voice-over**: an SRT script in a voice from the library | 2 |
+| A person who says the lines | **lip-synced clip**: a voice-over with `sync`, the speaker named in the prompt | 2 (+ stills) |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with
 the tests behind it: [references/lessons.md](references/lessons.md).

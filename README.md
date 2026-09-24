@@ -224,6 +224,12 @@ It talks only to the broker and the `den` CLI.
 - **Pose library:** `list_poses` and `save_pose` tools next to `generate_image` (see
   [The pose library](#the-pose-library)). `save_pose` shows the skeleton and, like the image tool,
   ends the turn. `/imagine` completes saved pose names after `--reference pose:` and `--control pose:`.
+- **Clips and voice:** `generate_clip` (and `get_clip`) with keyframes, sound, a voice-over and
+  lip-sync, `generate_voice` for a voice-over track, and `transcribe_audio` for a recording's
+  timed SRT, all from the broker's own specs, as Claude's tools are. A script or a recording pi
+  is given as a path goes to the broker as its content, so they work on a den on another machine
+  too. `generate_clip` and `generate_voice` end the turn like the image tool; the transcript
+  comes back to the model.
 - **Footer:** while pi works or `/imagine` runs, the footer says when a request waits for the other
   side or the GPU is swapping (`den: pi llm waits for claude image to finish`).
 
@@ -431,12 +437,21 @@ den voice                                       # voices and languages
 den voice --add narrator ~/Recordings/me.m4a    # keep a recording as a voice
 den voice "Welcome to the harbour." -v narrator # one line, as a WAV track
 den voice --srt script.srt -v narrator -l de    # each line at its time, on one track
+den voice --lines lines.txt -v narrator         # lines in turn; den writes the SRT at their times
+den voice --transcribe me.m4a                   # what a recording says, as a timed SRT (Whisper)
 den clip "…" --voiceover script.srt --voice narrator   # a clip with the voice mixed in
+den clip "…he says to the camera…" --voiceover lines.txt --voice narrator --lip-sync
+den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your own recording, lip-synced
 ```
 
 - **Recording a voice:** about 10 seconds of natural speech in a quiet room, phone close to
   your mouth, in the tone the narrator should have, in the language you'll use most. Any common
   audio format works.
+- **Lip-sync:** with `--lip-sync` (`sync` in a tool's voiceover) the voice goes into the model
+  and the picture is made to it, so a person on screen speaks the lines; only on workflows that
+  make sound and picture together (LTX-2.3). Without it the voice is a narrator over the clip.
+- **Every voice job writes an SRT** beside its track, at the times the lines were spoken:
+  subtitles, or a script to reuse.
 - **Scripts:** each SRT line is spoken at its start time. Give a line about 2.5 words a second:
   one that runs long pushes the next one later, and the result lists every overrun as a note.
 - **On a clip:** with an SRT and no `--duration`, the clip lasts to the script's end, and longer
@@ -447,8 +462,10 @@ den clip "…" --voiceover script.srt --voice narrator   # a clip with the voice
 - **Results** go to `~/Music/den/YYYY-MM-DD/` (`DEN_SPEECH_OUT`), logged to
   `~/.local/state/den/speech.jsonl`; voices live in `~/.local/share/den/voices/` (`DEN_VOICES`).
 - **Claude and pi** get a `generate_voice` tool, and `generate_clip` takes a `voiceover`; the
-  phone's Clip pane has a voice-over field, a voice and language picker, and adds voices from a
-  recording on the phone. Chatterbox marks its audio with an inaudible watermark.
+  phone's Clip pane has a voice-over field (a script, lines, or a text), a voice and language
+  picker, a lip-sync switch, the timed script of the last clip (reuse or save it), records a new
+  voice with the microphone, and records your narration: its words come back as the script, and
+  the recording itself can be the voice-over. `transcribe_audio` is Claude's and pi's tool for it. Chatterbox marks its audio with an inaudible watermark.
 
 ### The pose library
 

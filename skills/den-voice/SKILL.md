@@ -15,6 +15,8 @@ description lists the voices and languages; this skill is how to get speech that
   and saved as one WAV track. Settings: `exaggeration`, `cfg_weight`, `seed`.
 - **`generate_clip`** with `voiceover` (den-clip): the same script and voice, spoken first and
   mixed into a clip.
+- **`transcribe_audio`**: what a recording says, as an SRT at the times it was said (Whisper):
+  subtitles, or the script of a recording to speak again in another voice.
 - **Voices** are recordings kept under a name, listed in the tool description. The user adds them
   (`den voice --add NAME RECORDING`, or the phone's Clip pane); a request may also pass a
   recording's path. Without a voice it's the model's own.
@@ -30,10 +32,15 @@ What to tell a user who wants their own voice, or a narrator's:
   the voice.
 - In the **language used most**. Other languages come out in the same voice, with the
   recording's accent.
-- Any common audio format; a phone's voice recorder is fine. A second recording in another
-  mood is a second voice.
+- Any common audio format; a phone's voice recorder is fine, and the den phone app records one
+  itself (Clip pane, a new voice's name, Record). A second recording in another mood is a second
+  voice.
 
 ## Writing a script
+
+Without times, pass `lines`: each is spoken in turn a breath apart, and the result's SRT holds
+the times they were actually spoken (subtitles, or a script to reuse). Write an SRT yourself only
+when lines must land at given moments.
 
 - **One idea per line**, a line per SRT cue, at the moment it should be heard.
 - **About 2.5 words a second.** A line given less time runs past its end and pushes the next one
@@ -65,8 +72,10 @@ What to tell a user who wants their own voice, or a narrator's:
 | Goal | Recipe | Calls |
 |---|---|---|
 | A spoken line or paragraph | **a text** | 1 |
+| Several lines, times not known yet | **lines in turn**: den times them and writes the SRT | 1 |
 | Narration with timing | **an SRT script** | 1 |
 | The user's own voice | **a voice from a recording**, then either of the above | 1 + 1 |
+| The user's own narration, as it is | **the recording as the voice-over** (`audio`), transcribed for its script | 1 + 2 |
 | A clip with a narrator | den-clip, **clip with a voice-over** | 2 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md). Why each holds, with

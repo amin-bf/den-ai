@@ -408,6 +408,41 @@ private fun ClipPane(model: AppModel) {
     } else {
         Text("Sound: none, this workflow makes silent clips", style = MaterialTheme.typography.bodySmall)
     }
+    // A voice-over: spoken first, then mixed over the clip's sound (ADR 0010). Only where speech runs.
+    if (model.voiceInfo() != null) {
+        val pickScript = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) model.readPicked(uri)?.let(model::loadScript)
+        }
+        var newVoice by remember { mutableStateOf("") }
+        val pickRecording = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) model.readPicked(uri)?.let { model.addVoice(newVoice.trim(), it) }
+        }
+        OutlinedTextField(
+            model.clipVoiceover, { model.clipVoiceover = it },
+            label = { Text("Voice-over (optional)") },
+            supportingText = { Text("A line to say, or an SRT script: each line at its time, and the clip lasts to its end") },
+            minLines = 2, modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = { pickScript.launch(arrayOf("application/x-subrip", "text/*", "*/*")) }) { Text("Load SRT") }
+            if (model.clipVoiceover.isNotEmpty()) TextButton(onClick = { model.clipVoiceover = "" }) { Text("Clear") }
+        }
+        if (model.clipVoiceover.isNotBlank()) {
+            Picker("Voice", model.clipVoice, model.voiceNames(), { model.clipVoice = it }, allowNone = true)
+            Picker("Language", model.clipLanguage, model.languages(), { model.clipLanguage = it }, allowNone = true)
+        }
+        // A new voice from a recording: about 10 seconds of clear speech, no music or echo.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                newVoice, { newVoice = it.lowercase().replace(Regex("[^a-z0-9-]"), "-") },
+                label = { Text("New voice name") }, singleLine = true, modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = { pickRecording.launch(arrayOf("audio/*")) }, enabled = newVoice.isNotBlank()) {
+                Text("Pick recording")
+            }
+        }
+        model.voiceNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
     // LoRAs: the ones this workflow's model takes, each switched on with an optional strength.
     val loraChoices = model.clipLoraChoices()
     if (loraChoices.isEmpty()) {

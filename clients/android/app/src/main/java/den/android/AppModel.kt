@@ -110,6 +110,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var clipWorkflow by mutableStateOf<String?>(null)
     var clipDuration by mutableStateOf("")
     var clipSize by mutableStateOf("")
+    /** A voice-over: an SRT script (loaded from a file or typed) or a line of text, empty for none. */
+    var clipVoiceover by mutableStateOf("")
+    var clipVoice by mutableStateOf<String?>(null)
+    var clipLanguage by mutableStateOf<String?>(null)
+    var voiceNote by mutableStateOf<String?>(null)
     /** A sound track, on a workflow that makes sound; sent only when switched off. */
     var clipSound by mutableStateOf(true)
     /** LoRAs picked for the clip, each with its strength as typed; empty for the LoRA's default. */
@@ -425,6 +430,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         // The broker checks the size; left empty, the clip takes the start frame's shape.
         clipSize.trim().takeIf { it.isNotEmpty() }?.let { body.put("size", it) }
         if (clipMakesSound() && !clipSound) body.put("sound", false)
+        clipVoiceover.trim().takeIf { it.isNotEmpty() && voiceInfo() != null }?.let { spoken ->
+            // A script has timed lines; anything else is one text spoken from the start.
+            val voiceover = JSONObject().put(if ("-->" in spoken) "srt" else "text", spoken)
+            clipVoice?.let { voiceover.put("voice", it) }
+            clipLanguage?.let { voiceover.put("language", it) }
+            body.put("voiceover", voiceover)
+        }
         clipDuration.trim().takeIf { it.isNotEmpty() }?.let {
             val seconds = it.toDoubleOrNull()
             if (seconds == null) {
@@ -488,6 +500,37 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val clip = info?.optJSONObject("clip") ?: return 0
         val name = clipWorkflow ?: clip.optString("default").takeIf { it.isNotEmpty() } ?: return 3
         return clip.optJSONObject("keyframes")?.optInt(name, 3) ?: 3
+    }
+
+    /** The broker's voices and languages, or null where speech isn't installed (ADR 0010). */
+    fun voiceInfo(): JSONObject? = info?.optJSONObject("voice")
+
+    fun voiceNames(): List<String> =
+        voiceInfo()?.optJSONArray("voices")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
+
+    fun languages(): List<String> = voiceInfo()?.optJSONObject("languages")?.keys()?.asSequence()?.sorted()?.toList().orEmpty()
+
+    /** An SRT file's script into the voice-over field. */
+    fun loadScript(picked: Picked) {
+        clipVoiceover = picked.bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+    }
+
+    /** Keep a recording as a voice on the den, then read its list again. */
+    fun addVoice(name: String, picked: Picked) {
+        val c = client ?: return
+        voiceNote = "adding voice $name ..."
+        io {
+            try {
+                val recording = JSONObject().put("name", picked.name)
+                    .put("base64", Base64.encodeToString(picked.bytes, Base64.NO_WRAP))
+                c.addVoice(JSONObject().put("name", name).put("recording", recording).put("replace", true))
+                clipVoice = name
+                voiceNote = "voice $name kept"
+                loadStatus(c)
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
     }
 
     /** Whether the chosen clip workflow makes sound; false from a broker that doesn't say. */
@@ -576,7 +619,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             clipSheet = BitmapFactory.decodeByteArray(sheet, 0, sheet.size)
         }
         val summary = result.optJSONArray("summary")?.let { a -> (0 until a.length()).joinToString(" · ") { a.getString(it) } }
-        clipSummary = listOfNotNull(summary, "${result.opt("seconds")} s", "saved to $where").joinToString("\n")
+        val notes = result.optJSONArray("notes")?.let { a -> (0 until a.length()).map { "note: ${a.getString(it)}" } }.orEmpty()
+        clipSummary = (listOfNotNull(summary, "${result.opt("seconds")} s", "saved to $where") + notes).joinToString("\n")
         clipUri = uri
         clipState = null
         clipId = null

@@ -133,6 +133,9 @@ class DenClient(private val transport: Transport) {
         return request("GET", "/clip?id=$id" + if (bytes) "&bytes=1" else "", null, 300_000)
     }
 
+    /** POST /voices {name, recording: {name, base64}, replace}: keep a recording as a voice (ADR 0010). */
+    fun addVoice(body: JSONObject): JSONObject = request("POST", "/voices", body, 120_000)
+
     fun cancelClip(id: Int): JSONObject {
         requireClips()
         return request("POST", "/clip/cancel", JSONObject().put("id", id), 30_000)

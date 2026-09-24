@@ -41,6 +41,7 @@ const CLIP_TOOL = "generate_clip";
 const VOICE_TOOL = "generate_voice";
 const TRANSCRIBE_TOOL = "transcribe_audio";
 const DESIGN_TOOL = "design_voice";
+const LIST_VOICES_TOOL = "list_voices";
 const CLIP_POLL_MS = 3000;
 /** The pose library's tools, listed alongside the image tool; their text never lists the library. */
 const POSE_TOOLS = ["list_poses", "save_pose"];
@@ -587,6 +588,8 @@ export default function (pi: ExtensionAPI) {
     const voice = s?.voice;
     syncTool(VOICE_TOOL, voice ? JSON.stringify([voice.description, voice.parameters]) : null, () => voiceToolDefinition(s!));
     syncTool(TRANSCRIBE_TOOL, voice ? "1" : null, () => transcribeToolDefinition(s!));
+    // Its text names no voice, so keeping one doesn't change the tools (as list_poses).
+    syncTool(LIST_VOICES_TOOL, voice ? "1" : null, () => listVoicesToolDefinition(s!));
     const designs = voice?.design_languages ?? [];
     syncTool(DESIGN_TOOL, designs.length ? JSON.stringify(designs) : null, () => designToolDefinition(s!, designs));
     return spec;
@@ -829,6 +832,34 @@ export default function (pi: ExtensionAPI) {
         lines.push(...r.notes.map((n: string) => `note: ${n}`));
         lines.push(`[${[...r.summary, `${r.seconds}s`].join(" · ")}]`);
         return { content: [{ type: "text", text: `${lines.join("\n")}\nThe user can listen to it; you can't.` }], details: r, terminate: true };
+      },
+    };
+  }
+
+  function listVoicesToolDefinition(s: Spec) {
+    return {
+      name: LIST_VOICES_TOOL,
+      label: "List voices",
+      description:
+        "The voice library: each voice's name, what it sounds like and how it was made (designed from a " +
+        "description, or recorded). Call it once per conversation before choosing a voice for generate_voice or a " +
+        "clip's voiceover, and keep the list; with a name, one voice's details.",
+      promptSnippet: "List the den's voices with what each sounds like",
+      parameters: { type: "object", properties: { name: { type: "string", description: "One voice, for its details." } } },
+
+      async execute(_id: string, params: Record<string, any>) {
+        const broker = (spec ?? s).broker;
+        if (params.name) {
+          const v = await brokerJson(broker, "GET", `/voices?name=${encodeURIComponent(String(params.name))}`);
+          const keys = ["name", "description", "source", "language", "seed", "created", "seconds"];
+          return { content: [{ type: "text", text: keys.filter((k) => v[k] != null).map((k) => `${k}: ${v[k]}`).join("\n") }], details: v };
+        }
+        const list = await brokerJson(broker, "GET", "/voices");
+        const rows: any[] = list.toc ?? [];
+        const text = rows.length
+          ? "Voices:\n" + rows.map((r) => `- ${r.name}${r.source ? ` [${r.source}]` : ""}: ${r.description ?? "(no description)"}`).join("\n")
+          : "No voices yet: design_voice makes one from a description.";
+        return { content: [{ type: "text", text }], details: list };
       },
     };
   }

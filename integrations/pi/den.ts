@@ -39,6 +39,7 @@ import {
 const TOOL = "generate_image";
 const CLIP_TOOL = "generate_clip";
 const VOICE_TOOL = "generate_voice";
+const TRANSCRIBE_TOOL = "transcribe_audio";
 const CLIP_POLL_MS = 3000;
 /** The pose library's tools, listed alongside the image tool; their text never lists the library. */
 const POSE_TOOLS = ["list_poses", "save_pose"];
@@ -240,6 +241,7 @@ function progressText(msg: Record<string, any>): string | null {
   if (msg.unloading) return `unloading the LLM (${msg.unloading.join(", ")})`;
   if (msg.starting) return `starting ${msg.starting}`;
   if (msg.speaking) return `speaking line ${msg.speaking.line} of ${msg.speaking.of}`;
+  if (msg.transcribing) return `transcribing ${msg.transcribing}`;
   if (msg.drawing) return `drawing the pose for ${msg.drawing.name}`;
   if (msg.stopping) return `stopping ${msg.stopping}`;
   if (msg.generating) {
@@ -580,6 +582,7 @@ export default function (pi: ExtensionAPI) {
     syncTool(CLIP_TOOL, clipReady ? JSON.stringify([clip!.description, clip!.parameters]) : null, () => clipToolDefinition(s!));
     const voice = s?.voice;
     syncTool(VOICE_TOOL, voice ? JSON.stringify([voice.description, voice.parameters]) : null, () => voiceToolDefinition(s!));
+    syncTool(TRANSCRIBE_TOOL, voice ? "1" : null, () => transcribeToolDefinition(s!));
     return spec;
   }
 
@@ -815,9 +818,44 @@ export default function (pi: ExtensionAPI) {
           const text = progressText(msg);
           if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
         }, "/voice");
-        const lines = [`saved: ${r.path}`, ...r.copies.map((p: string) => `copied to: ${p}`), ...r.notes.map((n: string) => `note: ${n}`)];
+        const lines = [`saved: ${r.path}`, ...r.copies.map((p: string) => `copied to: ${p}`)];
+        lines.push(`script at the spoken times: ${String(r.path).replace(/\.wav$/, ".srt")}`);
+        lines.push(...r.notes.map((n: string) => `note: ${n}`));
         lines.push(`[${[...r.summary, `${r.seconds}s`].join(" · ")}]`);
         return { content: [{ type: "text", text: `${lines.join("\n")}\nThe user can listen to it; you can't.` }], details: r, terminate: true };
+      },
+    };
+  }
+
+  function transcribeToolDefinition(s: Spec) {
+    return {
+      name: TRANSCRIBE_TOOL,
+      label: "Transcribe audio",
+      description:
+        "Write down what a recording says, as an SRT with each line at the time it was said (Whisper, many " +
+        "languages): subtitles, or a script to speak again in another voice (generate_voice) or to put on a clip. " +
+        "The den-voice skill has the recipes.",
+      promptSnippet: "Transcribe a recording into a timed SRT (local Whisper)",
+      parameters: {
+        type: "object",
+        properties: {
+          audio: { type: "string", description: "Path of the recording (wav, mp3, m4a, …)." },
+          language: { type: "string", description: "Its language as a code, e.g. en, de; default: detected." },
+        },
+        required: ["audio"],
+      },
+
+      async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any, ctx: ExtensionContext) {
+        const broker = (spec ?? s).broker;
+        const path = absolutePath(String(params.audio), ctx.cwd);
+        // Sent as bytes, so a den on another machine can hear it too.
+        const request: Record<string, any> = { audio: { name: path.split("/").pop(), base64: readFileSync(path).toString("base64") } };
+        if (params.language) request.language = params.language;
+        const r = await requestBroker<Record<string, any>>(broker, request, signal, (msg) => {
+          const text = progressText(msg);
+          if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
+        }, "/transcribe");
+        return { content: [{ type: "text", text: `${r.srt}\n[${r.segments.length} line(s) · ${r.duration}s of audio] saved: ${r.path}` }], details: r };
       },
     };
   }

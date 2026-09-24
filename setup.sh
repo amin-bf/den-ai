@@ -6,6 +6,7 @@
 #   ./setup.sh                     den, pi and ComfyUI
 #   ./setup.sh --no-pi             skip pi
 #   ./setup.sh --no-comfyui        skip ComfyUI
+#   ./setup.sh --no-speech         skip the speech model (voice-overs)
 #   ./setup.sh --no-preprocessors  skip downloading guide-map models (pose, …)
 #
 # Environment overrides:
@@ -13,6 +14,8 @@
 #   COMFYUI_REF    ComfyUI tag or branch to clone    (default: v0.36.0)
 #   COMFYUI_PY     Python version for its venv       (default: 3.13)
 #   COMFYUI_GGUF_REF  ComfyUI-GGUF commit to check out (default: 6ea2651e)
+#   SPEECH_DIR     where the speech model's venv lives (default: ~/.local/share/den/speech)
+#   CHATTERBOX_REF Chatterbox commit to install (default: 5de7a54a)
 #   TORCH_INDEX    PyTorch wheel index for your GPU  (default: CUDA 13.0; none on macOS,
 #                                                     where the wheels carry Metal)
 set -euo pipefail
@@ -22,6 +25,8 @@ COMFYUI_DIR="${COMFYUI_DIR:-$HOME/ComfyUI}"
 COMFYUI_REF="${COMFYUI_REF:-v0.36.0}"
 COMFYUI_PY="${COMFYUI_PY:-3.13}"
 COMFYUI_GGUF_REF="${COMFYUI_GGUF_REF:-6ea2651e}"
+SPEECH_DIR="${SPEECH_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/speech}"
+CHATTERBOX_REF="${CHATTERBOX_REF:-5de7a54aa4e5e2baadb0182dde554908b48b85c2}"
 BROKER_URL="http://127.0.0.1:11435"
 
 # macOS runs the same den, with launchd where Linux has systemd and Metal where it has CUDA
@@ -33,9 +38,12 @@ esac
 if [ "$MACOS" = 1 ]; then
   # PyPI's own torch wheels carry Metal; there is no separate index to pick.
   TORCH_INDEX="${TORCH_INDEX:-}"
+  SPEECH_TORCH_INDEX="${SPEECH_TORCH_INDEX:-}"
   UNIT_DIR="$HOME/Library/LaunchAgents"
 else
   TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu130}"
+  # Chatterbox pins torch 2.6.0, whose newest CUDA wheels are 12.6.
+  SPEECH_TORCH_INDEX="${SPEECH_TORCH_INDEX:-https://download.pytorch.org/whl/cu126}"
   UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 fi
 STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/den"
@@ -43,11 +51,13 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/den"
 with_pi=1
 with_comfyui=1
 with_preprocessors=1
+with_speech=1
 for arg in "$@"; do
   case "$arg" in
     --no-pi) with_pi=0 ;;
     --no-comfyui) with_comfyui=0 ;;
     --no-preprocessors) with_preprocessors=0 ;;
+    --no-speech) with_speech=0 ;;
     -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
@@ -377,6 +387,26 @@ PY
   fi
   if ! find "$COMFYUI_DIR/models" -name '*.safetensors' -size +100M 2>/dev/null | grep -q .; then
     todo "download an image model: see 'Image models' in README.md"
+  fi
+fi
+
+# Speech (voice-overs): Chatterbox in a venv of its own, since it pins a torch and transformers
+# that ComfyUI's newer ones can't share. The broker starts speech/server.py in it for a voice
+# job and stops it after (docs/adr/0010-voice-overs.md).
+if [ "$with_speech" = 1 ]; then
+  step "speech"
+  py="$SPEECH_DIR/.venv/bin/python"
+  if [ -x "$py" ] && "$py" -c "import chatterbox.mtl_tts" 2>/dev/null; then
+    ok "Chatterbox in $SPEECH_DIR/.venv"
+  else
+    have uv || die "uv is required to install the speech model (https://docs.astral.sh/uv/)"
+    mkdir -p "$SPEECH_DIR"
+    [ -x "$py" ] || uv venv --quiet --python 3.12 "$SPEECH_DIR/.venv"
+    if [ -n "$SPEECH_TORCH_INDEX" ]; then
+      uv pip install --quiet --python "$py" torch==2.6.0 torchaudio==2.6.0 --index-url "$SPEECH_TORCH_INDEX"
+    fi
+    uv pip install --quiet --python "$py" "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@$CHATTERBOX_REF"
+    did "installed Chatterbox ${CHATTERBOX_REF:0:8} in $SPEECH_DIR/.venv (its model, about 3.2 GB, downloads on first use)"
   fi
 fi
 

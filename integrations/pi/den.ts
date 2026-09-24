@@ -42,6 +42,7 @@ const VOICE_TOOL = "generate_voice";
 const TRANSCRIBE_TOOL = "transcribe_audio";
 const DESIGN_TOOL = "design_voice";
 const LIST_VOICES_TOOL = "list_voices";
+const SAVE_VOICE_TOOL = "save_voice";
 const CLIP_POLL_MS = 3000;
 /** The pose library's tools, listed alongside the image tool; their text never lists the library. */
 const POSE_TOOLS = ["list_poses", "save_pose"];
@@ -592,6 +593,7 @@ export default function (pi: ExtensionAPI) {
     syncTool(LIST_VOICES_TOOL, voice ? "1" : null, () => listVoicesToolDefinition(s!));
     const designs = voice?.design_languages ?? [];
     syncTool(DESIGN_TOOL, designs.length ? JSON.stringify(designs) : null, () => designToolDefinition(s!, designs));
+    syncTool(SAVE_VOICE_TOOL, designs.length ? "1" : null, () => saveVoiceToolDefinition(s!));
     return spec;
   }
 
@@ -869,21 +871,23 @@ export default function (pi: ExtensionAPI) {
       name: DESIGN_TOOL,
       label: "Design voice",
       description:
-        "Make a new voice from a description and keep it in the voice library under a name, for generate_voice and " +
-        "clip voice-overs (also lip-synced) from then on. Describe age, gender, pitch, texture, pace and mood, e.g. " +
+        "Design a new voice from a description: a sample in that voice, which Chatterbox then clones for generate_voice " +
+        "and clip voice-overs (also lip-synced). Describe age, gender, pitch, texture, pace and mood, e.g. " +
         '"an old man with a deep, raspy, slow voice", "a cheerful eight-year-old girl with a high, bright voice". ' +
-        "About a minute. The den-voice skill has the recipes.",
+        "Without a name it's a draft, not in the library yet: the user listens to its sample, or you try it on a real " +
+        "line with generate_voice and voice draft:ID; keep it with save_voice once they like it, or design again with " +
+        "another seed. About a minute. The den-voice skill has the stages.",
       promptSnippet: "Design a new voice from a description (local Qwen3-TTS)",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string", description: "The voice's name: lower case letters, digits and dashes." },
           description: { type: "string", description: "What the voice sounds like." },
           language: { type: "string", enum: languages, description: "The sample's language (default en)." },
           seed: { type: "integer", description: "Another seed gives another voice for the same description." },
-          replace: { type: "boolean", description: "Replace a voice of that name." },
+          name: { type: "string", description: "Keep it at once under this name, no draft: only when the user asked for that." },
+          replace: { type: "boolean", description: "With name: replace a voice of that name." },
         },
-        required: ["name", "description"],
+        required: ["description"],
       },
 
       async execute(_id: string, params: Record<string, any>, signal: AbortSignal | undefined, onUpdate: any) {
@@ -892,10 +896,37 @@ export default function (pi: ExtensionAPI) {
           const text = progressText(msg);
           if (text) onUpdate?.({ content: [{ type: "text", text }], details: { progress: text } });
         }, "/voices/design");
-        return {
-          content: [{ type: "text", text: `voice ${r.voice} kept (${r.duration}s sample). Voices: ${r.voices.join(", ")}. The user can listen to it; you can't.` }],
-          details: r,
-        };
+        const text = r.voice
+          ? `voice ${r.voice} kept (${r.duration}s sample). Voices: ${r.voices.join(", ")}.`
+          : `draft ${r.draft}: a ${r.duration}s sample at ${r.path}, not in the library yet. The user can listen to it; ` +
+            `try it on a line with voice draft:${r.draft}, and keep it with save_voice once they like it.`;
+        return { content: [{ type: "text", text }], details: r };
+      },
+    };
+  }
+
+  function saveVoiceToolDefinition(s: Spec) {
+    return {
+      name: SAVE_VOICE_TOOL,
+      label: "Save voice",
+      description:
+        "Keep a designed draft voice (design_voice) in the voice library under a name, with its description, language " +
+        "and seed, once the user has heard it and likes it. From then on list_voices shows it.",
+      promptSnippet: "Keep a designed draft voice in den's voice library",
+      parameters: {
+        type: "object",
+        properties: {
+          draft: { type: "string", description: "The draft's id, from design_voice." },
+          name: { type: "string", description: "The voice's name: lower case letters, digits and dashes." },
+          replace: { type: "boolean", description: "Replace a voice of that name." },
+        },
+        required: ["draft", "name"],
+      },
+
+      async execute(_id: string, params: Record<string, any>) {
+        const broker = (spec ?? s).broker;
+        const r = await brokerJson(broker, "POST", "/voices", { draft: params.draft, name: params.name, replace: !!params.replace });
+        return { content: [{ type: "text", text: `voice ${r.voice} kept. Voices: ${r.voices.join(", ")}.` }], details: r };
       },
     };
   }

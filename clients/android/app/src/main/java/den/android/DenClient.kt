@@ -190,6 +190,10 @@ class DenClient(private val transport: Transport) {
     fun pose(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/pose", request, null, onProgress)
 
+    /** GET /voices?name=N&bytes=1: one voice's details and its sample, to listen to it. */
+    fun voice(name: String): JSONObject =
+        request("GET", "/voices?name=" + java.net.URLEncoder.encode(name, "UTF-8") + "&bytes=1", null, 60_000)
+
     /** POST /voices/design {name, description, language?}: a voice made from a description (ADR 0010). */
     fun designVoice(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/voices/design", request, null, onProgress)

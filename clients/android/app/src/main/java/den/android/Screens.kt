@@ -439,7 +439,12 @@ private fun ClipPane(model: AppModel) {
             if (model.clipVoiceover.isNotEmpty()) TextButton(onClick = { model.clipVoiceover = "" }) { Text("Clear") }
         }
         if (model.clipVoiceover.isNotBlank()) {
-            Picker("Voice", model.clipVoice, model.voiceNames(), { model.clipVoice = it }, allowNone = true)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    Picker("Voice", model.clipVoice, model.voiceNames(), { model.clipVoice = it }, allowNone = true)
+                }
+                model.clipVoice?.let { name -> OutlinedButton(onClick = { model.listen(name) }) { Text("Listen") } }
+            }
             Picker("Language", model.clipLanguage, model.languages(), { model.clipLanguage = it }, allowNone = true)
             if (model.narration != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

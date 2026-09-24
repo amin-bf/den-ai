@@ -531,6 +531,34 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         return clip.optJSONObject("lip_sync")?.optBoolean(name, false) ?: false
     }
 
+    private var player: android.media.MediaPlayer? = null
+
+    /** Play a voice's sample from the den, so it can be chosen by ear. */
+    fun listen(name: String) {
+        val c = client ?: return
+        voiceNote = "fetching $name ..."
+        io {
+            try {
+                val voice = c.voice(name)
+                val sample = voice.getJSONObject("sample")
+                val file = java.io.File(getApplication<Application>().cacheDir, "listen-" + sample.getString("name"))
+                file.writeBytes(Base64.decode(sample.getString("base64"), Base64.DEFAULT))
+                withContext(Dispatchers.Main) {
+                    player?.release()
+                    player = android.media.MediaPlayer().apply {
+                        setDataSource(file.path)
+                        setOnCompletionListener { it.release(); if (player === it) player = null; file.delete() }
+                        prepare()
+                        start()
+                    }
+                }
+                voiceNote = voice.optString("description").takeIf { it.isNotEmpty() }?.let { "$name: $it" } ?: "playing $name"
+            } catch (e: Exception) {
+                voiceNote = "can't play $name: ${e.message}"
+            }
+        }
+    }
+
     /** Whether the den can make a voice from a description. */
     fun canDesignVoices(): Boolean = (voiceInfo()?.optJSONArray("design_languages")?.length() ?: 0) > 0
 

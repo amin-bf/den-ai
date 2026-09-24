@@ -190,6 +190,10 @@ class DenClient(private val transport: Transport) {
     fun pose(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/pose", request, null, onProgress)
 
+    /** POST /voices/design {name, description, language?}: a voice made from a description (ADR 0010). */
+    fun designVoice(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
+        streamed("/voices/design", request, null, onProgress)
+
     /** POST /transcribe {audio: {name, base64}}: what a recording says, as a timed SRT (ADR 0010). */
     fun transcribe(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/transcribe", request, null, onProgress)

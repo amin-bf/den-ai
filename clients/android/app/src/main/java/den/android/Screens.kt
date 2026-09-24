@@ -481,6 +481,20 @@ private fun ClipPane(model: AppModel) {
                 Text("File")
             }
         }
+        // Or describe one: the den designs a sample in that voice and keeps it (ADR 0010).
+        if (model.canDesignVoices()) {
+            var described by remember { mutableStateOf("") }
+            OutlinedTextField(
+                described, { described = it },
+                label = { Text("Or describe the new voice") },
+                supportingText = { Text("e.g. an old man with a deep, raspy, slow voice") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedButton(
+                onClick = { model.designVoice(newVoice.trim(), described.trim()) },
+                enabled = newVoice.isNotBlank() && described.isNotBlank() && !model.recording,
+            ) { Text("Design voice") }
+        }
         model.voiceNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
     // LoRAs: the ones this workflow's model takes, each switched on with an optional strength.

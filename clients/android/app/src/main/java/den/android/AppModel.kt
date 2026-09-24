@@ -531,6 +531,26 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         return clip.optJSONObject("lip_sync")?.optBoolean(name, false) ?: false
     }
 
+    /** Whether the den can make a voice from a description. */
+    fun canDesignVoices(): Boolean = (voiceInfo()?.optJSONArray("design_languages")?.length() ?: 0) > 0
+
+    /** Make the voice [name] from a description on the den, then read its list again. */
+    fun designVoice(name: String, description: String) {
+        val c = client ?: return
+        voiceNote = "designing $name ..."
+        io {
+            try {
+                val request = JSONObject().put("name", name).put("description", description).put("replace", true)
+                val result = c.designVoice(request) { msg -> voiceNote = DenClient.describeProgress(msg) }
+                clipVoice = name
+                voiceNote = "voice $name designed (${result.optDouble("duration")} s sample)"
+                loadStatus(c)
+            } catch (e: Exception) {
+                voiceNote = e.message
+            }
+        }
+    }
+
     /** Record the narration; a second call stops, and the den writes down what was said as the timed script. */
     fun toggleNarration() {
         val c = client ?: return

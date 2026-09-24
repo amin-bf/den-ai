@@ -1,6 +1,6 @@
 ---
 name: den-image
-description: Make and refine images and short video clips with den's local tools (generate_image, generate_clip, get_clip, save_pose, list_poses) — single images, edits, clips from text or from an approved still, and multi-step work such as a recurring character in chosen poses, outfits and places, built in stages the user approves. Use when asked to create or edit an image or a clip, iterate on one, keep a person consistent across images, or put someone into a pose taken from a photo.
+description: Make and refine images with den's local tools (generate_image, save_pose, list_poses) — single images, edits, and multi-step work such as a recurring character in chosen poses, outfits and places, built in stages the user approves. Use when asked to create or edit an image, iterate on one, keep a person consistent across images, or put someone into a pose taken from a photo. For video clips see den-clip; for speech and voice-overs, den-voice.
 ---
 
 # den-image: images with den, one call or many
@@ -19,48 +19,10 @@ can't carry: how to reach a goal in one call or several, and the traps that were
   under a name, used later as `pose:NAME`. Call `list_poses` once per conversation and keep the
   list; `list_poses` with a name shows one pose: its skeleton, its stand-in photo and their
   paths.
-- **`generate_clip`** / **`get_clip`**: a short video clip, silent. It takes a minute or more
-  (`ltxv-13b` about 15 s of work per second of clip, Wan 5B about a minute, larger models
-  longer), so `generate_clip` answers with an id and `get_clip` waits for it and shows a
-  contact sheet: four frames, first to last, in a 2x2 grid. Extras by workflow: `keyframes`,
-  `negative`, `loras`, `size`, `duration`, `sound`.
-- **`generate_voice`**: speech in a voice cloned from a recording, from a text or an SRT script
-  (each line at its time), saved as one track. For a clip, pass the same as `voiceover` to
-  `generate_clip` instead: it's spoken first and mixed in.
 - **`release_resources`** (Claude): hand the machine back when the image work is done.
 
-## Clips: the look as stills first, then the motion
-
-A clip costs minutes and can't be judged until it's done, so don't find the look in a clip.
-Make the first frame as an image (`generate_image`, with every recipe below), get it approved,
-then pass it as the clip's first keyframe and let the clip's prompt be only about what moves:
-the subject's action, the water, the light, the camera. Keyframes come through exactly.
-
-For a clip that has to go somewhere (day into night, a door that opens, a person who turns),
-make the later moments as stills too and pass them as keyframes at the moments they belong
-(`at`: seconds, `"50%"`, `"end"`): the clip passes through each. Make them by **editing the
-first still**, one change at a time, so the place and framing stay the same; separately
-generated stills make the clip morph from one scene into another.
-
-For anatomy (extra limbs, a hand that melts), fix the start keyframe and say in the prompt what
-each limb does; a negative is the last resort. A clip's negative is added to the workflow's own
-list, and unlike an image it doesn't raise cfg for you: on a workflow at cfg 1 it does nothing
-unless you also pass a higher `cfg`, which doubles the time.
-
-A workflow whose options list `sound: made with the picture` gives its clips a sound track from
-the same prompt, unless you pass `sound: false`: end the prompt with the sounds (the room's
-ambience, what the action sounds like, a line of dialogue in quotes for the person on screen to
-speak). Without that you get ambience at most; on a silent workflow the words only take
-attention from the motion.
-
-A LoRA works only on the model it was trained for, so the clip workflows offer their own, never
-the image workflows'. A LoRA that made the still doesn't reach the clip: the look reaches it
-through the keyframe. A clip LoRA is for what the video model does itself, such as a kind of
-motion or a style of footage.
-
-Judge the result on the contact sheet: whether the motion went where the prompt asked, and
-whether it passed through the keyframes. Release the machine after a batch of clips: a clip
-model holds 14 GB of RAM or more.
+Clips and voice-overs have skills of their own: **den-clip** (a still from here becomes a clip's
+keyframe) and **den-voice**.
 
 ## A person, an outfit, a pose and a place: build it in stages, with the user
 
@@ -126,12 +88,6 @@ and in pi write your reply first and call the tool last.
 | Recurring character, parts approved | **four references** | 1 |
 | The same person at another angle or expression, as a portrait | **edit the canonical portrait** | 1 each |
 | A pose you'll use again | `save_pose` once, then `pose:NAME` | 1 + uses |
-| A short clip from a description | **clip from text** (`generate_clip`, then `get_clip`) | 2 |
-| A clip in a look the user approved | **clip from an approved still** (first keyframe) | 1 image + 2 |
-| A clip that changes (light, a door, a turn) | **keyframes through it**, each an edit of the first still | 1 + edits + 2 |
-| A clip of a person moving (a turn, a smile) | **a person between two stills**: start, an edit for the end | 2 images + 2 |
-| A clip with sound | **clip with sound**: a workflow that makes it, the sounds at the end of the prompt | 2 |
-| A clip with a narrator | **clip with a voice-over**: an SRT script in a voice from the library | 2 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md).
 

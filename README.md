@@ -417,6 +417,38 @@ den clip --id 12 --wait                         # pick it up later
 - **LoRAs** work as for images: an `[image.loras.<name>]` entry whose `family` matches the clip
   workflow's (`ltxv`, `wan22-5b`) is offered to it once its file is in `~/ComfyUI/models/loras`.
   A LoRA works only on the model it was trained for.
+- **A voice-over** (`--voiceover`) is spoken first and mixed into the clip: see below.
+
+### Voice-overs
+
+Speech in a voice cloned from your own recording, from a line of text or an SRT script
+([ADR 0010](docs/adr/0010-voice-overs.md)). The model is Chatterbox Multilingual (23 languages),
+in a venv of its own that `setup.sh` makes (`--no-speech` skips it); it runs on the image side
+and only while a voice request does.
+
+```sh
+den voice                                       # voices and languages
+den voice --add narrator ~/Recordings/me.m4a    # keep a recording as a voice
+den voice "Welcome to the harbour." -v narrator # one line, as a WAV track
+den voice --srt script.srt -v narrator -l de    # each line at its time, on one track
+den clip "…" --voiceover script.srt --voice narrator   # a clip with the voice mixed in
+```
+
+- **Recording a voice:** about 10 seconds of natural speech in a quiet room, phone close to
+  your mouth, in the tone the narrator should have, in the language you'll use most. Any common
+  audio format works.
+- **Scripts:** each SRT line is spoken at its start time. Give a line about 2.5 words a second:
+  one that runs long pushes the next one later, and the result lists every overrun as a note.
+- **On a clip:** with an SRT and no `--duration`, the clip lasts to the script's end, and longer
+  if the voice runs long. On a workflow with sound the voice goes over the clip's own sound,
+  turned down; on a silent one it's the sound track.
+- **Settings:** `--exaggeration` (0.25–2, default 0.5) for how expressive, `--cfg-weight` (0–1,
+  default 0.5; lower is slower and calmer), `--seed` to repeat a take.
+- **Results** go to `~/Music/den/YYYY-MM-DD/` (`DEN_SPEECH_OUT`), logged to
+  `~/.local/state/den/speech.jsonl`; voices live in `~/.local/share/den/voices/` (`DEN_VOICES`).
+- **Claude and pi** get a `generate_voice` tool, and `generate_clip` takes a `voiceover`; the
+  phone's Clip pane has a voice-over field, a voice and language picker, and adds voices from a
+  recording on the phone. Chatterbox marks its audio with an inaudible watermark.
 
 ### The pose library
 
@@ -614,6 +646,7 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 | `~/.local/state/den/delegations.jsonl` | Delegation log (outside git). `DEN_LOG=<path>` uses a different one |
 | `~/.local/state/den/images.jsonl` | Image log. `DEN_IMAGE_LOG=<path>` uses a different one |
 | `~/.local/state/den/clips.jsonl` | Clip log, and the source of clip time estimates. `DEN_CLIP_LOG=<path>` uses a different one |
+| `~/.local/share/den/voices/`, `~/.local/state/den/speech.jsonl` | The voice library and the speech log. `DEN_VOICES=<dir>`, `DEN_SPEECH_LOG=<path>` use others; `SPEECH_DIR` is where the speech venv lives |
 | `DEN_IMAGES=<dir>` / `DEN_CLIPS=<dir>` / `COMFYUI_DIR=<dir>` | Where images / clips are saved, and where ComfyUI and its models live |
 | `~/.local/share/den/poses/` | The pose library (outside git). `DEN_POSES=<dir>` uses a different one |
 | `~/.cache/den/slots/` | Saved conversation caches, one per model (mode 700). `DEN_SLOTS=<dir>` uses a different one |

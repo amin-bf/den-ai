@@ -24,6 +24,9 @@ can't carry: how to reach a goal in one call or several, and the traps that were
   longer), so `generate_clip` answers with an id and `get_clip` waits for it and shows a
   contact sheet: four frames, first to last, in a 2x2 grid. Extras by workflow: `keyframes`,
   `negative`, `loras`, `size`, `duration`, `sound`.
+- **`generate_voice`**: speech in a voice cloned from a recording, from a text or an SRT script
+  (each line at its time), saved as one track. For a clip, pass the same as `voiceover` to
+  `generate_clip` instead: it's spoken first and mixed in.
 - **`release_resources`** (Claude): hand the machine back when the image work is done.
 
 ## Clips: the look as stills first, then the motion
@@ -128,6 +131,7 @@ and in pi write your reply first and call the tool last.
 | A clip that changes (light, a door, a turn) | **keyframes through it**, each an edit of the first still | 1 + edits + 2 |
 | A clip of a person moving (a turn, a smile) | **a person between two stills**: start, an edit for the end | 2 images + 2 |
 | A clip with sound | **clip with sound**: a workflow that makes it, the sounds at the end of the prompt | 2 |
+| A clip with a narrator | **clip with a voice-over**: an SRT script in a voice from the library | 2 |
 
 Step-by-step calls for each: [references/recipes.md](references/recipes.md).
 

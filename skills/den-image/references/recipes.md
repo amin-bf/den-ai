@@ -279,3 +279,33 @@ from the same prompt. End the prompt with what it should sound like:
   track; whether it sounds right is for the user to judge, so ask.
 - A higher `cfg` gives more motion and more sound, and costs about twice the time per step.
 
+## Clip with a voice-over
+
+A narrator's voice over the clip, from a script. Write it as SRT, each line at the moment it
+should be heard, and give each about 2.5 words a second:
+
+```
+1
+00:00:00,300 --> 00:00:02,800
+Every morning I walk down to the harbour.
+
+2
+00:00:03,000 --> 00:00:05,000
+The sea is calm and silver.
+```
+
+```json
+{"workflow": "ltx23-distilled",
+ "prompt": "A man in a dark wool coat walks slowly along an old stone harbour wall at sunrise … Sound: gentle waves lapping against the stone, distant gulls.",
+ "voiceover": {"srt": "/path/script.srt", "voice": "narrator", "language": "en"}}
+```
+
+- Leave `duration` out: the clip lasts to the script's end, and longer if the voice runs long.
+- On a workflow with sound, keep the prompt's sounds to ambience: the voice goes over them,
+  and a line of dialogue in the prompt would talk over the narrator. On a silent workflow the
+  voice is the whole sound track.
+- The voice names are in the tool's description (`den voice --add` keeps new ones). Without a
+  voice it's the model's own.
+- The result lists every line that ran past its time as a note; if the notes say so, spread the
+  script's times and make it again with the same seed.
+

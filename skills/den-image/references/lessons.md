@@ -135,6 +135,10 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   hands, cup, window, light and framing, and changed only the head and expression. The face
   read slightly younger from the front. As a start and end keyframe, the clip passed through
   both, lowering her eyes on the way.
+- **Speech takes longer than a tight script allows.** "Every morning I walk down to the harbour"
+  given 1.6 s took 2.4 s, and "The sea is calm and silver" given 1.4 s took 2.1 s: each line ran
+  past its time and pushed the next. About 2.5 words a second fits. den lengthened the clip from
+  4 s to 5 s to hold the voice, and said so.
 - **ltx23-distilled took 130 s for a 4-second clip** at 960x544 with two keyframes and sound,
   its model partly in RAM. Its sound at cfg 1 averaged −39 dB, a quiet but present track; a
   cfg-3.5 LTX-2.3 fine-tune made the same prompt's track louder (−21 dB), in line with the model

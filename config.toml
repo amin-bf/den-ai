@@ -402,6 +402,35 @@ cfg = { input = "3.cfg", recommended = [4, 6], allowed = [1, 10] }
 sampler = { input = "3.sampler_name", recommended = ["uni_pc", "euler"] }
 scheduler = { input = "3.scheduler", recommended = ["simple"] }
 
+# LTX-2.3 from unsloth/LTX-2.3-GGUF (distilled-1.1 Q4_K_M, the distilled embeddings connectors
+# and VAEs; the audio VAE goes in checkpoints/) and unsloth/gemma-3-12b-it-qat-GGUF
+# (UD-Q4_K_XL), loaded by the ComfyUI-GGUF node setup.sh installs.
+[clip.workflows.ltx23-distilled]
+description = """LTX-2.3 22B distilled, quantized (GGUF) to fit beside a 12 GB GPU: realistic \
+motion and people, 24 fps, with sound, from text, or through up to three keyframes: one to start \
+from and two more at any moment. Prompt: one detailed English paragraph describing what happens \
+over time: the subject and each action in order, the setting and light, the camera, and the \
+sounds (ambience, footsteps, a line of dialogue in quotes, which a person on screen speaks). \
+Heavier than ltxv-13b: its model is partly held in RAM."""
+prompt = "6.text"
+negative = "7.text"
+seed = "15.noise_seed"
+size = ["11"]
+fps = "22.fps"
+frames = "21"
+family = "ltx23"
+model = "1"
+duration = { input = ["11.length", "13.frames_number"], frame_step = 8, recommended = [3, 5], allowed = [1, 8] }
+keyframes = [
+  { input = "31.image", at = 0, frame = "31.frame_idx", passthrough = ["positive", "negative", "latent"] },
+  { input = "32.image", at = "any", frame = "32.frame_idx", passthrough = ["positive", "negative", "latent"] },
+  { input = "33.image", at = "any", frame = "33.frame_idx", passthrough = ["positive", "negative", "latent"] },
+]
+
+[clip.workflows.ltx23-distilled.settings]
+cfg = { input = "18.cfg", allowed = [1, 4] }
+sampler = { input = "16.sampler_name", recommended = ["euler_ancestral"] }
+
 # Tasks Claude may delegate. Each becomes an allowed value of the MCP tool's `task`
 # argument; disabled tasks disappear from the tool. Toggle with: den task <name> on|off
 [tasks.summarize]

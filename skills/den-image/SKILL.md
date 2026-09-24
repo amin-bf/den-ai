@@ -44,6 +44,11 @@ each limb does; a negative is the last resort. A clip's negative is added to the
 list, and unlike an image it doesn't raise cfg for you: on a workflow at cfg 1 it does nothing
 unless you also pass a higher `cfg`, which doubles the time.
 
+A workflow whose description says "with sound" makes the audio together with the picture, from
+the same prompt: end it with the sounds (the room's ambience, what the action sounds like, a
+line of dialogue in quotes for the person on screen to speak). Without that you get ambience at
+most; on a silent workflow the words only take attention from the motion.
+
 A LoRA works only on the model it was trained for, so the clip workflows offer their own, never
 the image workflows'. A LoRA that made the still doesn't reach the clip: the look reaches it
 through the keyframe. A clip LoRA is for what the video model does itself, such as a kind of

@@ -393,6 +393,7 @@ den clip --id 12 --wait                         # pick it up later
 |---|---|---|
 | `ltxv-13b` (default) | fast clips (about 15 s of work per second of clip at 720p); a start keyframe and up to two more anywhere | one long, detailed English paragraph |
 | `wan22-5b` | general clips up to 720p at 24 fps, from text or a start image | one detailed paragraph, motion words over style words |
+| `ltx23-distilled` | realistic motion and people **with sound**, three keyframes like `ltxv-13b`; slower, its model partly held in RAM (GGUF) | a paragraph of what happens in order, the camera, and the sounds |
 
 - **A clip is a detached request:** it takes minutes, so the broker answers with an id at once
   and the clip goes on without the caller. `den clip` waits unless `--detach`; Claude's
@@ -404,6 +405,9 @@ den clip --id 12 --wait                         # pick it up later
 - **Keyframes** are images the clip must show at given moments (`@AT`: seconds, `50%` or
   `end`); the first starts it. A workflow says how many it takes and where. Without a `--size`,
   a clip takes its start keyframe's shape.
+- **Sound:** LTX-2.3 makes the audio with the picture, so its clips have a sound track; the
+  others are silent. Describe the sounds in the prompt (ambience, footsteps, a line of dialogue in
+  quotes, which a person on screen then speaks); without that you get ambient sound at most.
 - **Duration** is in seconds, within the workflow's range; den turns it into the frame count
   the model wants.
 - **A negative prompt is added to the workflow's own**, never replacing it. On a workflow that

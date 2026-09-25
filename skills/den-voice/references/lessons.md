@@ -30,3 +30,20 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
   looks: "warm, smooth, slightly low … unhurried" came out around 200 Hz and "bright, clear,
   lively … a smile in her tone" around 370 Hz, both kept by the clone (203 and 370 Hz) and both
   word for word through Whisper. The user picked the low one at once; the high one read young.
+- **Moderate settings on a calm voice stay flat, whatever the mood asked for.** Elli (calm,
+  unhurried by design) at exaggeration 0.3–1.0 and cfg_weight 0.3–0.6 gave scared, epic, brave,
+  crying, flirty and playful takes the user heard as barely different from each other, and no
+  crying at all. Pushing to exaggeration 1.2–2.0 and cfg_weight 0.1–0.25, with the text rewritten
+  short and broken ("I can't. I can't do this without you. Please, I can't."), read as far more
+  upset on the same voice and seed.
+- **Letter-stretching a word reads as a stutter, not a drawn-out sound.** "I caaaaaan't...
+  without youuuuuuuuu..." came back as "you, you, you, you, you", confirmed against
+  [deAPI's Chatterbox emotion guide](https://deapi.ai/blog/chatterbox-tts-guide-how-to-control-emotion-and-22-languages-with-text-alone):
+  the model has no inline tag parser and reads emotion only from real punctuation and
+  capitalization — `...` for hesitation, `—` for a dramatic pause, `?!` for its strongest
+  inflection, and CAPS on at most 1–3 words (a fully capitalized sentence distorts instead of
+  emphasizing). `[happy]`-style tags and SSML do nothing either.
+- **A voice's own reference sample sets a ceiling on how far settings can push it.** Elli's
+  sample is calm and soft; even at the most pushed settings tried, an emotion needing real
+  vocal break (sobbing, screaming) stayed short of the raw upset a more dramatic reference
+  recording, or a different TTS model built for it, might reach — untested here.

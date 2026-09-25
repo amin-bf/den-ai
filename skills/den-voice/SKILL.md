@@ -86,6 +86,25 @@ when lines must land at given moments.
   exaggeration; for a fast-talking recording, lower it.
 - **`seed`**: the same seed and text give the same take; change one thing at a time.
 
+## A strong emotion (scared, epic, crying, flirty, …)
+
+The settings alone stay flat at moderate values; a real emotion needs both a pushed setting and
+text written for it. Chatterbox reads delivery **only from real punctuation and capitalization
+in the text itself**: it has no `[emotion]` tags, no SSML, and stretching a vowel out
+(`caaaan't`) is read as a stutter (`can't, can't, can't`), not a drawn-out sound. Never do that.
+
+- **Exaggeration 1.2–2.0, cfg_weight 0.1–0.3** for a strong emotion; the calmer, sadder end of
+  that (crying, pleading) wants the lower cfg_weight, the loud end (epic, angry) the higher.
+- **Write short, broken sentences**, not one long one: "I can't. I can't do this without you.
+  Please, I can't." reads as far more upset than the same words joined with commas.
+- **`...`** for hesitation or suspense; **`—`** for a dramatic pause, often right before what
+  matters ("The winner is — Sarah Chen."); **`?!`** is the strongest inflection there is, for
+  shock or disbelief ("You did WHAT?!").
+- **CAPS on 1–3 key words a sentence**, never the whole thing: "I CAN'T... not without you." A
+  fully capitalized sentence fatigues the model's prosody and comes out distorted, not louder.
+- **One short line first**, always: a whole emotional script before hearing whether the emotion
+  landed at all wastes the job.
+
 ## The working loop
 
 1. **Pick the voice from `list_voices`** by its description, not its name: "grandpa" says less

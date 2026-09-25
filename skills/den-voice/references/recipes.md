@@ -67,6 +67,17 @@ The user speaks the lines themselves (on the phone: Clip pane, Record narration)
 Whisper writes numbers as digits ("40 years") and times its lines a little more coarsely than a
 script den spoke itself; read the SRT before speaking it again.
 
+## A strong emotion
+
+```json
+{"text": "Please — don't leave. I can't do this. I CAN'T... not without you.",
+ "voice": "elli", "exaggeration": 1.4, "cfg_weight": 0.2, "seed": 7}
+```
+
+One short line first, to hear whether the emotion landed before a whole script. Not right: a
+sharper setting (SKILL.md, "A strong emotion") or a rewrite with shorter, more broken sentences —
+never letter-stretching a word for a drawn-out sound, which reads as a stutter instead.
+
 ## A designed voice
 
 For a character's voice nobody has recorded:

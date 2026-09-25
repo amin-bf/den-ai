@@ -122,6 +122,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   (`den model`), or a workflow's model files are there. An unavailable side answers with what
   is missing, never with silence. `llm`, `image` and `both` are gone; an old `state.json`
   reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
+- **den is a broker, not a model provider.** It doesn't ship or favor any particular model —
+  llama.cpp's GGUF files, ComfyUI's checkpoints and Chatterbox are all swappable underneath the
+  same broker, CLI and MCP surface, the way workflows are swappable underneath the image side
+  ("Workflows, not model names" below). Whether a *specific* model (this LLM, this speech model)
+  is still the right one is a separate, ongoing question from whether den's shape can route to
+  its replacement — usually yes, since a side only cares that something loads and answers on its
+  socket or port. Evaluate a new model on its own merits, not as a referendum on den's design.
 - **A side isn't loaded onto a machine busy with work that isn't den's own.** Above `[limits]`
   `max_load_per_cpu` (1-minute load average) or below `min_free_ram_gb` (`MemAvailable`), a
   request whose side would have to load waits `busy_wait` (60 s) for the machine to settle and is

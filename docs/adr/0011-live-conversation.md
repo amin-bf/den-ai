@@ -15,7 +15,7 @@ library). No chat model of den's, no pi, no phone.
 - **Live mode is exclusive.** `live_start` makes the broker release both sides, as `den unload`
   does, and load the live engine; until `live_stop` every other request, from any client, is
   refused with "den is in a live conversation". The conversation never competes for the GPU, the
-  CPU or RAM. A watchdog ends live mode when Claude hasn't called for a few minutes (a closed
+  CPU or RAM. A watchdog ends live mode when Claude hasn't called for ten minutes (a closed
   terminal, a crashed session), so the machine can't stay locked.
 - **One tool call per exchange.** `talk(say)` speaks Claude's reply and returns what the user
   says next, as text. Claude Code works in turns, so a conversation is one long turn of Claude's:

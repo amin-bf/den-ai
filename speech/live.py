@@ -17,12 +17,14 @@ is said from the wake word on is kept as audio until the conversation starts in 
                   for it (or a new one) again
     POST /live    {voice?, language, exaggeration} -> from standby, start the conversation: load
                   its models; /health says when it's ready
-    POST /talk    {say?, wait_s?, voice?, language?} -> from this turn on in voice (a
+    POST /talk    {say?, wait_s?, voice?, language?, now?} -> from this turn on in voice (a
                   recording's path), speaking language (what `say` is in; listening always detects
                   each utterance's own); speaks `say` sentence by sentence, then waits for the
                   user's next utterance: {heard, interrupted, spoken, unspoken, silence}. The user
                   speaking over the voice stops it at once (interrupted, and how far it got);
                   something said before the call came in is returned without speaking at all.
+                  With now, a talk that is running ends first (preempted): its voice finishes the
+                  sentence it's on, and its wait ends unless the user has begun to answer.
     POST /stop    ends the engine
 """
 
@@ -62,6 +64,7 @@ wake_heard = threading.Condition()  # notified when the wake word is heard
 early = []  # (audio, t_start, t_end, wake) since the wake word, until the conversation's Whisper is loaded
 targets = [None, None]  # the echo canceller's source and sink, once it's loaded
 recorder = {"target": None, "switch": False}  # listen() moves to the echo canceller's source when asked
+preempt = threading.Event()  # a talk with now is waiting for the one before it to end
 barge = threading.Event()  # the user started speaking over the voice
 user_speaking = threading.Event()  # an utterance is under way: never end the user's turn meanwhile
 writing = [0]  # utterances Whisper is still writing down
@@ -338,6 +341,8 @@ def speak(text, target):
             if barge.is_set():
                 break
             said.append(part)
+            if preempt.is_set():
+                break  # a line that can't wait is next: this sentence is finished, the rest dropped
     except BrokenPipeError:
         # The player died: say why, instead of passing the reply off as unspoken.
         error = (player.stderr.read() or b"").decode(errors="replace").strip()
@@ -375,18 +380,32 @@ def talk(body):
     say = str(body.get("say") or "").strip()
     wait_s = float(body.get("wait_s") or 120)
     switch(body.get("voice"), body.get("language"))
+    if body.get("now"):
+        preempt.set()  # the talk that is running ends, so this one can speak
     with talk_lock:
+        preempt.clear()
         # Something said while Claude was thinking comes first: its reply may no longer fit.
         if say and not heard.empty():
             return {"heard": drain(), "interrupted": False, "spoken": [], "unspoken": sentences(say), "said_first": True}
         barge.clear()
         said, unsaid = speak(say, targets[1]) if say else ([], [])
         interrupted = bool(unsaid) and barge.is_set()
-        try:
-            first = heard.get(timeout=wait_s)
-        except queue.Empty:
-            return {"heard": None, "silence": True, "interrupted": False, "spoken": said, "unspoken": unsaid}
-        return {"heard": gather(first["text"]), "interrupted": interrupted, "spoken": said, "unspoken": unsaid}
+        cut = {"preempted": True} if unsaid and not interrupted else {}  # stopped for a line that can't wait
+        deadline = time.time() + wait_s
+        while True:
+            try:
+                first = heard.get(timeout=0.1)
+                break
+            except queue.Empty:
+                pass
+            # A line that can't wait ends the wait, unless the user has begun to answer: the
+            # answer belongs to what was asked, and the line is spoken after it.
+            if preempt.is_set() and not user_speaking.is_set() and writing[0] == 0:
+                return {"heard": None, "preempted": True, "interrupted": False, "spoken": said, "unspoken": unsaid}
+            if time.time() > deadline:
+                return {"heard": None, "silence": True, "interrupted": False, "spoken": said, "unspoken": unsaid, **cut}
+        return {"heard": gather(first["text"]), "interrupted": interrupted, "spoken": said, "unspoken": unsaid, **cut}
+
 
 UNFINISHED = re.compile(r"(,|\b(and|but|so|or|because|maybe|like|that|the|a|to|of|um|uh|if|when|then))$", re.I)
 

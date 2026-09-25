@@ -502,6 +502,10 @@ den live keep ID NAME   # keep it under a name
 den live rm ID          # delete it
 ```
 
+A client that drives the conversation itself can also speak unasked while `talk`
+waits for you: `POST /live/talk` with `now: true` ends the waiting talk (`preempted`) once the
+voice has finished its sentence, and speaks at once.
+
 **Standby** ([ADR 0012](docs/adr/0012-standby.md)) listens between conversations for a wake word,
 such as "hey Elli", without taking the machine: only a small Whisper on the CPU hears the start of
 each utterance, and forgets it unless it's the wake word. Images, clips and the LLM keep working,

@@ -349,9 +349,9 @@ class LiveEngine:
         if status != 200:
             raise DenError(f"standby: {answer.get('error')}")
 
-    def talk(self, say, wait_s, voice_file=None, language=None):
+    def talk(self, say, wait_s, voice_file=None, language=None, now=False):
         body = {"say": say, "wait_s": wait_s, **({"voice": str(voice_file)} if voice_file else {}),
-                **({"language": language} if language else {})}
+                **({"language": language} if language else {}), **({"now": True} if now else {})}
         try:
             status, answer = self._call("POST", "/talk", body, timeout=wait_s + 300)
         except OSError as e:
@@ -404,6 +404,8 @@ def transcript(session):
         if turn["who"] == "claude":
             said = " ".join(turn.get("spoken") or [])
             cut = f" [interrupted; not said: {' '.join(turn['unspoken'])}]" if turn.get("interrupted") else ""
+            if turn.get("preempted") and turn.get("unspoken"):
+                cut = f" [cut short for a line that couldn't wait; not said: {' '.join(turn['unspoken'])}]"
             if said or cut:
                 lines.append(f"[{clock}] Claude: {said}{cut}")
         elif turn["who"] == "user":

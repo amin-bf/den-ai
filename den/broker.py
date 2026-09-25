@@ -40,7 +40,7 @@ and counting like any image request — and GET /clip?id=N asks for it, POST /cl
 drops it. The broker keeps them in memory only, a finished one for a day.
 
 A live conversation (ADR 0011) takes the machine: POST /live/start (streams), POST /live/talk
-{say, wait_s}, POST /live/stop. Standby (ADR 0012) listens for a wake word without it: POST
+{say, wait_s, now}, POST /live/stop. Standby (ADR 0012) listens for a wake word without it: POST
 /standby/start {wake_word} (streams), POST /standby/wait {after, timeout_s}, POST /standby/stop,
 GET /standby; its state lives in memory only.
 """
@@ -440,8 +440,8 @@ class Broker:
             if self.releasing or self.pending_mode:
                 raise DenError("den is releasing or switching mode; retry once it's done")
             woke = self.standby["state"] == "woke"
-            self.live = {"state": "starting", "voice": voice, "language": language, "last": time.time(), "talking": False,
-                         "woke": woke}
+            self.live = {"state": "starting", "voice": voice, "language": language, "last": time.time(), "talks": 0,
+                         "now": False, "woke": woke}
             if self.standby["state"] != "off":
                 # Standby pauses for the conversation and comes back after it; the engine keeps
                 # recording meanwhile, so what the user says while the machine is freed isn't lost.
@@ -476,16 +476,21 @@ class Broker:
         log(f"live conversation {session} on (voice {voice or 'default'}, {language}{', after the wake word' if woke else ''})")
         return session
 
-    def live_talk(self, say, wait_s, voice=None, language=None):
+    def live_talk(self, say, wait_s, voice=None, language=None, now=False):
+        """One exchange. With now the talk that is running ends first (preempted) and this one is
+        spoken at once: a line that can't wait for the user's next words (ADR 0011)."""
         voice_file = speech.voice_path(voice) if voice else None
         if language and language not in speech.LANGUAGES:
             raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
         with self.cond:
             if not self.live or self.live.get("state") != "on":
                 raise DenError("no live conversation is on (live_start begins one)")
-            if self.live["talking"]:
-                raise DenError("a talk is already running in this conversation")
-            self.live["talking"] = True
+            if self.live["talks"] and not now:
+                raise DenError("a talk is already running in this conversation (now: true ends it and speaks at once)")
+            if now and self.live["now"]:
+                raise DenError("a talk with now is already waiting to speak")
+            self.live["talks"] += 1
+            self.live["now"] = self.live["now"] or now
             session = self.live["session"]
             switched = {k: v for k, v in (("voice", voice), ("language", language)) if v and v != self.live.get(k)}
             self.live.update(switched)
@@ -493,16 +498,19 @@ class Broker:
             speech.record_turn(session, {"who": "den", "event": "switch", **switched})
         began = round(time.time(), 1)  # when Claude's line starts, not when the user's answer ends
         try:
-            answer = self.live_engine.talk(say, wait_s, voice_file, language)
+            answer = self.live_engine.talk(say, wait_s, voice_file, language, now)
         finally:
             with self.cond:
                 if self.live:
-                    self.live["talking"] = False
+                    self.live["talks"] -= 1
+                    if now:
+                        self.live["now"] = False
                     self.live["last"] = time.time()
         if say:
             speech.record_turn(session, {
                 "t": began, "who": "claude", "spoken": answer.get("spoken") or [], "unspoken": answer.get("unspoken") or [],
                 "interrupted": answer.get("interrupted", False), "said_first": answer.get("said_first", False),
+                **({"preempted": True} if answer.get("preempted") else {}),
             })
         if answer.get("heard"):
             speech.record_turn(session, {"who": "user", "text": answer["heard"]})
@@ -526,7 +534,7 @@ class Broker:
     def stop_live_if_idle(self):
         with self.cond:
             live = self.live
-            idle = live and live.get("state") == "on" and not live["talking"] and time.time() - live["last"] > LIVE_IDLE_S
+            idle = live and live.get("state") == "on" and not live["talks"] and time.time() - live["last"] > LIVE_IDLE_S
         if idle:
             self.live_stop(reason=f"nobody talked for {LIVE_IDLE_S // 60} minutes")
 
@@ -1368,7 +1376,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/live/talk" and self.command == "POST":
                 body = json.loads(self._read_body() or b"{}")
                 self._send_json(200, self.broker.live_talk(
-                    str(body.get("say") or ""), float(body.get("wait_s") or 120), body.get("voice"), body.get("language")
+                    str(body.get("say") or ""), float(body.get("wait_s") or 120), body.get("voice"), body.get("language"),
+                    bool(body.get("now")),
                 ))
             elif path == "/live/stop" and self.command == "POST":
                 self._send_json(200, self.broker.live_stop())

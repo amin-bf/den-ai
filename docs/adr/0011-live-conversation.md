@@ -24,6 +24,11 @@ library). No chat model of den's, no pi, no phone.
 - **Interrupting.** The microphone is listened to all the time, also while den speaks. When the
   user starts speaking over the voice, playback stops at once, the rest of the reply is dropped,
   and `talk` returns what they said and how far the reply had got, so Claude knows what was heard.
+- **A line that can't wait.** A client that drives the loop itself sometimes has to speak
+  unasked while `talk` waits for the user. `talk` with `now` ends the talk that is running
+  (`preempted`) and is spoken at once as a normal turn. The voice finishes the sentence it's on
+  first, and if the user has begun to answer, that answer is returned to the talk that asked for
+  it and the new line is spoken after.
 - **Echo cancellation always.** The live engine loads PipeWire's echo-cancel module (WebRTC) for
   the session and records and plays through it, so den's own voice from speakers is never taken
   for the user interrupting; with headphones it costs nothing. The module is unloaded after.

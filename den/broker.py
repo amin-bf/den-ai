@@ -134,6 +134,7 @@ class Broker:
         self.started = time.time()
         self.detached = {}  # id -> record of a detached request (a clip), running or finished
         self.speech = speech.Server()  # started for a voice job, stopped after it (ADR 0010)
+        self.speech_lock = threading.Lock()  # one voice job on it at a time: two starts would race the same process
         self.live = None  # the live conversation, while there is one: den does nothing else (ADR 0011)
         self.live_engine = speech.LiveEngine()
 
@@ -906,13 +907,17 @@ def voice_track(broker, config, request, emit, check):
         return speech.assemble(request["cues"], speak_lines(broker, config, request, emit, check))
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    _free_comfy_for_speech(comfy)
-    try:
-        broker.speech.start(emit)
-        check()
-        track = broker.speech.convert(request["audio"])
-    finally:
-        broker.speech.stop()
+    # One voice job on the speech server at a time: two starts would race the same process
+    # (den has seen a second job's start() see the first's process and call itself ready,
+    # then speak into a model that hadn't loaded yet, or into one the first job just stopped).
+    with broker.speech_lock:
+        _free_comfy_for_speech(comfy)
+        try:
+            broker.speech.start(emit)
+            check()
+            track = broker.speech.convert(request["audio"])
+        finally:
+            broker.speech.stop()
     samples, rate = speech._pcm(track)
     return track, round(len(samples) / rate, 2), []
 
@@ -921,32 +926,36 @@ def transcribe(broker, config, recording, language, emit, check):
     """Whisper's timed segments of a recording, as cues."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    _free_comfy_for_speech(comfy)
-    try:
-        broker.speech.start(emit)
-        check()
-        emit({"transcribing": Path(recording).name})
-        return broker.speech.transcribe(recording, language)
-    finally:
-        broker.speech.stop()
+    with broker.speech_lock:
+        _free_comfy_for_speech(comfy)
+        try:
+            broker.speech.start(emit)
+            check()
+            emit({"transcribing": Path(recording).name})
+            return broker.speech.transcribe(recording, language)
+        finally:
+            broker.speech.stop()
 
 
 def speak_lines(broker, config, request, emit, check):
     """Speak each line of a voice request on the speech server, which starts once ComfyUI has
-    freed its models (they don't fit on the GPU together) and stops after. Returns the WAVs."""
+    freed its models (they don't fit on the GPU together) and stops after. Returns the WAVs.
+    One job runs on the speech server at a time (broker.speech_lock): a second /voice call
+    queues here rather than racing the first's start/speak/stop."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    _free_comfy_for_speech(comfy)
-    cues, lines = request["cues"], []
-    try:
-        broker.speech.start(emit)
-        for i, cue in enumerate(cues, 1):
-            check()
-            emit({"speaking": {"line": i, "of": len(cues), "text": cue["text"][:60]}})
-            lines.append(broker.speech.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
-    finally:
-        broker.speech.stop()
-    return lines
+    with broker.speech_lock:
+        _free_comfy_for_speech(comfy)
+        cues, lines = request["cues"], []
+        try:
+            broker.speech.start(emit)
+            for i, cue in enumerate(cues, 1):
+                check()
+                emit({"speaking": {"line": i, "of": len(cues), "text": cue["text"][:60]}})
+                lines.append(broker.speech.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
+        finally:
+            broker.speech.stop()
+        return lines
 
 
 def run_clip(broker, record, graph, uploads, sheet, body, folder):

@@ -414,6 +414,20 @@ class BrokerClient(Ollama):
         body = {"say": say, "wait_s": wait_s, **({"voice": voice} if voice else {}), **({"language": language} if language else {})}
         return self._request("POST", "/live/talk", body, timeout=wait_s + 600)
 
+    def standby_start(self, wake_word):
+        """Progress lines of starting standby (ADR 0012); the last carries its state."""
+        return self._stream("/standby/start", {"wake_word": wake_word})
+
+    def standby_stop(self):
+        return self._request("POST", "/standby/stop", {}, timeout=60)
+
+    def standby(self):
+        return self._request("GET", "/standby")
+
+    def standby_wait(self, after=0, timeout_s=60):
+        """Standby's state once it changed since seq after (the wake word heard, paused, back, off)."""
+        return self._request("POST", "/standby/wait", {"after": after, "timeout_s": timeout_s}, timeout=timeout_s + 30)
+
     def live_stop(self):
         return self._request("POST", "/live/stop", {}, timeout=60)
 

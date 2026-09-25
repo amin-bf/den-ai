@@ -38,11 +38,17 @@ Clips take minutes, so they are detached requests (ADR 0009): POST /clip checks 
 answers with an id at once, the broker makes the clip on a thread of its own — waiting, swapping
 and counting like any image request — and GET /clip?id=N asks for it, POST /clip/cancel {id}
 drops it. The broker keeps them in memory only, a finished one for a day.
+
+A live conversation (ADR 0011) takes the machine: POST /live/start (streams), POST /live/talk
+{say, wait_s}, POST /live/stop. Standby (ADR 0012) listens for a wake word without it: POST
+/standby/start {wake_word} (streams), POST /standby/wait {after, timeout_s}, POST /standby/stop,
+GET /standby; its state lives in memory only.
 """
 
 import http.client
 import itertools
 import json
+import re
 import os
 import select
 import shutil
@@ -84,6 +90,8 @@ COMFYUI_START_TIMEOUT_S = 180
 COMFYUI_STOP_TIMEOUT_S = 30
 IDLE_CHECK_S = 10
 LIVE_IDLE_S = 600  # a live session nobody talks in for this long ends by itself (ADR 0011)
+WAKE_KEEP_S = 60  # what was said after the wake word is kept this long for a conversation to start (ADR 0012)
+STANDBY_WAIT_MAX_S = 600
 SIDES = ("llm", "image")
 DEFAULT_BATCH_SECONDS = 120
 DEFAULT_BATCH_REQUESTS = 4
@@ -137,6 +145,11 @@ class Broker:
         self.speech_lock = threading.Lock()  # one voice job on it at a time: two starts would race the same process
         self.live = None  # the live conversation, while there is one: den does nothing else (ADR 0011)
         self.live_engine = speech.LiveEngine()
+        self.engine_lock = threading.Lock()  # one start, stop or change of the live engine at a time
+        # Standby (ADR 0012): off, starting, listening, woke, or live (paused for a conversation,
+        # back after it). Every change counts up seq, which a client waits on.
+        self.standby = {"state": "off", "seq": 0}
+        self.standby_gen = 0  # which standby engine a watcher belongs to
 
     # --- admission and the swap ---
 
@@ -426,7 +439,13 @@ class Broker:
                 raise DenError("a live conversation is already on (den live off ends it)")
             if self.releasing or self.pending_mode:
                 raise DenError("den is releasing or switching mode; retry once it's done")
-            self.live = {"state": "starting", "voice": voice, "language": language, "last": time.time(), "talking": False}
+            woke = self.standby["state"] == "woke"
+            self.live = {"state": "starting", "voice": voice, "language": language, "last": time.time(), "talking": False,
+                         "woke": woke}
+            if self.standby["state"] != "off":
+                # Standby pauses for the conversation and comes back after it; the engine keeps
+                # recording meanwhile, so what the user says while the machine is freed isn't lost.
+                self._standby_set("live")
             self.cond.notify_all()  # queued requests give up: den is going live
         try:
             self._drain(SIDES, False, emit, caller_gone, command="unload")
@@ -438,19 +457,23 @@ class Broker:
             with self.cond:
                 self.loaded, self.swapping = None, None
                 self.cond.notify_all()
-            self.live_engine.start(voice_file, language, exaggeration, emit)
+            with self.engine_lock:
+                self.live_engine.start(voice_file, language, exaggeration, emit)
         except BaseException:
-            self.live_engine.stop()
+            with self.engine_lock:
+                self.live_engine.stop()
             with self.cond:
                 self.live = None
                 self.swapping = None
                 self.cond.notify_all()
+            threading.Thread(target=self._standby_resume, daemon=True).start()
             raise
         session = speech.new_session()
         with self.cond:
             self.live.update(state="on", session=session, since=time.time(), last=time.time())
-        speech.record_turn(session, {"who": "den", "event": "start", "voice": voice, "language": language})
-        log(f"live conversation {session} on (voice {voice or 'default'}, {language})")
+        speech.record_turn(session, {"who": "den", "event": "start", "voice": voice, "language": language,
+                                     **({"woke": True} if woke else {})})
+        log(f"live conversation {session} on (voice {voice or 'default'}, {language}{', after the wake word' if woke else ''})")
         return session
 
     def live_talk(self, say, wait_s, voice=None, language=None):
@@ -489,7 +512,10 @@ class Broker:
         with self.cond:
             live, self.live = self.live, None
             self.cond.notify_all()
-        self.live_engine.stop()
+        with self.engine_lock:
+            self.live_engine.stop()
+        # Standby comes back in the background: the transcript needn't wait for its detector.
+        threading.Thread(target=self._standby_resume, daemon=True).start()
         if not live or not live.get("session"):
             raise DenError("no live conversation is on")
         speech.record_turn(live["session"], {"who": "den", "event": "stop", "reason": reason})
@@ -503,6 +529,156 @@ class Broker:
             idle = live and live.get("state") == "on" and not live["talking"] and time.time() - live["last"] > LIVE_IDLE_S
         if idle:
             self.live_stop(reason=f"nobody talked for {LIVE_IDLE_S // 60} minutes")
+
+    # --- standby (ADR 0012) ---
+
+    def _standby_set(self, state, **extra):
+        """Change standby's state and count it, so a client waiting on it learns. Takes self.cond
+        (re-entrant: callers may hold it)."""
+        with self.cond:
+            keep = {k: self.standby[k] for k in ("wake_word", "since") if k in self.standby}
+            self.standby = {**keep, "state": state, "seq": self.standby["seq"] + 1, "changed": time.time(), **extra}
+            self.cond.notify_all()
+        log(f"standby: {state}" + (f" ({extra['reason']})" if extra.get("reason") else ""))
+
+    def standby_view(self):
+        with self.cond:
+            return {k: v for k, v in self.standby.items() if k != "changed"}
+
+    def standby_start(self, wake_word, emit):
+        """Listen for the wake word: the microphone, the VAD and a small detector on the CPU, and
+        no side, so images, clips and the LLM keep working. Again while on: the wake word is
+        replaced and what was said since it was heard is forgotten."""
+        wake_word = " ".join(str(wake_word or "").split())
+        if not re.search(r"\w", wake_word) or len(wake_word) > 60:
+            raise DenError("a wake word is a short phrase, such as \"hey Elli\"")
+        config = core.load_config()
+        if core.load_state(config)["mode"] == "off" or self.pending_mode == "off":
+            raise DenError("den is off; standby needs: den mode on")
+        why = speech.unavailable()
+        if why:
+            raise DenError(why)
+        with self.cond:
+            if self.live is not None:
+                # It begins when the conversation ends, as standby paused for it would.
+                self.standby["wake_word"] = wake_word
+                self._standby_set("live", since=time.time())
+                return self.standby_view()
+        with self.engine_lock:
+            if self.live_engine.phase() == "standby":
+                self.live_engine.rearm(wake_word)
+                with self.cond:
+                    self.standby["wake_word"] = wake_word
+                self._standby_set("listening")
+                return self.standby_view()
+            with self.cond:
+                self.standby["wake_word"] = wake_word
+            self._standby_set("starting", since=time.time())
+            try:
+                self.live_engine.start_standby(wake_word, emit)
+            except BaseException as e:
+                with self.cond:
+                    if self.standby["state"] == "starting":
+                        self._standby_set("off", reason=str(e) if isinstance(e, DenError) else "standby didn't start")
+                raise
+            self._standby_watch()
+        return self.standby_view()
+
+    def _standby_watch(self):
+        """Listening from now on, and a watcher that turns the engine's wake word into a state.
+        Only from starting: a conversation or a stop that came while the detector loaded wins."""
+        with self.cond:
+            if self.standby["state"] != "starting":
+                return
+            self.standby_gen += 1
+            gen = self.standby_gen
+            self._standby_set("listening")
+        threading.Thread(target=self._standby_watcher, args=(gen,), daemon=True).start()
+
+    def _standby_watcher(self, gen):
+        seen = 0
+        while True:
+            with self.cond:
+                current = self.standby_gen == gen and self.standby["state"] in ("listening", "woke")
+                woke_at = self.standby.get("woke_at") if self.standby["state"] == "woke" else None
+            if not current:
+                return
+            if woke_at:
+                # Heard, and waiting for a conversation to start. Past WAKE_KEEP_S what was said
+                # is forgotten and the wake word listened for again.
+                if time.time() - woke_at < WAKE_KEEP_S:
+                    with self.cond:
+                        self.cond.wait(1)
+                    continue
+                with self.engine_lock:
+                    with self.cond:
+                        still = self.standby_gen == gen and self.standby["state"] == "woke" and self.live is None
+                    if still:
+                        try:
+                            self.live_engine.rearm()
+                        except (DenError, OSError) as e:
+                            self._standby_set("off", reason=f"standby stopped: {e}")
+                            return
+                        self._standby_set("listening", reason=f"no conversation started within {WAKE_KEEP_S}s")
+                continue
+            try:
+                wakes = self.live_engine.wait_wake(seen, 5)
+            except (OSError, json.JSONDecodeError):
+                with self.cond:
+                    current = self.standby_gen == gen and self.standby["state"] in ("listening", "woke")
+                if current and not self.live_engine.running():
+                    self._standby_set("off", reason=f"the wake word detector exited; see {speech.LIVE_LOG}")
+                    return
+                time.sleep(1)
+                continue
+            if wakes > seen:
+                seen = wakes
+                with self.cond:
+                    if self.standby_gen == gen and self.standby["state"] == "listening":
+                        self._standby_set("woke", woke_at=time.time())
+
+    def _standby_resume(self):
+        """Standby back after a conversation it paused for, with a fresh detector."""
+        with self.cond:
+            if self.standby["state"] != "live" or self.live is not None:
+                return
+            wake_word = self.standby.get("wake_word")
+        with self.engine_lock:
+            with self.cond:
+                if self.standby["state"] != "live" or self.live is not None:
+                    return
+            self._standby_set("starting")
+            try:
+                self.live_engine.start_standby(wake_word, _no_emit)
+            except (DenError, OSError) as e:
+                with self.cond:
+                    if self.standby["state"] == "starting":
+                        self._standby_set("off", reason=f"standby didn't come back: {e}")
+                return
+            self._standby_watch()
+
+    def standby_stop(self, reason="asked"):
+        """Stop listening for the wake word. A conversation that is on goes on; standby just won't
+        come back after it."""
+        with self.cond:
+            was = self.standby["state"]
+            if was != "off":
+                self._standby_set("off", reason=reason)
+        if was in ("starting", "listening", "woke"):
+            with self.engine_lock:
+                if self.live is None and self.live_engine.phase() in ("standby", None):
+                    self.live_engine.stop()
+        return self.standby_view()
+
+    def standby_wait(self, after, timeout_s):
+        """Standby's state once it has changed since seq `after`, or at the timeout: a client
+        learns this way that the wake word was heard, that a conversation paused it, that it's
+        back, or that it ended (and why)."""
+        deadline = time.time() + max(0.0, min(float(timeout_s), STANDBY_WAIT_MAX_S))
+        with self.cond:
+            while self.standby["seq"] <= after and time.time() < deadline:
+                self.cond.wait(deadline - time.time())
+            return self.standby_view()
 
     def idle_loop(self):
         while True:
@@ -668,7 +844,8 @@ class Broker:
             "num_ctx": config["llm"].get("num_ctx", 8192),
             "pending_mode": self.pending_mode,
             "releasing": list(self.releasing) or None,
-            "live": {k: v for k, v in self.live.items() if k in ("state", "session", "voice", "language", "since")} if self.live else None,
+            "live": {k: v for k, v in self.live.items() if k in ("state", "session", "voice", "language", "since", "woke")} if self.live else None,
+            "standby": self.standby_view(),
             "pressure": pressure,
             # Set while a side that isn't loaded would have to wait for the machine to settle.
             "too_busy": core.too_busy(config, pressure),
@@ -711,6 +888,8 @@ class Broker:
                 raise DenError(f"a switch to mode {self.pending_mode} is already waiting")
             self.pending_mode = mode
             self.cond.notify_all()  # waiting requests for a side being turned off give up
+        if mode == "off":
+            self.standby_stop(reason="den was turned off")
         try:
             off = list(SIDES) if mode == "off" else []
             self._drain(off, now, emit, caller_gone)
@@ -1193,6 +1372,15 @@ class Handler(BaseHTTPRequestHandler):
                 ))
             elif path == "/live/stop" and self.command == "POST":
                 self._send_json(200, self.broker.live_stop())
+            elif path == "/standby/start" and self.command == "POST":
+                self._stream_request(self._standby_start, json.loads(self._read_body() or b"{}"))
+            elif path == "/standby/stop" and self.command == "POST":
+                self._send_json(200, self.broker.standby_stop())
+            elif path == "/standby/wait" and self.command == "POST":
+                body = json.loads(self._read_body() or b"{}")
+                self._send_json(200, self.broker.standby_wait(int(body.get("after") or 0), float(body.get("timeout_s", 60))))
+            elif path == "/standby" and self.command == "GET":
+                self._send_json(200, self.broker.standby_view())
             elif path == "/conversations" and self.command == "GET":
                 ref = parse_qs(urlsplit(self.path).query).get("id", [None])[0]
                 self._send_json(200, speech.read_conversation(ref) if ref else {"conversations": speech.conversations()})
@@ -1417,6 +1605,11 @@ class Handler(BaseHTTPRequestHandler):
             raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
         session = self.broker.live_start(body.get("voice"), language, float(body.get("exaggeration") or 0.5), emit, self._caller_gone)
         emit({"result": {"session": session}})
+
+    def _standby_start(self, body, emit):
+        """POST /standby/start {wake_word}: listen for the wake word (ADR 0012). Streams progress;
+        ends with {"result": standby}. Again while on, it replaces the wake word."""
+        emit({"result": self.broker.standby_start(body.get("wake_word"), emit)})
 
     def _voice_design(self, body, emit):
         """POST /voices/design {description, name?, language?, seed?, replace?, bytes?}: make a voice

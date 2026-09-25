@@ -116,6 +116,10 @@ def cmd_status(args):
         why = speech.unavailable()
         voices = ", ".join(speech.voices()) or "none yet (den voice --add)"
         print(f"speech   {f'not installed: {why}' if why else f'voices: {voices}'}")
+    if status.get("live"):
+        print(f"live     {status['live']['state']}: den takes nothing else until: den live off")
+    if (status.get("standby") or {}).get("state", "off") != "off":
+        print(_standby_line(status["standby"]).replace("standby: ", "standby  ", 1))
     _print_pressure(config, status)
     _print_tasks(config, state)
     # Non-zero while Ollama is down, so a shell check or a notifier can watch this.
@@ -299,6 +303,39 @@ def cmd_live(args):
     else:
         live = client.status().get("live")
         print(f"live: {live['state']} (session {live.get('session')}, voice {live.get('voice') or 'default'})" if live else "live: off")
+
+
+def cmd_standby(args):
+    """den standby on PHRASE | off | wait | status: listen for a wake word (ADR 0012)."""
+    config, _ = _load()
+    client = core.broker(config, "cli")
+    if args.action == "on":
+        if not args.wake_word:
+            raise DenError('den standby on takes the wake word, e.g. den standby on "hey Elli"')
+        for msg in client.standby_start(args.wake_word):
+            if _print_image_step(msg):
+                pass
+            elif "result" in msg:
+                print(f"standby: listening for \"{msg['result'].get('wake_word')}\"; den's other tools keep working")
+    elif args.action == "off":
+        client.standby_stop()
+        print("standby: off")
+    elif args.action == "wait":
+        # Until the next change: the wake word heard, a conversation pausing it, standby back or off.
+        seq = client.standby()["seq"]
+        while True:
+            standby = client.standby_wait(after=seq, timeout_s=600)
+            if standby["seq"] != seq:
+                break
+        print(_standby_line(standby))
+    else:
+        print(_standby_line(client.standby()))
+
+
+def _standby_line(standby):
+    wake = f" for \"{standby['wake_word']}\"" if standby.get("wake_word") and standby["state"] != "off" else ""
+    reason = f" ({standby['reason']})" if standby.get("reason") else ""
+    return f"standby: {standby['state']}{wake}{reason}"
 
 
 def broker_client(where, client):
@@ -1110,6 +1147,11 @@ def main(argv=None):
     p.add_argument("-v", "--voice", help="with on: the voice to speak in")
     p.add_argument("-l", "--language", help="with on: the language (default en)")
     p.set_defaults(func=cmd_live)
+
+    p = sub.add_parser("standby", help="listen for a wake word, without taking the machine")
+    p.add_argument("action", choices=["on", "off", "wait", "status"])
+    p.add_argument("wake_word", nargs="?", help='with on: the phrase, e.g. "hey Elli"')
+    p.set_defaults(func=cmd_standby)
 
     p = sub.add_parser("pose", help="the pose library: list, save a photo's pose, rename or delete saved poses")
     pose_sub = p.add_subparsers(dest="pose_command")

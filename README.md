@@ -502,6 +502,23 @@ den live keep ID NAME   # keep it under a name
 den live rm ID          # delete it
 ```
 
+**Standby** ([ADR 0012](docs/adr/0012-standby.md)) listens between conversations for a wake word,
+such as "hey Elli", without taking the machine: only a small Whisper on the CPU hears the start of
+each utterance, and forgets it unless it's the wake word. Images, clips and the LLM keep working,
+and other programs can still record from the microphone. When the wake word is heard, den tells
+the client, which starts the conversation; what you say from the wake word on is kept, so your
+first words aren't lost while the machine is freed. A conversation pauses standby and it comes
+back after; `den unload` leaves it on, `den mode off` ends it.
+
+```sh
+den standby on "hey Elli"  # listen for it (again: another wake word)
+den standby wait           # until the next change: woke, live, listening again, off
+den standby off
+```
+
+Clients use `POST /standby/start {wake_word}`, `POST /standby/wait {after, timeout_s}` (answers
+once standby's `seq` has passed `after`), `POST /standby/stop` and `GET /standby`.
+
 ### The pose library
 
 den keeps **saved poses**: a pose skeleton drawn once from a photo and kept under a name, so later

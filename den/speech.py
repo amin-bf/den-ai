@@ -253,7 +253,8 @@ CONVERSATIONS_DIR = Path(os.environ.get("DEN_CONVERSATIONS") or _DATA_HOME / "de
 
 
 class LiveEngine:
-    """The live engine process (speech/live.py): microphone, voice and models, while live."""
+    """The live engine process (speech/live.py): microphone, voice and models, while live; the
+    microphone and the wake word detector only, in standby (ADR 0012)."""
 
     def __init__(self):
         self.proc = None
@@ -272,20 +273,18 @@ class LiveEngine:
         finally:
             conn.close()
 
-    def start(self, voice_file, language, exaggeration, emit):
+    def _spawn(self, extra):
         why = unavailable()
         if why:
             raise DenError(why)
         LIVE_SOCKET.parent.mkdir(parents=True, exist_ok=True)
         LIVE_SOCKET.unlink(missing_ok=True)
         LIVE_LOG.parent.mkdir(parents=True, exist_ok=True)
-        emit({"starting": "the live engine (microphone, Whisper, voice)"})
-        args = [str(PYTHON), str(LIVE_ENGINE), "--socket", str(LIVE_SOCKET), "--language", language,
-                "--exaggeration", str(exaggeration)]
-        if voice_file:
-            args += ["--voice", str(voice_file)]
         self.log = open(LIVE_LOG, "w")
-        self.proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
+        self.proc = subprocess.Popen([str(PYTHON), str(LIVE_ENGINE), "--socket", str(LIVE_SOCKET), *extra],
+                                     stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
+
+    def _until_ready(self, phase):
         deadline = time.time() + START_TIMEOUT_S
         while True:
             if not self.running():
@@ -296,14 +295,59 @@ class LiveEngine:
                 if health.get("error"):
                     self.stop()
                     raise DenError(f"the live engine didn't load: {health['error']}; see {LIVE_LOG}")
-                if health.get("ready"):
+                # An engine from before standby reports no phase: it's only ever live.
+                if health.get("ready") and health.get("phase", "live") == phase:
                     return
             except (OSError, json.JSONDecodeError):
                 pass
             if time.time() > deadline:
                 self.stop()
                 raise DenError(f"the live engine wasn't ready after {START_TIMEOUT_S}s; see {LIVE_LOG}")
-            time.sleep(1)
+            time.sleep(0.5)
+
+    def _conversation_args(self, voice_file, language, exaggeration):
+        return {"language": language, "exaggeration": exaggeration, **({"voice": str(voice_file)} if voice_file else {})}
+
+    def start(self, voice_file, language, exaggeration, emit):
+        """The conversation: from standby in the same process, so what was said since the wake word
+        is kept; otherwise a new engine."""
+        if self.phase() == "standby":
+            emit({"starting": "the conversation's Whisper and voice"})
+            status, answer = self._call("POST", "/live", self._conversation_args(voice_file, language, exaggeration))
+            if status != 200:
+                raise DenError(f"live: {answer.get('error')}")
+        else:
+            self.stop()
+            emit({"starting": "the live engine (microphone, Whisper, voice)"})
+            args = ["--language", language, "--exaggeration", str(exaggeration)]
+            self._spawn(args + (["--voice", str(voice_file)] if voice_file else []))
+        self._until_ready("live")
+
+    def start_standby(self, wake_word, emit):
+        """Standby: the microphone, the VAD and the wake word detector, on the CPU (ADR 0012)."""
+        emit({"starting": "standby (the wake word detector, on the CPU)"})
+        self._spawn(["--wake-word", wake_word])
+        self._until_ready("standby")
+
+    def phase(self):
+        """standby, loading or live; None when no engine runs."""
+        if not self.running():
+            return None
+        try:
+            return self._call("GET", "/health", timeout=5)[1].get("phase", "live")
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def wait_wake(self, after, timeout_s):
+        """How often the wake word has been heard, once it's more than after, or at the timeout."""
+        status, answer = self._call("POST", "/wait", {"after": after, "timeout_s": timeout_s}, timeout=timeout_s + 10)
+        return answer.get("wakes", after)
+
+    def rearm(self, wake_word=None):
+        """Forget what was said since the wake word and listen for it (or a new one) again."""
+        status, answer = self._call("POST", "/wake", {"wake_word": wake_word} if wake_word else {})
+        if status != 200:
+            raise DenError(f"standby: {answer.get('error')}")
 
     def talk(self, say, wait_s, voice_file=None, language=None):
         body = {"say": say, "wait_s": wait_s, **({"voice": str(voice_file)} if voice_file else {}),

@@ -45,7 +45,7 @@ _Avoid_: enabled, on
 
 **Release**:
 Giving the machine back because someone asked for it: the sides take no new requests, finish what is running and unload — the GPU, and the RAM and CPU their models hold. The mode stays on, so the next request loads its side again.
-_Avoid_: free, standby, eviction
+_Avoid_: free, eviction, standby (that's waiting for the wake word)
 
 **Unload**:
 Emptying memory of a loaded side's model. It is the last step of a swap, of a release and of turning den off.
@@ -70,6 +70,23 @@ _Avoid_: client, user
 **Remote**:
 The den on another machine, named in `[remotes.<name>]` and reached through an SSH tunnel. A client picks one per process and uses it as if den existed only there. No path crosses: files and input images go as bytes, and generated images come back as bytes.
 _Avoid_: server, host (that's the SSH side), node
+
+### Live conversation
+
+**Live conversation**:
+A spoken conversation between a client (such as Claude) and the user through den's microphone and
+voice. It has the machine to itself: no side is loaded while it lasts.
+_Avoid_: live mode (the mode is the kill switch), call, chat
+
+**Standby**:
+The quiet state between live conversations, in which den listens only for the wake word, with a
+small detector and no side loaded. Other programs can still record from the microphone.
+_Avoid_: standby mode, idle, sleep, release (that gives the machine back)
+
+**Wake word**:
+The phrase that ends standby, given by the client (e.g. "hey Ellie"). It counts only at the start
+of an utterance; nothing said before it reaches any model but the detector.
+_Avoid_: hotword, trigger, agent name (the client's; den only knows the phrase)
 
 ### Delegation
 

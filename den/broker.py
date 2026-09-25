@@ -884,14 +884,29 @@ def voice_request(spec, folder):
     }
 
 
+def _free_comfy_for_speech(comfy):
+    """Unload ComfyUI's models, then give the driver a moment to actually reclaim their VRAM
+    before the speech model tries to load into it (llm.Server._await_vram has the same race,
+    on the LLM side after a swap)."""
+    if comfy and comfy.up():
+        before = platform.free_vram_mb()
+        comfy.free()
+        if before is not None:
+            deadline = time.time() + llm.VRAM_SETTLE_TIMEOUT_S
+            while time.time() < deadline:
+                after = platform.free_vram_mb()
+                if after is None or after >= before + llm.VRAM_SETTLE_MIN_RISE_MB:
+                    return
+                time.sleep(llm.VRAM_SETTLE_POLL_S)
+
+
 def voice_track(broker, config, request, emit, check):
     """(track WAV, seconds, notes) of a voice request: its lines spoken, or its recording as it is."""
     if not request.get("audio"):
         return speech.assemble(request["cues"], speak_lines(broker, config, request, emit, check))
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    if comfy and comfy.up():
-        comfy.free()
+    _free_comfy_for_speech(comfy)
     try:
         broker.speech.start(emit)
         check()
@@ -906,8 +921,7 @@ def transcribe(broker, config, recording, language, emit, check):
     """Whisper's timed segments of a recording, as cues."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    if comfy and comfy.up():
-        comfy.free()
+    _free_comfy_for_speech(comfy)
     try:
         broker.speech.start(emit)
         check()
@@ -922,8 +936,7 @@ def speak_lines(broker, config, request, emit, check):
     freed its models (they don't fit on the GPU together) and stops after. Returns the WAVs."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    if comfy and comfy.up():
-        comfy.free()
+    _free_comfy_for_speech(comfy)
     cues, lines = request["cues"], []
     try:
         broker.speech.start(emit)

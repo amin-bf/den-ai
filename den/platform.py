@@ -108,6 +108,31 @@ def free_ram_gb():
         return None
 
 
+# --- free VRAM -------------------------------------------------------------------------
+
+
+def free_vram_mb():
+    """Free memory on the first discrete GPU, in MB, via nvidia-smi; None when there is none
+    to ask (macOS has no separate VRAM to poll — its GPU shares free_ram_gb's memory — and a
+    machine without nvidia-smi answers the same way).
+    """
+    if MACOS:
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        return int(out.stdout.splitlines()[0].strip())
+    except (IndexError, ValueError):
+        return None
+
+
 # --- services -------------------------------------------------------------------------
 
 

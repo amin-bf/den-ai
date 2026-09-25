@@ -30,6 +30,13 @@ SLOT_DIR = Path(os.environ.get("DEN_SLOTS") or _CACHE / "den/slots")
 LOG_PATH = core._STATE_HOME / "den/llama-server.log"
 START_TIMEOUT_S = 600  # loading a ~17 GB model split across GPU and RAM
 STOP_TIMEOUT_S = 30
+# The CUDA driver can lag behind the process exit it belongs to: llama-server has been seen
+# holding its VRAM for tens of seconds after stop() considered it gone, long enough to starve
+# the speech model's load right after a swap. These bound how long stop() waits for the
+# driver to catch up before giving the GPU to whatever asked for it next.
+VRAM_SETTLE_TIMEOUT_S = 20
+VRAM_SETTLE_POLL_S = 0.5
+VRAM_SETTLE_MIN_RISE_MB = 256  # noise-sized rises don't count as "freed"
 # What ggml prints when a compute backend has failed unrecoverably — a Metal allocation that
 # didn't fit, a CUDA OOM. The server stays up and answers every later request with an error,
 # so this line is the only way to tell a dead backend from a request that simply failed.
@@ -257,6 +264,7 @@ class Server:
         emit({"unloading": [model]})
         if save:
             self._save()
+        before = platform.free_vram_mb()
         self.proc.send_signal(signal.SIGTERM)
         try:
             self.proc.wait(STOP_TIMEOUT_S)
@@ -268,7 +276,24 @@ class Server:
             self.log.close()
             self.log = None
         SOCKET.unlink(missing_ok=True)
+        self._await_vram(before)
         return model
+
+    def _await_vram(self, before):
+        """Wait a little past the process exiting for the driver to actually reclaim its VRAM
+        (a CUDA context can outlive the process that opened it), so the next thing that loads
+        onto the GPU doesn't race a reclaim that's still in flight. Best-effort: gives up
+        silently if VRAM can't be read here, or if it doesn't rise within the deadline —
+        callers should keep treating a load failure afterward as a real one, not retry forever.
+        """
+        if before is None:
+            return
+        deadline = time.time() + VRAM_SETTLE_TIMEOUT_S
+        while time.time() < deadline:
+            after = platform.free_vram_mb()
+            if after is None or after >= before + VRAM_SETTLE_MIN_RISE_MB:
+                return
+            time.sleep(VRAM_SETTLE_POLL_S)
 
     def backend_dead(self):
         """Whether this server's compute backend has failed unrecoverably.

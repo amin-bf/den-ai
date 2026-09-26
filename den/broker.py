@@ -430,7 +430,7 @@ class Broker:
 
     # --- live conversation (ADR live-conversation) ---
 
-    def live_start(self, voice, language, exaggeration, emit, caller_gone):
+    def live_start(self, voice, language, emit, caller_gone):
         """Take the machine for a live conversation: finish what runs, free both sides, load the
         live engine. Every other request is refused from the first moment. Returns the session id."""
         voice_file = speech.voice_path(voice)
@@ -458,7 +458,7 @@ class Broker:
                 self.loaded, self.swapping = None, None
                 self.cond.notify_all()
             with self.engine_lock:
-                self.live_engine.start(voice_file, language, exaggeration, emit)
+                self.live_engine.start(voice_file, language, emit)
         except BaseException:
             with self.engine_lock:
                 self.live_engine.stop()
@@ -476,10 +476,11 @@ class Broker:
         log(f"live conversation {session} on (voice {voice or 'default'}, {language}{', after the wake word' if woke else ''})")
         return session
 
-    def live_talk(self, say, wait_s, voice=None, language=None, exaggeration=None, cfg_weight=None, now=False):
-        """One exchange. exaggeration/cfg_weight color this turn's delivery only, the session's
-        own (from live_start) otherwise. With now the talk that is running ends first (preempted)
-        and this one is spoken at once: a line that can't wait for the user's next words (ADR
+    def live_talk(self, say, wait_s, voice=None, language=None, emotion=None, emo_alpha=None, now=False):
+        """One exchange. emotion (the 8 named dimensions, 0-1 each) and emo_alpha color this
+        turn's delivery only, default flat when left out — nothing carries over between turns,
+        unlike voice or language. With now the talk that is running ends first (preempted) and
+        this one is spoken at once: a line that can't wait for the user's next words (ADR
         live-conversation)."""
         voice_file = speech.voice_path(voice) if voice else None
         if language and language not in speech.LANGUAGES:
@@ -500,7 +501,7 @@ class Broker:
             speech.record_turn(session, {"who": "den", "event": "switch", **switched})
         began = round(time.time(), 1)  # when Claude's line starts, not when the user's answer ends
         try:
-            answer = self.live_engine.talk(say, wait_s, voice_file, language, exaggeration, cfg_weight, now)
+            answer = self.live_engine.talk(say, wait_s, voice_file, language, emotion, emo_alpha, now)
         finally:
             with self.cond:
                 if self.live:
@@ -1442,7 +1443,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self._read_body() or b"{}")
                 self._send_json(200, self.broker.live_talk(
                     str(body.get("say") or ""), float(body.get("wait_s") or 120), body.get("voice"), body.get("language"),
-                    body.get("exaggeration"), body.get("cfg_weight"), bool(body.get("now")),
+                    body.get("emotion"), body.get("emo_alpha"), bool(body.get("now")),
                 ))
             elif path == "/live/stop" and self.command == "POST":
                 self._send_json(200, self.broker.live_stop())
@@ -1672,12 +1673,14 @@ class Handler(BaseHTTPRequestHandler):
         emit({"result": {"srt": srt, "text": heard["text"], "segments": cues, "duration": heard["duration"], "path": str(path), "seconds": seconds}})
 
     def _live_start(self, body, emit):
-        """POST /live/start {voice?, language?, exaggeration?}: take the machine for a live
-        conversation (ADR live-conversation). Streams progress; ends with {"result": {session}}."""
+        """POST /live/start {voice?, language?}: take the machine for a live conversation (ADR
+        live-conversation). Streams progress; ends with {"result": {session}}."""
+        config = core.load_config()
         language = str(body.get("language") or "en").lower()
-        if language not in speech.LANGUAGES:
-            raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
-        session = self.broker.live_start(body.get("voice"), language, float(body.get("exaggeration") or 0.5), emit, self._caller_gone)
+        languages = speech.workflow_languages(config, "emotion")
+        if language not in languages:
+            raise DenError(f"live conversation doesn't speak {language!r}; one of: {', '.join(languages)}")
+        session = self.broker.live_start(body.get("voice"), language, emit, self._caller_gone)
         emit({"result": {"session": session}})
 
     def _standby_start(self, body, emit):

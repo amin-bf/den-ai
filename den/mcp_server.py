@@ -297,8 +297,7 @@ def live_tools():
                 "type": "object",
                 "properties": {
                     "voice": {"type": "string", "description": "Your voice: a name from list_voices. Default: the model's own."},
-                    "language": {"type": "string", "enum": sorted(speech.LANGUAGES), "description": "The language you speak at first (default en); the user's is detected in every utterance."},
-                    "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2 (default 0.5)."},
+                    "language": {"type": "string", "enum": sorted(speech.workflow_languages(core.load_config(), "emotion")), "description": "The language you speak at first (default en); the user's is detected in every utterance."},
                 },
             },
         },
@@ -316,21 +315,21 @@ def live_tools():
                     "wait_s": {"type": "number", "description": "How long to listen for an answer (default 120 s)."},
                     "voice": {"type": "string", "description": "Switch to this voice (list_voices) from this turn on, e.g. when the user asks."},
                     "language": {
-                        "type": "string", "enum": sorted(speech.LANGUAGES),
+                        "type": "string", "enum": sorted(speech.workflow_languages(core.load_config(), "emotion")),
                         "description": "The language `say` is in, from this turn on: pass it whenever you answer in another "
                         "language than before. Listening needs none: the user may answer in any language, each utterance's "
                         "own is detected, and you see it in the words.",
                     },
-                    "exaggeration": {
-                        "type": "number",
-                        "description": "Expressiveness for this turn only, 0.25–2 (default the session's own, from live_start). "
-                        "Higher for a tense or dramatic line, lower for something calm or gentle; changing it is cheap, so "
-                        "vary it turn by turn rather than picking one mood for the whole conversation.",
+                    "emotion": {
+                        "type": "object",
+                        "description": "A strong, named emotion to color this turn's delivery, 0-1 each, all optional and "
+                        "default 0: set the one or two that fit the line, leave the rest out. Nothing carries over "
+                        "between turns, unlike voice or language.",
+                        "properties": {name: {"type": "number"} for name in speech.EMOTIONS},
                     },
-                    "cfg_weight": {
+                    "emo_alpha": {
                         "type": "number",
-                        "description": "Pacing for this turn only, 0–1 (default 0.5). Lower is slower and calmer, a good "
-                        "pair with higher exaggeration.",
+                        "description": "How strongly emotion colors this turn's delivery, 0-1. Default 1.",
                     },
                 },
             },
@@ -397,7 +396,7 @@ def live_tools():
 def live_call(name, args, progress_token):
     broker = core.broker(core.load_config(), "claude")
     if name == "live_start":
-        request = {k: args[k] for k in ("voice", "language", "exaggeration") if args.get(k) is not None}
+        request = {k: args[k] for k in ("voice", "language") if args.get(k) is not None}
         result, step = None, 0
         for msg in broker.live_start(**request):
             if "result" in msg:
@@ -412,7 +411,7 @@ def live_call(name, args, progress_token):
     if name == "talk":
         answer = broker.live_talk(
             str(args.get("say") or ""), float(args.get("wait_s") or 120), args.get("voice"), args.get("language"),
-            args.get("exaggeration"), args.get("cfg_weight"),
+            args.get("emotion"), args.get("emo_alpha"),
         )
         return json.dumps({k: v for k, v in answer.items() if v not in (None, [], False, "")}, ensure_ascii=False)
     if name == "live_stop":

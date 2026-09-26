@@ -1,10 +1,12 @@
 """den's live engine: ears and a voice for a spoken conversation with Claude (docs/adr/0011-live-conversation.md).
 
-The broker starts it when a live conversation begins and stops it at the end. It runs in the speech
-venv and owns the speakers and the models meanwhile: a voice-activity model listens all the time,
-a transcription model writes down what the user says, and the speech model speaks in a voice from
-the library. Audio goes through PipeWire's echo canceller, so den's own voice is never taken for
-the user.
+The broker starts it when a live conversation begins and stops it at the end. It runs in the
+emotion speech workflow's venv (docs/adr/speech-workflows.md) and owns the speakers and the
+models meanwhile: a voice-activity model listens all the time, a transcription model writes down
+what the user says, and the speech model — the same one the emotion workflow uses for
+generate_voice, a strong named-emotion vector instead of one flat setting — speaks in a voice
+from the library. Audio goes through PipeWire's echo canceller, so den's own voice is never taken
+for the user.
 
 Started with --wake-word it begins in standby (docs/adr/0012-standby.md): only the voice-activity
 model and a small transcription model on the CPU, which hears the start of each utterance for the
@@ -17,20 +19,19 @@ is said from the wake word on is kept as audio until the conversation starts in 
                   `after` times, or at the timeout
     POST /wake    {wake_word?} -> in standby: forget what was said since the wake word, and listen
                   for it (or a new one) again
-    POST /live    {voice?, language, exaggeration} -> from standby, start the conversation: load
-                  its models; /health says when it's ready
-    POST /talk    {say?, wait_s?, voice?, language?, exaggeration?, cfg_weight?, now?} -> from this
-                  turn on in voice (a recording's path), speaking language (what `say` is in;
-                  listening always detects each utterance's own); speaks `say` sentence by
-                  sentence, then waits for the user's next utterance: {heard, interrupted, spoken,
-                  unspoken, silence}. exaggeration/cfg_weight color this turn's delivery only,
-                  falling back to the session's own (set at /live) when left out; changing
-                  exaggeration is cheap; it patches the voice's own conditioning in place rather
-                  than re-reading it, so it's fine to change turn by turn. The user speaking over
-                  the voice stops it at once (interrupted, and how far it got); something said
-                  before the call came in is returned without speaking at all. With now, a talk
-                  that is running ends first (preempted): its voice finishes the sentence it's on,
-                  and its wait ends unless the user has begun to answer.
+    POST /live    {voice?, language} -> from standby, start the conversation: load its models;
+                  /health says when it's ready
+    POST /talk    {say?, wait_s?, voice?, language?, emotion?, emo_alpha?, now?} -> from this turn
+                  on in voice (a recording's path), speaking language (what `say` is in; listening
+                  always detects each utterance's own); speaks `say` sentence by sentence, then
+                  waits for the user's next utterance: {heard, interrupted, spoken, unspoken,
+                  silence}. emotion (the 8 named dimensions, 0-1 each) and emo_alpha color this
+                  turn's delivery only, default flat (no emotion) when left out — nothing carries
+                  over from a previous turn, unlike a voice switch. The user speaking over the
+                  voice stops it at once (interrupted, and how far it got); something said before
+                  the call came in is returned without speaking at all. With now, a talk that is
+                  running ends first (preempted): its voice finishes the sentence it's on, and its
+                  wait ends unless the user has begun to answer.
     POST /stop    ends the engine
 """
 
@@ -62,6 +63,12 @@ WAKE_MATCH = 0.9  # how alike, by sound, the start of an utterance and the wake 
 WAKE_THREADS = 2  # the detector's share of the CPU: standby leaves the machine to others
 EARLY_MAX_S = 120  # at most this much speech is kept between the wake word and the conversation
 FILLERS = {"oh", "um", "uh", "hm", "hmm", "ok", "okay", "so", "well"}
+TTS_SR = 22_050  # the emotion speech workflow's fixed output rate
+EMOTIONS = ("happy", "angry", "sad", "afraid", "disgusted", "melancholic", "surprised", "calm")
+SPEAK_LANGUAGES = {"en": "EN", "zh": "ZH", "ja": "JA", "es": "ES", "ar": "AR"}
+EMOTION_DIR = os.environ.get("DEN_SPEECH_EMOTION_DIR") or os.path.join(
+    os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "den/speech-emotion",
+)
 
 state = {"ready": False, "error": None, "phase": "live", "wakes": 0}  # phase: standby -> loading -> live
 utterances = queue.Queue()  # (audio, t_start, t_end, counted, began_in) in the order they were said
@@ -301,23 +308,32 @@ def sentences(text):
     return merged
 
 
-def synthesize(sentence, exaggeration=None, cfg_weight=None):
-    import torch
+def synthesize(sentence, emo_vector=None, emo_alpha=None):
+    import wave
+    import numpy
 
+    out = f"/tmp/den-live-tts-{os.getpid()}-{threading.get_ident()}.wav"
     with models["tts_lock"]:
-        wav = models["tts"].generate(
-            sentence, language_id=models["speak_language"],
-            exaggeration=exaggeration if exaggeration is not None else models["exaggeration"],
-            cfg_weight=cfg_weight if cfg_weight is not None else 0.5,
+        models["tts"].infer(
+            spk_audio_prompt=models["voice"], text=sentence, lang=models["speak_language"],
+            output_path=out, emo_vector=emo_vector, emo_alpha=emo_alpha if emo_alpha is not None else 1.0,
+            verbose=False,
         )
-    return wav.squeeze().clamp(-1, 1).mul(32767).to(torch.int16).cpu().numpy().tobytes()
+    try:
+        with wave.open(out) as w:
+            return w.readframes(w.getnframes())
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
 
 
-def speak(text, target, exaggeration=None, cfg_weight=None):
+def speak(text, target, emotion=None, emo_alpha=None):
     """Say the text sentence by sentence; stop at once when the user starts speaking. Returns the
-    sentences fully said and the ones not said. exaggeration/cfg_weight color this turn only —
-    changing exaggeration is cheap (it patches the voice's own conditioning in place), so a turn
-    can be calmer or more dramatic than the session's default without re-reading the voice."""
+    sentences fully said and the ones not said. emotion/emo_alpha color this turn only, default
+    flat (no emotion vector) when left out — unlike a voice switch, nothing carries over."""
+    emo_vector = [float(emotion.get(name) or 0) for name in EMOTIONS] if emotion else None
     parts = sentences(text)
     audio = queue.Queue(maxsize=2)
 
@@ -325,11 +341,11 @@ def speak(text, target, exaggeration=None, cfg_weight=None):
         for part in parts:
             if barge.is_set():
                 break
-            audio.put((part, synthesize(part, exaggeration, cfg_weight)))
+            audio.put((part, synthesize(part, emo_vector, emo_alpha)))
         audio.put(None)
 
     threading.Thread(target=produce, daemon=True).start()
-    rate = models["tts"].sr
+    rate = TTS_SR
     # --raw: without it pw-play reads through libsndfile, which wants a header, and fails at once.
     args = ["pw-play", "--raw", "--rate", str(rate), "--channels", "1", "--format", "s16", "-"]
     if target:
@@ -380,14 +396,13 @@ def speak(text, target, exaggeration=None, cfg_weight=None):
 
 
 def switch(voice=None, language=None):
-    """Another voice or speaking language from this turn on: the voice's recording is read once
-    (about a second). Listening needs no language: the transcription model detects each utterance's own, so the
-    user can answer in English what was said in German, and the other way round."""
+    """Another voice or speaking language from this turn on. Listening needs no language: the
+    transcription model detects each utterance's own, so the user can answer in English what was
+    said in German, and the other way round. Unlike the default workflow, cloning here needs no
+    separate step ahead of speaking: spk_audio_prompt is just the path, read fresh each call."""
     if language:
-        models["speak_language"] = language
+        models["speak_language"] = SPEAK_LANGUAGES.get(language, language.upper())
     if voice and voice != models.get("voice"):
-        with models["tts_lock"]:
-            models["tts"].prepare_conditionals(voice, exaggeration=models["exaggeration"])
         models["voice"] = voice
 
 
@@ -395,8 +410,8 @@ def talk(body):
     say = str(body.get("say") or "").strip()
     wait_s = float(body.get("wait_s") or 120)
     switch(body.get("voice"), body.get("language"))
-    exaggeration = float(body["exaggeration"]) if body.get("exaggeration") is not None else None
-    cfg_weight = float(body["cfg_weight"]) if body.get("cfg_weight") is not None else None
+    emotion = body.get("emotion")
+    emo_alpha = float(body["emo_alpha"]) if body.get("emo_alpha") is not None else None
     if body.get("now"):
         preempt.set()  # the talk that is running ends, so this one can speak
     with talk_lock:
@@ -405,7 +420,7 @@ def talk(body):
         if say and not heard.empty():
             return {"heard": drain(), "interrupted": False, "spoken": [], "unspoken": sentences(say), "said_first": True}
         barge.clear()
-        said, unsaid = speak(say, targets[1], exaggeration, cfg_weight) if say else ([], [])
+        said, unsaid = speak(say, targets[1], emotion, emo_alpha) if say else ([], [])
         interrupted = bool(unsaid) and barge.is_set()
         cut = {"preempted": True} if unsaid and not interrupted else {}  # stopped for a line that can't wait
         deadline = time.time() + wait_s
@@ -498,7 +513,15 @@ def go_live(args):
 def load(args, vad=True, ready=True):
     try:
         import torch
-        from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+
+        # The module sets HF_HUB_CACHE to "./checkpoints/hf_cache" on import — a plain string
+        # relative to whatever the process's cwd is right then, not to EMOTION_DIR. huggingface_hub
+        # freezes it into a constant during that same import, so setting the env var afterward has
+        # no effect at all; chdir before the import is the only thing that actually lands it in
+        # the right place. Getting this wrong doesn't error — it silently re-downloads several GB
+        # of auxiliary models (w2v-bert-2.0, BigVGAN, ...) wherever cwd happened to be.
+        os.chdir(EMOTION_DIR)
+        from indextts.infer_v2_5 import IndexTTS2
         from silero_vad import load_silero_vad
         from transformers import pipeline
 
@@ -508,18 +531,17 @@ def load(args, vad=True, ready=True):
             models["vad"] = load_silero_vad()
         models["whisper"] = pipeline(
             "automatic-speech-recognition", model="openai/whisper-large-v3-turbo", device=device,
-            dtype=torch.float16 if device != "cpu" else torch.float32,
+            torch_dtype=torch.float16 if device != "cpu" else torch.float32,
         )
         models["whisper_lock"] = threading.Lock()
-        tts = ChatterboxMultilingualTTS.from_pretrained(device=device, t3_model="v3")
-        if args.voice:
-            tts.prepare_conditionals(args.voice, exaggeration=args.exaggeration)
-        models["tts"] = tts
+        models["tts"] = IndexTTS2(
+            cfg_path=os.path.join(EMOTION_DIR, "checkpoints/config.yaml"), model_dir=os.path.join(EMOTION_DIR, "checkpoints"),
+            use_bf16=(device == "cuda"), device=None if device == "cuda" else device, use_qwen_emo=False,
+        )
         models["tts_lock"] = threading.Lock()
         models["voice"] = args.voice
         models["language"] = None  # listening: every utterance's own language, detected
-        models["speak_language"] = args.language
-        models["exaggeration"] = args.exaggeration
+        models["speak_language"] = SPEAK_LANGUAGES.get(args.language, args.language.upper())
         if ready:
             state["ready"] = True
             log("ready")
@@ -602,7 +624,6 @@ def main():
     parser.add_argument("--socket", required=True)
     parser.add_argument("--voice", help="the recording of the voice to speak in")
     parser.add_argument("--language", default="en")
-    parser.add_argument("--exaggeration", type=float, default=0.5)
     parser.add_argument("--wake-word", help="start in standby, listening only for this phrase")
     args = parser.parse_args()
     if os.path.exists(args.socket):

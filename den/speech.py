@@ -344,14 +344,15 @@ class LiveEngine:
             conn.close()
 
     def _spawn(self, extra):
-        why = unavailable()
+        why = unavailable("emotion")
         if why:
             raise DenError(why)
+        live_python = _workflow_paths("emotion")["python"]
         LIVE_SOCKET.parent.mkdir(parents=True, exist_ok=True)
         LIVE_SOCKET.unlink(missing_ok=True)
         LIVE_LOG.parent.mkdir(parents=True, exist_ok=True)
         self.log = open(LIVE_LOG, "w")
-        self.proc = subprocess.Popen([str(PYTHON), str(LIVE_ENGINE), "--socket", str(LIVE_SOCKET), *extra],
+        self.proc = subprocess.Popen([str(live_python), str(LIVE_ENGINE), "--socket", str(LIVE_SOCKET), *extra],
                                      stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT)
 
     def _until_ready(self, phase):
@@ -375,21 +376,21 @@ class LiveEngine:
                 raise DenError(f"the live engine wasn't ready after {START_TIMEOUT_S}s; see {LIVE_LOG}")
             time.sleep(0.5)
 
-    def _conversation_args(self, voice_file, language, exaggeration):
-        return {"language": language, "exaggeration": exaggeration, **({"voice": str(voice_file)} if voice_file else {})}
+    def _conversation_args(self, voice_file, language):
+        return {"language": language, **({"voice": str(voice_file)} if voice_file else {})}
 
-    def start(self, voice_file, language, exaggeration, emit):
+    def start(self, voice_file, language, emit):
         """The conversation: from standby in the same process, so what was said since the wake word
         is kept; otherwise a new engine."""
         if self.phase() == "standby":
             emit({"starting": "the conversation's transcription model and voice"})
-            status, answer = self._call("POST", "/live", self._conversation_args(voice_file, language, exaggeration))
+            status, answer = self._call("POST", "/live", self._conversation_args(voice_file, language))
             if status != 200:
                 raise DenError(f"live: {answer.get('error')}")
         else:
             self.stop()
             emit({"starting": "the live engine (microphone, transcription model, voice)"})
-            args = ["--language", language, "--exaggeration", str(exaggeration)]
+            args = ["--language", language]
             self._spawn(args + (["--voice", str(voice_file)] if voice_file else []))
         self._until_ready("live")
 
@@ -419,11 +420,11 @@ class LiveEngine:
         if status != 200:
             raise DenError(f"standby: {answer.get('error')}")
 
-    def talk(self, say, wait_s, voice_file=None, language=None, exaggeration=None, cfg_weight=None, now=False):
+    def talk(self, say, wait_s, voice_file=None, language=None, emotion=None, emo_alpha=None, now=False):
         body = {"say": say, "wait_s": wait_s, **({"voice": str(voice_file)} if voice_file else {}),
                 **({"language": language} if language else {}),
-                **({"exaggeration": exaggeration} if exaggeration is not None else {}),
-                **({"cfg_weight": cfg_weight} if cfg_weight is not None else {}),
+                **({"emotion": emotion} if emotion else {}),
+                **({"emo_alpha": emo_alpha} if emo_alpha is not None else {}),
                 **({"now": True} if now else {})}
         try:
             status, answer = self._call("POST", "/talk", body, timeout=wait_s + 300)

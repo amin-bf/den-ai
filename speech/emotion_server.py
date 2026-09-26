@@ -39,6 +39,13 @@ def load(device, checkpoints):
             device = "cuda" if torch.cuda.is_available() else "cpu"
         device_name = device
         print(f"loading the speech workflow's model on {device}", flush=True)
+        # The module sets HF_HUB_CACHE to "./checkpoints/hf_cache" on import — a plain string
+        # relative to whatever the process's cwd is right then, not to model_dir. huggingface_hub
+        # freezes it into a constant during that same import, so setting the env var afterward has
+        # no effect at all; chdir before the import is the only thing that actually lands it in
+        # the right place. Getting this wrong doesn't error — it silently re-downloads several GB
+        # of auxiliary models (w2v-bert-2.0, BigVGAN, ...) whenever cwd isn't checkpoints' parent.
+        os.chdir(os.path.dirname(checkpoints) or ".")
         from indextts.infer_v2_5 import IndexTTS2
 
         m = IndexTTS2(

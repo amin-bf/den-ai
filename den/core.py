@@ -408,13 +408,13 @@ class BrokerClient(Ollama):
         """Progress lines of taking the machine for a live conversation; the last carries the session."""
         return self._stream("/live/start", request)
 
-    def live_talk(self, say, wait_s=120, voice=None, language=None, exaggeration=None, cfg_weight=None, now=False):
+    def live_talk(self, say, wait_s=120, voice=None, language=None, emotion=None, emo_alpha=None, now=False):
         """Speak say, then wait for the user's next utterance (ADR live-conversation); voice and language switch
-        from this turn on. exaggeration/cfg_weight color this turn's delivery only. With now, a talk that is
+        from this turn on. emotion/emo_alpha color this turn's delivery only. With now, a talk that is
         running ends first and say is spoken at once."""
         body = {"say": say, "wait_s": wait_s, **({"voice": voice} if voice else {}), **({"language": language} if language else {}),
-                **({"exaggeration": exaggeration} if exaggeration is not None else {}),
-                **({"cfg_weight": cfg_weight} if cfg_weight is not None else {}),
+                **({"emotion": emotion} if emotion else {}),
+                **({"emo_alpha": emo_alpha} if emo_alpha is not None else {}),
                 **({"now": True} if now else {})}
         return self._request("POST", "/live/talk", body, timeout=wait_s + 600)
 

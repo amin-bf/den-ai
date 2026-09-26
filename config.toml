@@ -81,6 +81,11 @@ languages = [
     "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
 ]
 
+[speech.workflows.emotion]
+# Far fewer languages than the default workflow; also den's live conversation, which speaks
+# through this one for its emotion vector (docs/adr/speech-workflows.md). --with-emotion (setup.sh).
+languages = ["en", "zh", "ja", "es", "ar"]
+
 [image]
 backend = "comfyui"
 # ComfyUI itself; only the broker talks to it. It finds model files in $COMFYUI_DIR/models
@@ -388,7 +393,7 @@ fps = "80.fps"
 frames = "8"
 family = "ltxv"
 model = "44"
-duration = { input = "60.length", frame_step = 8, recommended = [3, 6], allowed = [1, 8] }
+duration = { input = "60.length", frame_step = 8, recommended = [3, 6], allowed = [1, 12] }
 keyframes = [
   { input = "91.image", at = 0, frame = "91.frame_idx", passthrough = ["positive", "negative", "latent"] },
   { input = "92.image", at = "any", frame = "92.frame_idx", passthrough = ["positive", "negative", "latent"] },
@@ -413,7 +418,7 @@ fps = "57.fps"
 frames = "8"
 family = "wan22-5b"
 model = "37"
-duration = { input = "55.length", frame_step = 4, recommended = [3, 5], allowed = [1, 8] }
+duration = { input = "55.length", frame_step = 4, recommended = [3, 5], allowed = [1, 12] }
 keyframes = [{ input = "55.start_image", at = 0 }]
 
 [clip.workflows.wan22-5b.settings]
@@ -442,7 +447,7 @@ sound = "22.audio"
 lip_sync = { input = "14.audio_latent", vae = "4" }
 family = "ltx23"
 model = "1"
-duration = { input = ["11.length", "13.frames_number"], frame_step = 8, recommended = [3, 5], allowed = [1, 8] }
+duration = { input = ["11.length", "13.frames_number"], frame_step = 8, recommended = [3, 5], allowed = [1, 12] }
 keyframes = [
   { input = "31.image", at = 0, frame = "31.frame_idx", passthrough = ["positive", "negative", "latent"] },
   { input = "32.image", at = "any", frame = "32.frame_idx", passthrough = ["positive", "negative", "latent"] },

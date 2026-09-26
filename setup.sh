@@ -7,6 +7,8 @@
 #   ./setup.sh --no-pi             skip pi
 #   ./setup.sh --no-comfyui        skip ComfyUI
 #   ./setup.sh --no-speech         skip the speech model (voice-overs)
+#   ./setup.sh --with-emotion      also install the emotion speech workflow (opt-in, its own
+#                                  venv, a stronger emotion vector but far fewer languages)
 #   ./setup.sh --no-preprocessors  skip downloading guide-map models (pose, …)
 #
 # Environment overrides:
@@ -17,6 +19,9 @@
 #   SPEECH_DIR     where the speech model's venv lives (default: ~/.local/share/den/speech)
 #   CHATTERBOX_REF speech model commit to install (default: 5de7a54a)
 #   DESIGN_DIR     where the voice designer's venv lives (default: ~/.local/share/den/voice-design)
+#   EMOTION_DIR    where the emotion workflow's venv lives (default: ~/.local/share/den/speech-emotion)
+#   EMOTION_REF    emotion workflow commit to install (default: ee40fa7)
+#   EMOTION_PY     Python version for its venv       (default: 3.11)
 #   TORCH_INDEX    PyTorch wheel index for your GPU  (default: CUDA 13.0; none on macOS,
 #                                                     where the wheels carry Metal)
 set -euo pipefail
@@ -29,6 +34,8 @@ COMFYUI_GGUF_REF="${COMFYUI_GGUF_REF:-6ea2651e}"
 SPEECH_DIR="${SPEECH_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/speech}"
 DESIGN_DIR="${DESIGN_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/voice-design}"
 CHATTERBOX_REF="${CHATTERBOX_REF:-5de7a54aa4e5e2baadb0182dde554908b48b85c2}"
+EMOTION_DIR="${EMOTION_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/den/speech-emotion}"
+EMOTION_REF="${EMOTION_REF:-ee40fa7}"
 BROKER_URL="http://127.0.0.1:11435"
 
 # macOS runs the same den, with launchd where Linux has systemd and Metal where it has CUDA
@@ -54,13 +61,15 @@ with_pi=1
 with_comfyui=1
 with_preprocessors=1
 with_speech=1
+with_emotion=0
 for arg in "$@"; do
   case "$arg" in
     --no-pi) with_pi=0 ;;
     --no-comfyui) with_comfyui=0 ;;
     --no-preprocessors) with_preprocessors=0 ;;
     --no-speech) with_speech=0 ;;
-    -h | --help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --with-emotion) with_emotion=1 ;;
+    -h | --help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $arg (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -424,6 +433,34 @@ if [ "$with_speech" = 1 ]; then
     fi
     uv pip install --quiet --python "$py" "qwen-tts==0.1.1"
     did "installed the voice designer in $DESIGN_DIR/.venv (its model, about 4.5 GB, downloads on first use)"
+  fi
+fi
+
+# The emotion speech workflow (speech/emotion_server.py): a stronger, named-emotion vector than
+# the default workflow's two sliders, but far fewer languages, and its own venv, since it needs
+# an older Python ceiling and a newer torch/CUDA than the default speech venv or ComfyUI's
+# (docs/adr/voice-overs.md). Opt-in and never made by a plain ./setup.sh: --with-emotion asks
+# for it, or run this block by hand later.
+if [ "$with_emotion" = 1 ]; then
+  step "emotion speech workflow"
+  py="$EMOTION_DIR/.venv/bin/python"
+  if [ -x "$py" ] && "$py" -c "import indextts.infer_v2_5" 2>/dev/null; then
+    ok "emotion speech workflow in $EMOTION_DIR/.venv"
+  else
+    have uv || die "uv is required to install the emotion speech workflow (https://docs.astral.sh/uv/)"
+    mkdir -p "$EMOTION_DIR"
+    if [ ! -d "$EMOTION_DIR/repo/.git" ]; then
+      git clone --quiet https://github.com/index-tts/index-tts.git "$EMOTION_DIR/repo"
+      git -C "$EMOTION_DIR/repo" -c advice.detachedHead=false checkout --quiet "$EMOTION_REF"
+    fi
+    uv venv --quiet --python "${EMOTION_PY:-3.11}" "$EMOTION_DIR/.venv"
+    ( cd "$EMOTION_DIR/repo" && uv sync --quiet --python "$py" )
+    ln -sf repo/checkpoints "$EMOTION_DIR/checkpoints"
+    if [ ! -f "$EMOTION_DIR/repo/checkpoints/config.yaml" ]; then
+      uv pip install --quiet --python "$py" huggingface_hub
+      "$py" -c "from huggingface_hub import snapshot_download as d; d('IndexTeam/IndexTTS-2.5', local_dir='$EMOTION_DIR/repo/checkpoints')"
+    fi
+    did "installed the emotion speech workflow in $EMOTION_DIR/.venv (its model, about 5 GB, downloads on first use)"
   fi
 fi
 

@@ -80,6 +80,13 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `bin/den`, `bin/den-mcp` | Entry points (they add the repo root to `sys.path`). |
 | `.agents/skills/` | Third-party skills for working on this repo, local only (git-ignored); `.claude/skills` is a symlink to it. Not den's own skills, which are in `skills/`. |
 
+- **Cite an ADR by its slug, never by its number.** The number in an ADR's filename only sorts
+  the directory; it carries no identity of its own, and a future renumbering shouldn't be able
+  to silently point a citation at a different decision (ADR 0010's content changed once already
+  while its slug `voice-overs` stayed put). Write `([ADR llama-server](docs/adr/0005-llama-server.md))`,
+  never `([ADR 0005](docs/adr/0005-llama-server.md))` — the link target stays the filename; only
+  the visible label changes.
+
 ## Design rules
 
 - **Python stdlib only.** No pip installs: `tomllib`, `urllib` and `json` are enough.

@@ -45,6 +45,50 @@ LANGUAGES = {
     "ko": "Korean", "ms": "Malay", "nl": "Dutch", "no": "Norwegian", "pl": "Polish", "pt": "Portuguese",
     "ru": "Russian", "sv": "Swedish", "sw": "Swahili", "tr": "Turkish", "zh": "Chinese",
 }
+DEFAULT_WORKFLOW = "default"
+# A workflow is a speech model and the venv, script and socket it runs on, the way an image
+# workflow is a graph and the model files it names: a caller picks the workflow, den runs
+# whichever model that workflow is. Every workflow's server script is versioned here
+# (speech/server.py, speech/emotion_server.py, ...); its venv (and, if it needs one, a separate
+# checkpoints folder) is opt-in and lives wherever its own setup put it — never made by the
+# default setup.sh, since each workflow can pin its own torch and transformers (AGENTS.md,
+# "den is a broker, not a model provider"). DEN_SPEECH_<NAME>_DIR overrides where a non-default
+# workflow's venv is, the way SPEECH_DIR already does for "default".
+WORKFLOWS = {
+    DEFAULT_WORKFLOW: {"script": SERVER, "dir": SPEECH_DIR},
+    "emotion": {"script": core.ROOT / "speech/emotion_server.py", "dir": None, "checkpoints": True},
+}
+
+
+def _workflow_dir(name):
+    entry = WORKFLOWS.get(name, {})
+    if entry.get("dir") is not None:
+        return entry["dir"]
+    return Path(os.environ.get(f"DEN_SPEECH_{name.upper()}_DIR") or _DATA_HOME / f"den/speech-{name}")
+
+
+def _workflow_paths(name):
+    """A workflow's venv, script, socket, log and (if it has one) checkpoints paths."""
+    venv = _workflow_dir(name)
+    entry = WORKFLOWS.get(name, {})
+    paths = {
+        "python": venv / ".venv/bin/python",
+        "script": entry.get("script", venv / "server.py"),
+        "socket": Path(os.environ.get(f"DEN_SPEECH_{name.upper()}_SOCKET") or platform.runtime_dir() / f"den/speech-{name}.sock"),
+        "log": core._STATE_HOME / f"den/speech-{name}-server.log",
+    }
+    if entry.get("checkpoints"):
+        paths["checkpoints"] = venv / "checkpoints"
+    return paths
+
+
+def workflows():
+    """The speech workflows installed here: each one whose venv has a python and whose script
+    exists, "default" first."""
+    return [name for name, entry in WORKFLOWS.items()
+            if entry["script"].is_file() and _workflow_dir(name).joinpath(".venv/bin/python").exists()]
+
+
 _NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 DESIGN_DIR = Path(os.environ.get("DESIGN_DIR") or _DATA_HOME / "den/voice-design")
 DRAFTS_KEPT = 20  # designed voices waiting to be listened to; older ones are dropped
@@ -74,6 +118,24 @@ DESIGN_LANGUAGES = {
            "어떤 날은 바다가 잔잔하고 은빛이며, 어떤 날은 바람이 물보라를 방파제 너머로 날린다."),
     "zh": ("Chinese", "每天早上，我走到港口，在船边的小摊买一杯咖啡，看着渔民们归来。有时大海平静而泛着银光，有时海风把浪花吹过堤岸。"),
 }
+
+
+def settings(config):
+    return config.get("speech", {})
+
+
+def default_workflow(config):
+    return settings(config).get("default_workflow", DEFAULT_WORKFLOW)
+
+
+def workflow_languages(config, workflow):
+    """A workflow's languages: config.toml names them (a workflow further from the default may
+    speak far fewer than LANGUAGES), falling back to LANGUAGES for one config says nothing
+    about, so a config with no [speech] section at all still gets the usual 23."""
+    entry = settings(config).get("workflows", {}).get(workflow)
+    if entry and entry.get("languages"):
+        return {code: LANGUAGES.get(code, code) for code in entry["languages"]}
+    return LANGUAGES
 
 
 def design_unavailable():
@@ -119,12 +181,14 @@ def design(description, language="en", seed=None, check=lambda: None):
     return data
 
 
-def unavailable():
-    """Why speech can't run here, or None."""
-    if not PYTHON.exists():
-        return f"speech isn't installed ({PYTHON} is missing); run ./setup.sh"
-    if not SERVER.is_file():
-        return f"speech server missing: {SERVER}"
+def unavailable(workflow=DEFAULT_WORKFLOW):
+    """Why this workflow can't run here, or None."""
+    paths = _workflow_paths(workflow)
+    if not paths["python"].exists():
+        hint = "run ./setup.sh" if workflow == DEFAULT_WORKFLOW else f"install it under {paths['python'].parent.parent}"
+        return f"the {workflow!r} speech workflow isn't installed ({paths['python']} is missing); {hint}"
+    if not paths["script"].is_file():
+        return f"the {workflow!r} speech workflow's server is missing: {paths['script']}"
     return None
 
 
@@ -132,9 +196,12 @@ def unavailable():
 
 
 class Server:
-    """The speech server, if one is running. Started per voice job; it loads in seconds."""
+    """A speech workflow's server, if one is running. Started per voice job; it loads in
+    seconds. One workflow at a time: a second job on another workflow starts its own Server."""
 
-    def __init__(self):
+    def __init__(self, workflow=DEFAULT_WORKFLOW):
+        self.workflow = workflow
+        self.paths = _workflow_paths(workflow)
         self.proc = None
         self.log = None
 
@@ -142,7 +209,7 @@ class Server:
         return self.proc is not None and self.proc.poll() is None
 
     def _call(self, method, path, body=None, timeout=10):
-        conn = UnixHTTPConnection(SOCKET, timeout=timeout)
+        conn = UnixHTTPConnection(self.paths["socket"], timeout=timeout)
         try:
             data = None if body is None else json.dumps(body).encode()
             conn.request(method, path, body=data, headers={"Content-Type": "application/json"})
@@ -152,39 +219,42 @@ class Server:
             conn.close()
 
     def start(self, emit):
-        why = unavailable()
+        why = unavailable(self.workflow)
         if why:
             raise DenError(why)
         if self.running():
             return
-        SOCKET.parent.mkdir(parents=True, exist_ok=True)
-        SOCKET.parent.chmod(0o700)
-        SOCKET.unlink(missing_ok=True)
-        SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
-        emit({"starting": "the speech model"})
-        self.log = open(SERVER_LOG, "w")
+        socket, log_path = self.paths["socket"], self.paths["log"]
+        socket.parent.mkdir(parents=True, exist_ok=True)
+        socket.parent.chmod(0o700)
+        socket.unlink(missing_ok=True)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        emit({"starting": "the speech model" if self.workflow == DEFAULT_WORKFLOW else f"the {self.workflow} speech model"})
+        self.log = open(log_path, "w")
+        args = [str(self.paths["python"]), str(self.paths["script"]), "--socket", str(socket)]
+        if "checkpoints" in self.paths:
+            args += ["--checkpoints", str(self.paths["checkpoints"])]
         self.proc = subprocess.Popen(
-            [str(PYTHON), str(SERVER), "--socket", str(SOCKET)],
-            stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT,
+            args, stdin=subprocess.DEVNULL, stdout=self.log, stderr=subprocess.STDOUT,
         )
         deadline = time.time() + START_TIMEOUT_S
         while True:
             if not self.running():
                 self.stop()
-                raise DenError(f"the speech server exited while loading; see {SERVER_LOG}")
+                raise DenError(f"the speech server exited while loading; see {log_path}")
             try:
                 status, _, raw = self._call("GET", "/health", timeout=5)
                 health = json.loads(raw or b"{}")
                 if health.get("error"):
                     self.stop()
-                    raise DenError(f"the speech model didn't load: {health['error']}; see {SERVER_LOG}")
+                    raise DenError(f"the speech model didn't load: {health['error']}; see {log_path}")
                 if status == 200 and health.get("ready"):
                     return
             except (OSError, json.JSONDecodeError):
                 pass
             if time.time() > deadline:
                 self.stop()
-                raise DenError(f"the speech model wasn't ready after {START_TIMEOUT_S}s; see {SERVER_LOG}")
+                raise DenError(f"the speech model wasn't ready after {START_TIMEOUT_S}s; see {log_path}")
             time.sleep(1)
 
     def speak(self, text, language, voice=None, options=None):
@@ -193,7 +263,7 @@ class Server:
         try:
             status, kind, raw = self._call("POST", "/speak", body, timeout=LINE_TIMEOUT_S)
         except OSError as e:
-            raise DenError(f"the speech server didn't answer: {e}; see {SERVER_LOG}") from e
+            raise DenError(f"the speech server didn't answer: {e}; see {self.paths['log']}") from e
         if status != 200 or not kind.startswith("audio/"):
             try:
                 message = json.loads(raw).get("error")
@@ -216,7 +286,7 @@ class Server:
             # The first call downloads the transcription model (about 1.6 GB) and loads it.
             status, _, raw = self._call("POST", "/transcribe", body, timeout=START_TIMEOUT_S)
         except OSError as e:
-            raise DenError(f"the speech server didn't answer: {e}; see {SERVER_LOG}") from e
+            raise DenError(f"the speech server didn't answer: {e}; see {self.paths['log']}") from e
         if status != 200:
             raise DenError(f"transcription failed: {_error(raw)}")
         return json.loads(raw)
@@ -233,7 +303,7 @@ class Server:
         if self.log:
             self.log.close()
             self.log = None
-        SOCKET.unlink(missing_ok=True)
+        self.paths["socket"].unlink(missing_ok=True)
 
 
 def _error(raw):
@@ -581,28 +651,50 @@ def spoken_properties():
     }
 
 
-def request_spec():
-    """The voice tool's description and JSON schema."""
+EMOTIONS = ("happy", "angry", "sad", "afraid", "disgusted", "melancholic", "surprised", "calm")
+
+
+def request_spec(config=None):
+    """The voice tool's description and JSON schema. workflow, emotion and emo_alpha are listed
+    only when a second workflow is installed alongside the default one, so the tool a caller
+    without one sees is unchanged."""
+    config = config or {}
+    flows = workflows()
+    extra = [w for w in flows if w != DEFAULT_WORKFLOW]
+    properties = {
+        **spoken_properties(),
+        "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2. Default 0.5; higher is more dramatic."},
+        "cfg_weight": {"type": "number", "description": "Pacing, 0–1. Default 0.5; lower is slower and calmer."},
+        "seed": {"type": "integer", "description": "Reuse one to change a single thing between takes."},
+        "out": {"type": "string", "description": "Also copy the track here (a file, or a folder ending in /)."},
+    }
+    if extra:
+        properties["workflow"] = {
+            "type": "string", "enum": flows, "default": default_workflow(config),
+            "description": "Which speech workflow speaks this: they clone a voice differently and support "
+            "different languages (list_voices doesn't say which; ask if unsure). exaggeration and cfg_weight "
+            "are the default workflow's own settings and are ignored on another one.",
+        }
+        properties["emotion"] = {
+            "type": "object",
+            "description": "A strong, named emotion to color the delivery, 0–1 each, all optional and "
+            "default 0: only on a workflow that supports it (not the default one). Set the one or two that "
+            "fit the line; leave the rest out.",
+            "properties": {name: {"type": "number"} for name in EMOTIONS},
+        }
+        properties["emo_alpha"] = {
+            "type": "number", "description": "How strongly emotion colors the delivery, 0–1. Default 1.",
+        }
     return {
         "description": (
             "Speak a text, or an SRT script with each line at its time, in a voice cloned from a "
-            "recording (the speech model, 23 languages), and save it as one WAV track: a "
-            "voice-over. For a voice-over on a clip, pass it to generate_clip as voiceover instead. "
-            "Give each SRT line time to be said, about 2.5 words a second: a line that runs long "
-            "pushes the next one later, and the result lists each one as a note. You can't hear the "
-            "result; ask the user how it sounds. The den-voice skill has the recipes (recording a voice, "
-            "scripts that fit their times, the settings)."
+            "recording, and save it as one WAV track: a voice-over. For a voice-over on a clip, pass it "
+            "to generate_clip as voiceover instead. Give each SRT line time to be said, about 2.5 words a "
+            "second: a line that runs long pushes the next one later, and the result lists each one as a "
+            "note. You can't hear the result; ask the user how it sounds. The den-voice skill has the "
+            "recipes (recording a voice, scripts that fit their times, the settings)."
         ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                **spoken_properties(),
-                "exaggeration": {"type": "number", "description": "Expressiveness, 0.25–2. Default 0.5; higher is more dramatic."},
-                "cfg_weight": {"type": "number", "description": "Pacing, 0–1. Default 0.5; lower is slower and calmer."},
-                "seed": {"type": "integer", "description": "Reuse one to change a single thing between takes."},
-                "out": {"type": "string", "description": "Also copy the track here (a file, or a folder ending in /)."},
-            },
-        },
+        "parameters": {"type": "object", "properties": properties},
     }
 
 

@@ -245,7 +245,7 @@ def list_tools():
         tools += clip_tools(clip.request_spec(config, clip.available(config), clip.settings(config).get("default_workflow")))
     # Speech runs on the image side (ADR voice-overs): listed when that side can run and speech is installed.
     if image.unavailable(config, state) is None and speech.unavailable() is None:
-        tools.append(voice_tool(speech.request_spec()))
+        tools.append(voice_tool(speech.request_spec(config)))
         tools.append(list_voices_tool())
         tools.append(transcribe_tool())
         if speech.design_unavailable() is None:

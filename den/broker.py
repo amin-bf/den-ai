@@ -1038,12 +1038,15 @@ def clip_view(record, with_bytes=False):
     return view
 
 
-def voice_request(spec, folder):
+def voice_request(spec, folder, config=None):
     """A voice job's script, language, voice and settings from a request: {srt? | lines? | text?,
-    voice?, language?, exaggeration?, cfg_weight?, temperature?, seed?, sync?}. With `audio` (a
-    recording's path, or bytes) the recording is the track and a script only names its lines. A
-    voice or a recording sent as bytes is written into folder."""
-    why = speech.unavailable()
+    voice?, language?, workflow?, exaggeration?, cfg_weight?, temperature?, seed?, emotion?,
+    emo_alpha?, sync?}. With `audio` (a recording's path, or bytes) the recording is the track
+    and a script only names its lines. A voice or a recording sent as bytes is written into
+    folder."""
+    config = config or {}
+    workflow = str(spec.get("workflow") or speech.default_workflow(config))
+    why = speech.unavailable(workflow)
     if why:
         raise DenError(why)
     if not isinstance(spec, dict):
@@ -1058,17 +1061,25 @@ def voice_request(spec, folder):
     else:
         cues = speech.script(spec.get("srt"), spec.get("text"), spec.get("lines"))
     language = str(spec.get("language") or "en").lower()
-    if language not in speech.LANGUAGES:
-        raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
+    languages = speech.workflow_languages(config, workflow)
+    if language not in languages:
+        raise DenError(f"the {workflow!r} workflow doesn't speak {language!r}; one of: {', '.join(languages)}")
     voice = spec.get("voice")
     if image.is_file_object(voice):
         voice_file, voice = image._write_input(folder, voice), voice.get("name") or "recording"
     else:
         voice_file = speech.voice_path(voice)
     options = {k: spec[k] for k in ("exaggeration", "cfg_weight", "temperature", "seed") if spec.get(k) is not None}
+    if workflow != speech.DEFAULT_WORKFLOW:
+        emotion = spec.get("emotion") or {}
+        vector = [float(emotion.get(name) or 0) for name in speech.EMOTIONS]
+        if any(vector):
+            options["emo_vector"] = vector
+        if spec.get("emo_alpha") is not None:
+            options["emo_alpha"] = float(spec["emo_alpha"])
     return {
         "cues": cues, "language": language, "voice": voice, "voice_file": voice_file, "options": options,
-        "sync": bool(spec.get("sync")), "audio": audio,
+        "sync": bool(spec.get("sync")), "audio": audio, "workflow": workflow,
     }
 
 
@@ -1088,23 +1099,33 @@ def _free_comfy_for_speech(comfy):
                 time.sleep(llm.VRAM_SETTLE_POLL_S)
 
 
+def _speech_server(broker, workflow):
+    """broker.speech for the default workflow (kept for its process's life like everything else
+    on the speech side); a workflow further from it gets its own Server, picked fresh per job
+    since a job already fully starts and stops its process either way."""
+    return broker.speech if workflow == speech.DEFAULT_WORKFLOW else speech.Server(workflow)
+
+
 def voice_track(broker, config, request, emit, check):
     """(track WAV, seconds, notes) of a voice request: its lines spoken, or its recording as it is."""
     if not request.get("audio"):
         return speech.assemble(request["cues"], speak_lines(broker, config, request, emit, check))
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
+    server = _speech_server(broker, request.get("workflow", speech.DEFAULT_WORKFLOW))
     # One voice job on the speech server at a time: two starts would race the same process
     # (den has seen a second job's start() see the first's process and call itself ready,
     # then speak into a model that hadn't loaded yet, or into one the first job just stopped).
+    # The lock covers every workflow: two speech servers loaded together is untested and the
+    # GPU may not hold both anyway, so a second job still queues behind the first here.
     with broker.speech_lock:
         _free_comfy_for_speech(comfy)
         try:
-            broker.speech.start(emit)
+            server.start(emit)
             check()
-            track = broker.speech.convert(request["audio"])
+            track = server.convert(request["audio"])
         finally:
-            broker.speech.stop()
+            server.stop()
     samples, rate = speech._pcm(track)
     return track, round(len(samples) / rate, 2), []
 
@@ -1125,23 +1146,24 @@ def transcribe(broker, config, recording, language, emit, check):
 
 
 def speak_lines(broker, config, request, emit, check):
-    """Speak each line of a voice request on the speech server, which starts once ComfyUI has
-    freed its models (they don't fit on the GPU together) and stops after. Returns the WAVs.
-    One job runs on the speech server at a time (broker.speech_lock): a second /voice call
-    queues here rather than racing the first's start/speak/stop."""
+    """Speak each line of a voice request on its workflow's speech server, which starts once
+    ComfyUI has freed its models (they don't fit on the GPU together) and stops after. Returns
+    the WAVs. One job runs on the speech side at a time (broker.speech_lock), whichever workflow
+    it's on: a second /voice call queues here rather than racing the first's start/speak/stop."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
+    server = _speech_server(broker, request.get("workflow", speech.DEFAULT_WORKFLOW))
     with broker.speech_lock:
         _free_comfy_for_speech(comfy)
         cues, lines = request["cues"], []
         try:
-            broker.speech.start(emit)
+            server.start(emit)
             for i, cue in enumerate(cues, 1):
                 check()
                 emit({"speaking": {"line": i, "of": len(cues), "text": cue["text"][:60]}})
-                lines.append(broker.speech.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
+                lines.append(server.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
         finally:
-            broker.speech.stop()
+            server.stop()
         return lines
 
 
@@ -1486,7 +1508,7 @@ class Handler(BaseHTTPRequestHandler):
             "image": {**image.client_spec(config, state), "listing": image.listing(config, folders=False)},
             "clip": {**clip.client_spec(config, state), "listing": clip.listing(config, folders=False)},
             # Present only where speech runs: a client offers voice-overs when it's there (ADR voice-overs).
-            **({"voice": {**speech.request_spec(), **self._voices()}} if speech.unavailable() is None else {}),
+            **({"voice": {**speech.request_spec(config), **self._voices()}} if speech.unavailable() is None else {}),
         }
 
     def _delegate(self, body):
@@ -1731,10 +1753,10 @@ class Handler(BaseHTTPRequestHandler):
         seed?, out?, bytes?}: speak each line of an SRT script (or one text) in a voice from the
         library, a recording's path, or one sent as bytes, and put the lines on one track at their
         times. Streams progress lines and ends with {"result": {...}}."""
-        request = voice_request(body, None)
-        cues, language, voice, options = request["cues"], request["language"], request["voice"], request["options"]
         config = core.load_config()
-        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/voice", "model": "chatterbox"}
+        request = voice_request(body, None, config)
+        cues, language, voice, options = request["cues"], request["language"], request["voice"], request["options"]
+        info = {"side": "image", "caller": self._caller(), "method": "POST", "path": "/voice", "model": request["workflow"]}
         req_id = self.broker.admit(info, emit, self._caller_gone)
         began = time.time()
 
@@ -1930,7 +1952,7 @@ class Handler(BaseHTTPRequestHandler):
                 if path and not Path(path).is_file():
                     raise DenError(f"keyframe image not found: {path}")
                 keyframes.append({**keyframe, "image": path})
-            voiced = voice_request(body["voiceover"], folder) if body.get("voiceover") else None
+            voiced = voice_request(body["voiceover"], folder, config) if body.get("voiceover") else None
             duration = body.get("duration")
             flows = clip.check_workflows(config)
             if voiced and voiced["sync"] and name in flows:

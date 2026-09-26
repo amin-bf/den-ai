@@ -59,3 +59,10 @@ Measured with the speech model through den's broker on a 12 GB card.
   well within what's left once ComfyUI frees its models, the same as the default workflow's own
   footprint. First load downloads its checkpoints (about 5.2 GB) and pulls in a couple of small
   auxiliary models on top; later loads are the fast end of that range.
+- **Bracketed vocal-event words in the text do nothing on the emotion workflow — they're spoken
+  literally.** Its tokenizer registers special tokens like `[laughter]`, `[sigh]`, `[crying]`,
+  `[cough]`, `[gasp]` (found in the source, not the README), which looked promising, but neither
+  `[crying]` nor `(sob)`/`(crying)`/`(sigh)` triggered an actual sob, sigh or laugh in the spoken
+  audio — the model just said the bracketed or parenthesized word aloud, confirmed by ear on both
+  syntaxes. The `emo_vector`/`emo_alpha` pair and the reference sample are the only levers that
+  actually shape delivery here; don't spend a request trying inline cues on this workflow again.

@@ -148,6 +148,22 @@ natural than spreading weight across dimensions that don't fit:
  "voice": "elli", "workflow": "emotion", "emotion": {"calm": 0.9}, "emo_alpha": 1.0}
 ```
 
+## A line that must fit a time limit
+
+Only on a further workflow (the tool lists `max_seconds` alongside `workflow`), and only for a
+single `text` — an SRT script or several `lines` already have their own times, and a global cap
+on each of several lines is ambiguous, so it's refused there:
+
+```json
+{"text": "Please, don't leave. I can't do this without you.",
+ "voice": "elli", "workflow": "emotion", "max_seconds": 3.5}
+```
+
+If the first take runs long, den retries once faster (`duration_factor`) before giving up; the
+result still says so if it's still over after that — never cut to force a fit. For a real
+lip-synced clip, pass this in the clip's `voiceover` instead so the clip is built to hold it,
+rather than fighting the speech for a length the clip already decides.
+
 ## A designed voice
 
 For a character's voice nobody has recorded:

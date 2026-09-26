@@ -66,3 +66,8 @@ Measured with the speech model through den's broker on a 12 GB card.
   audio — the model just said the bracketed or parenthesized word aloud, confirmed by ear on both
   syntaxes. The `emo_vector`/`emo_alpha` pair and the reference sample are the only levers that
   actually shape delivery here; don't spend a request trying inline cues on this workflow again.
+- **`duration_factor` stretches speech longer as it rises, not shorter.** The same line ("Please,
+  don't leave. I can't do this without you.") on the emotion workflow measured 4.19 s at 1.0,
+  6.77 s at 1.5, 8.63 s at 2.0: raising it makes speech slower and longer, lowering it faster and
+  shorter — the opposite of a naive "higher number, faster speech" reading. Fitting a line to a
+  target duration divides by the overrun ratio to speed it up, never multiplies.

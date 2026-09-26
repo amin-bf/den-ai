@@ -164,6 +164,42 @@ result still says so if it's still over after that — never cut to force a fit.
 lip-synced clip, pass this in the clip's `voiceover` instead so the clip is built to hold it,
 rather than fighting the speech for a length the clip already decides.
 
+## Several voices at their own times, mixed by hand
+
+den itself needs no ffmpeg (docs/adr/voice-overs.md: ComfyUI's own audio nodes do its mixing) —
+this is Claude reading the SRTs `generate_voice` wrote and using `ffmpeg` directly, for a case
+den's single-track pipeline doesn't cover: two or more characters, each with their own voice,
+placed at their own times on one track (a conversation cut between speakers, not one narrator).
+
+1. **Speak each character's lines separately**, one `generate_voice` call per voice, `lines` so
+   den times them (or an SRT if the times are already fixed):
+   ```json
+   {"lines": ["I don't think that's a good idea.", "It never was."], "voice": "elli"}
+   ```
+   ```json
+   {"lines": ["We're doing it anyway."], "voice": "elliot"}
+   ```
+2. **Read each result's SRT** (next to its track) for when its lines actually landed.
+3. **Decide the combined timeline**: either keep each speaker's own times back to back (den's
+   SRT times are relative to that speaker's own track, at 0), or offset one against the other
+   for a real back-and-forth — a scene where they wait for each other reads more natural with a
+   short gap, not both starting at 0.
+4. **Mix with `ffmpeg`'s `amix`, each input delayed to its place on the combined timeline**:
+   ```sh
+   ffmpeg -i elli.wav -i elliot.wav -filter_complex \
+     "[0]adelay=0|0[a];[1]adelay=3200|3200[b];[a][b]amix=inputs=2:duration=longest" \
+     combined.wav
+   ```
+   `adelay` is in milliseconds, per channel (`|` separates them for stereo; the same number
+   twice for mono). Read each speaker's SRT to know their own line's start, then add the offset
+   decided in step 3 to place it on the combined timeline.
+5. **Write a combined SRT** by hand from both speakers' cues, each shifted by its own offset, if
+   subtitles or a script to reuse are wanted.
+6. **For a clip**: pass `combined.wav` as the clip's `voiceover` `audio` (not `srt`/`text`/
+   `lines`, since it's already a finished track) — this only narrates over the clip; it can't
+   lip-sync two different on-screen characters to two different voices in one generation
+   (`den/clip.py` takes one voice track and one lip-sync target per request).
+
 ## A designed voice
 
 For a character's voice nobody has recorded:

@@ -68,6 +68,19 @@ num_ctx = 65536
 # summaries (ADR delegation-policy). It applies to den's own delegation; pi sets its own.
 think = false
 
+[speech]
+# Which workflow a voice request gets when it names none. "default" is the one setup.sh always
+# makes; any other name is opt-in, its own venv, never required to use den at all.
+default_workflow = "default"
+
+[speech.workflows.default]
+# 23 languages; setup.sh installs it. No model name here — den runs whichever model this
+# workflow's venv has, and a workflow that isn't installed simply isn't offered.
+languages = [
+    "ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja",
+    "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh",
+]
+
 [image]
 backend = "comfyui"
 # ComfyUI itself; only the broker talks to it. It finds model files in $COMFYUI_DIR/models

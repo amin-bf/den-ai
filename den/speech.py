@@ -657,6 +657,20 @@ def spoken_properties():
 EMOTIONS = ("happy", "angry", "sad", "afraid", "disgusted", "melancholic", "surprised", "calm")
 
 
+def describe_options(options):
+    """A voice job's settings as words for a summary line or a log: emo_vector's plain 8 numbers
+    become the named, nonzero dimensions they came from (`sad 0.8, afraid 0.3`), not a bare list."""
+    parts = []
+    for key, value in options.items():
+        if key == "emo_vector":
+            named = ", ".join(f"{name} {v:g}" for name, v in zip(EMOTIONS, value) if v)
+            if named:
+                parts.append(named)
+        else:
+            parts.append(f"{key} {value}")
+    return parts
+
+
 def request_spec(config=None):
     """The voice tool's description and JSON schema. workflow, emotion and emo_alpha are listed
     only when a second workflow is installed alongside the default one, so the tool a caller

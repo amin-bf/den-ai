@@ -1783,7 +1783,7 @@ class Handler(BaseHTTPRequestHandler):
         seconds = round(time.time() - began, 1)
         summary = [
             f"voice {voice or 'default'}", speech.LANGUAGES[language], f"{len(cues)} line(s)", f"{duration:g}s",
-            *[f"{k} {v}" for k, v in options.items()],
+            *speech.describe_options(options),
         ]
         result = {
             "summary": summary, "path": str(path), "copies": [str(p) for p in copies], "duration": duration,

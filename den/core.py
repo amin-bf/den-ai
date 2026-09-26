@@ -336,7 +336,7 @@ class BrokerClient(Ollama):
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "stream": False,
         }
-        if "think" in settings:  # the Qwen templates switch thinking with this flag
+        if "think" in settings:  # some chat templates switch thinking with this flag
             body["chat_template_kwargs"] = {"enable_thinking": bool(settings["think"])}
         return self._request("POST", "/v1/chat/completions", body, timeout=settings.get("timeout", 900))
 
@@ -401,7 +401,7 @@ class BrokerClient(Ollama):
         return self._stream("/voice", request)
 
     def transcribe(self, **request):
-        """Progress lines of a transcription (Whisper); the last one carries the timed SRT."""
+        """Progress lines of a transcription; the last one carries the timed SRT."""
         return self._stream("/transcribe", request)
 
     def live_start(self, **request):

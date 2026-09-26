@@ -63,7 +63,8 @@ to a file and read it back.
 - **A delegation between two pi turns replaces pi's cached conversation**, since there's one
   slot; pi's next turn then re-reads once. Two slots would fix it at the cost of the second
   slot's memory.
-- **pi's Qwen models need `thinkingFormat: "qwen-chat-template"`.** Ollama read pi's
+- **pi's models whose chat template switches thinking through the same flag need
+  `thinkingFormat: "qwen-chat-template"`.** Ollama read pi's
   `reasoning_effort`; llama-server doesn't, so thinking stayed on whatever pi's level said. With
   it, pi sends `chat_template_kwargs.enable_thinking` and `preserve_thinking`, thinking switches
   off and on with the level, and the previous answers re-render exactly as generated: with
@@ -71,7 +72,7 @@ to a file and read it back.
   mid-conversation still re-renders every earlier answer, so that one turn re-reads everything
   (40 s at 20k tokens).
 - **The level itself only reaches the model as a token budget.** That format sends thinking as a
-  bare on/off, and the Qwen template takes no effort level (`supports_reasoning_effort` is
+  bare on/off, and the template takes no effort level (`supports_reasoning_effort` is
   false in the server's template capabilities), so low, medium and high were one setting: a turn
   thought 500–2000 tokens whichever was picked, minutes at a few tokens a second. llama-server
   does take a per-request budget, so pi's models get

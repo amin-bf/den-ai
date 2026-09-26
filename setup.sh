@@ -15,7 +15,7 @@
 #   COMFYUI_PY     Python version for its venv       (default: 3.13)
 #   COMFYUI_GGUF_REF  ComfyUI-GGUF commit to check out (default: 6ea2651e)
 #   SPEECH_DIR     where the speech model's venv lives (default: ~/.local/share/den/speech)
-#   CHATTERBOX_REF Chatterbox commit to install (default: 5de7a54a)
+#   CHATTERBOX_REF speech model commit to install (default: 5de7a54a)
 #   DESIGN_DIR     where the voice designer's venv lives (default: ~/.local/share/den/voice-design)
 #   TORCH_INDEX    PyTorch wheel index for your GPU  (default: CUDA 13.0; none on macOS,
 #                                                     where the wheels carry Metal)
@@ -44,7 +44,7 @@ if [ "$MACOS" = 1 ]; then
   UNIT_DIR="$HOME/Library/LaunchAgents"
 else
   TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu130}"
-  # Chatterbox pins torch 2.6.0, whose newest CUDA wheels are 12.6.
+  # The speech model's package pins torch 2.6.0, whose newest CUDA wheels are 12.6.
   SPEECH_TORCH_INDEX="${SPEECH_TORCH_INDEX:-https://download.pytorch.org/whl/cu126}"
   UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 fi
@@ -392,14 +392,14 @@ PY
   fi
 fi
 
-# Speech (voice-overs): Chatterbox in a venv of its own, since it pins a torch and transformers
-# that ComfyUI's newer ones can't share. The broker starts speech/server.py in it for a voice
-# job and stops it after (docs/adr/0010-voice-overs.md).
+# Speech (voice-overs): the speech model in a venv of its own, since its package pins a torch
+# and transformers that ComfyUI's newer ones can't share. The broker starts speech/server.py in
+# it for a voice job and stops it after (docs/adr/voice-overs.md).
 if [ "$with_speech" = 1 ]; then
   step "speech"
   py="$SPEECH_DIR/.venv/bin/python"
   if [ -x "$py" ] && "$py" -c "import chatterbox.mtl_tts, silero_vad" 2>/dev/null; then
-    ok "Chatterbox in $SPEECH_DIR/.venv"
+    ok "speech model in $SPEECH_DIR/.venv"
   else
     have uv || die "uv is required to install the speech model (https://docs.astral.sh/uv/)"
     mkdir -p "$SPEECH_DIR"
@@ -409,13 +409,13 @@ if [ "$with_speech" = 1 ]; then
     fi
     uv pip install --quiet --python "$py" "chatterbox-tts @ git+https://github.com/resemble-ai/chatterbox@$CHATTERBOX_REF" \
       "silero-vad==6.2.3"
-    did "installed Chatterbox ${CHATTERBOX_REF:0:8} in $SPEECH_DIR/.venv (its model, about 3.2 GB, downloads on first use)"
+    did "installed the speech model ${CHATTERBOX_REF:0:8} in $SPEECH_DIR/.venv (its model, about 3.2 GB, downloads on first use)"
   fi
-  # The voice designer (Qwen3-TTS VoiceDesign) makes a voice's sample from a description, which
-  # Chatterbox then clones. It pins transformers 4.57.3 against Chatterbox's 5.2.0: a venv of its own.
+  # The voice designer makes a voice's sample from a description, which the speech model then
+  # clones. It pins a transformers version the speech model's own package doesn't share: a venv of its own.
   py="$DESIGN_DIR/.venv/bin/python"
   if [ -x "$py" ] && "$py" -c "import qwen_tts" 2>/dev/null; then
-    ok "voice designer (Qwen3-TTS) in $DESIGN_DIR/.venv"
+    ok "voice designer in $DESIGN_DIR/.venv"
   else
     mkdir -p "$DESIGN_DIR"
     [ -x "$py" ] || uv venv --quiet --python 3.12 "$DESIGN_DIR/.venv"

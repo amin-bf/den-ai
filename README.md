@@ -55,7 +55,7 @@ side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
 ```sh
 git clone https://github.com/amin-bf/den-ai.git && cd den-ai
 ./setup.sh                          # or: ./setup.sh --no-pi --no-comfyui
-den model qwen3.6:35b-a3b           # download (~23 GB) and activate the LLM
+den model MODEL_NAME           # download (~23 GB) and activate the LLM
 den status
 ```
 
@@ -120,7 +120,7 @@ while den is off (`den mode off`).
 | classify | Needs numbered input and the expected count; output checked by script |
 | draft | Raw material; Claude always rewrites it |
 
-**Speed** (`qwen3.6:35b-a3b`, warm): reads input at ~720 tokens/s and writes at ~65
+**Speed** (`MODEL_NAME`, warm): reads input at ~720 tokens/s and writes at ~65
 tokens/s. Small jobs take 3–10 s, and ~20K tokens of input about 30 s. The first request
 after loading takes about twice as long, plus ~5 s for llama-server to load the model. After a
 swap to images, the conversation's saved cache is restored, so the next turn reads only the new
@@ -171,7 +171,8 @@ outside this repo:
   `config.toml`), `maxTokens: 8192` and `reasoning: true`. Without `contextWindow`, pi assumes
   128k. Models with a vision projector in Ollama get `"input": ["text", "image"]`, so pi's `read`
   tool can show them a picture; `setup.sh` checks for the projector, since a model can list vision
-  and ship without one. Qwen models also need two `compat` keys:
+  and ship without one. Models whose chat template switches thinking through the same flag also
+  need two `compat` keys:
   `"thinkingFormat": "qwen-chat-template"` hands thinking on/off to the chat template, and
   without it pi's thinking level has no effect at all (thinking stays on);
   `"thinkingTokenBudgetField": "thinking_budget_tokens"` carries the level itself, since the
@@ -185,7 +186,7 @@ outside this repo:
   at the start of a session: changing it mid-conversation re-renders every earlier answer, so the
   next turn re-reads the whole conversation once (about 40 s at 20k tokens); after that turns are
   fast again, across image swaps too.
-- **`settings.json`:** `defaultModel` is `qwen3.6:35b-a3b`, the same model Claude delegates to.
+- **`settings.json`:** `defaultModel` is `MODEL_NAME`, the same model Claude delegates to.
   No packages are installed. The Ollama web-search package was removed: it needs an Ollama
   cloud sign-in and sends queries to the cloud.
 - **Switching models:** `/model` (or Ctrl+L) opens a picker, and Ctrl+P cycles. Only one model
@@ -631,7 +632,7 @@ without keeping more conditions in summaries (see the ADR).
 | Command | What it does |
 |---|---|
 | `den model` | List downloaded models (`*` marks the active one) and switch by number; Enter keeps the current one |
-| `den model <name>` | Switch to an Ollama model, e.g. `qwen3.6:35b-a3b`. Downloads it first if missing; llama-server switches to it on the next request |
+| `den model <name>` | Switch to an Ollama model, e.g. `MODEL_NAME`. Downloads it first if missing; llama-server switches to it on the next request |
 | `den model <name> --no-pull` | Switch, but fail instead of downloading |
 
 ### Delegated tasks
@@ -769,7 +770,7 @@ deliberate stop.
 | Command | What it does |
 |---|---|
 | `ollama list` | Downloaded models and their sizes |
-| `ollama pull <model>` | Download or update a model (e.g. `qwen3.6:35b-a3b`) |
+| `ollama pull <model>` | Download or update a model (e.g. `MODEL_NAME`) |
 | `ollama rm <model>` | Delete a model from disk |
 | `ollama show <model>` | Architecture, parameters, context length, quantization |
 | `ollama show <model> --modelfile` | The full Modelfile (template, default parameters) |
@@ -813,8 +814,8 @@ Use port 11435 (the broker) for anything that runs a model. Only the broker uses
 curl -s localhost:11435/status                          # broker: mode, running requests, loaded models
 curl -s localhost:11434/api/version
 curl -s localhost:11434/api/ps                          # loaded models
-curl -s localhost:11434/api/generate -d '{"model":"qwen3.6:35b-a3b","prompt":"hi","stream":false}'
-curl -s localhost:11434/api/generate -d '{"model":"qwen3.6:35b-a3b","keep_alive":0}'   # unload
+curl -s localhost:11434/api/generate -d '{"model":"MODEL_NAME","prompt":"hi","stream":false}'
+curl -s localhost:11434/api/generate -d '{"model":"MODEL_NAME","keep_alive":0}'   # unload
 ```
 
 ### Server settings

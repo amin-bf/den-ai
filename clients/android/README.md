@@ -31,7 +31,7 @@ shown, and its summary lists any notes.
   field takes an SRT script (typed, or **Load SRT**), several lines without times (the den
   speaks them in turn and times them), or one line. Pick a voice and a language; on a workflow
   that can, **Lip-sync** makes a person on screen speak it instead of a narrator over the picture.
-- **Record narration:** speak the lines yourself; the den writes down what you said (Whisper) and
+- **Record narration:** speak the lines yourself; the den writes down what you said and
   the timed script lands in the field. **Use my recording** makes your recording the voice-over
   itself (lip-synced too, with the switch); off, the chosen voice reads the script.
 - **The timed script** of the last clip: **Use the timed script** puts it back in the field,
@@ -44,7 +44,7 @@ The microphone is asked for the first time you record, and used only while you d
 ## Chat
 
 A conversation with the den's model over `POST /v1/chat/completions`, streamed, so words appear
-as they are written. The model and the context window come from `/status`. Qwen-style thinking is
+as they are written. The model and the context window come from `/status`. Thinking is
 off by default, as it is for den's own delegation; the ⚙ button in the chat turns it on.
 
 The model is offered one tool, `generate_image`, built from the den's own `/client` spec: the

@@ -105,6 +105,14 @@ in the text itself**: it has no `[emotion]` tags, no SSML, and stretching a vowe
 - **One short line first**, always: a whole emotional script before hearing whether the emotion
   landed at all wastes the job.
 
+Where the default workflow's settings and phrasing don't go far enough, `list_voices`'s answer
+(or `generate_voice`'s tool description) says whether a further, emotion-focused speech workflow
+is installed here: pass `workflow` and an `emotion` object (the one or two of happy, angry, sad,
+afraid, disgusted, melancholic, surprised, calm that fit the line, 0–1 each) with `emo_alpha` for
+how strongly it colors the delivery. It clones the same voice library, but speaks far fewer
+languages — check which before asking for one it doesn't. Not installed everywhere; if `workflow`
+never appears in the tool, this machine only has the default one.
+
 ## The working loop
 
 1. **Pick the voice from `list_voices`** by its description, not its name: "grandpa" says less

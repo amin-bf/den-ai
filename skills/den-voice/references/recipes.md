@@ -78,6 +78,20 @@ One short line first, to hear whether the emotion landed before a whole script. 
 sharper setting (SKILL.md, "A strong emotion") or a rewrite with shorter, more broken sentences —
 never letter-stretching a word for a drawn-out sound, which reads as a stutter instead.
 
+## A named emotion, on a further workflow
+
+Only where `generate_voice`'s tool lists `workflow`:
+
+```json
+{"text": "Please — don't leave. I can't do this. I CAN'T... not without you.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"sad": 0.8, "afraid": 0.3}, "emo_alpha": 1.0}
+```
+
+`exaggeration` and `cfg_weight` are the default workflow's own settings and do nothing here.
+Check the workflow's languages before asking for one it doesn't speak — far fewer than the
+default workflow's 23, and it fails loudly rather than falling back. One short line first, same
+as any other emotion attempt.
+
 ## A designed voice
 
 For a character's voice nobody has recorded:

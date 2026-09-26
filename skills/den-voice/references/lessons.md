@@ -47,3 +47,15 @@ Measured with the speech model through den's broker on a 12 GB card.
   sample is calm and soft; even at the most pushed settings tried, an emotion needing real
   vocal break (sobbing, screaming) stayed short of the raw upset a more dramatic reference
   recording, or a different TTS model built for it, might reach — untested here.
+- **A named-emotion workflow changes pacing on identical text, unprompted.** The same line
+  ("Please — don't leave. I can't do this. I CAN'T... not without you.") through the emotion
+  workflow, same voice and text, came back 6.27 s at sad=0.8, 4.91 s at afraid=0.8, 4.5 s at
+  happy=0.8+surprised=0.3, and 4.91 s with no vector at all: the mood alone slowed or sped the
+  delivery, something pushing the default workflow's settings never did on the same text. Timbre
+  and emotion are separate inputs there (a voice sample plus an 8-number vector), not one
+  setting doing both jobs.
+- **The emotion workflow costs about 6.5 GB of VRAM and 15–60 s to load**, measured against a
+  clean `nvidia-smi` baseline on the same 12 GB card the default workflow shares with ComfyUI:
+  well within what's left once ComfyUI frees its models, the same as the default workflow's own
+  footprint. First load downloads its checkpoints (about 5.2 GB) and pulls in a couple of small
+  auxiliary models on top; later loads are the fast end of that range.

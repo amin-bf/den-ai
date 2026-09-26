@@ -19,14 +19,18 @@ is said from the wake word on is kept as audio until the conversation starts in 
                   for it (or a new one) again
     POST /live    {voice?, language, exaggeration} -> from standby, start the conversation: load
                   its models; /health says when it's ready
-    POST /talk    {say?, wait_s?, voice?, language?, now?} -> from this turn on in voice (a
-                  recording's path), speaking language (what `say` is in; listening always detects
-                  each utterance's own); speaks `say` sentence by sentence, then waits for the
-                  user's next utterance: {heard, interrupted, spoken, unspoken, silence}. The user
-                  speaking over the voice stops it at once (interrupted, and how far it got);
-                  something said before the call came in is returned without speaking at all.
-                  With now, a talk that is running ends first (preempted): its voice finishes the
-                  sentence it's on, and its wait ends unless the user has begun to answer.
+    POST /talk    {say?, wait_s?, voice?, language?, exaggeration?, cfg_weight?, now?} -> from this
+                  turn on in voice (a recording's path), speaking language (what `say` is in;
+                  listening always detects each utterance's own); speaks `say` sentence by
+                  sentence, then waits for the user's next utterance: {heard, interrupted, spoken,
+                  unspoken, silence}. exaggeration/cfg_weight color this turn's delivery only,
+                  falling back to the session's own (set at /live) when left out; changing
+                  exaggeration is cheap; it patches the voice's own conditioning in place rather
+                  than re-reading it, so it's fine to change turn by turn. The user speaking over
+                  the voice stops it at once (interrupted, and how far it got); something said
+                  before the call came in is returned without speaking at all. With now, a talk
+                  that is running ends first (preempted): its voice finishes the sentence it's on,
+                  and its wait ends unless the user has begun to answer.
     POST /stop    ends the engine
 """
 
@@ -294,17 +298,23 @@ def sentences(text):
     return merged
 
 
-def synthesize(sentence):
+def synthesize(sentence, exaggeration=None, cfg_weight=None):
     import torch
 
     with models["tts_lock"]:
-        wav = models["tts"].generate(sentence, language_id=models["speak_language"], exaggeration=models["exaggeration"])
+        wav = models["tts"].generate(
+            sentence, language_id=models["speak_language"],
+            exaggeration=exaggeration if exaggeration is not None else models["exaggeration"],
+            cfg_weight=cfg_weight if cfg_weight is not None else 0.5,
+        )
     return wav.squeeze().clamp(-1, 1).mul(32767).to(torch.int16).cpu().numpy().tobytes()
 
 
-def speak(text, target):
+def speak(text, target, exaggeration=None, cfg_weight=None):
     """Say the text sentence by sentence; stop at once when the user starts speaking. Returns the
-    sentences fully said and the ones not said."""
+    sentences fully said and the ones not said. exaggeration/cfg_weight color this turn only —
+    changing exaggeration is cheap (it patches the voice's own conditioning in place), so a turn
+    can be calmer or more dramatic than the session's default without re-reading the voice."""
     parts = sentences(text)
     audio = queue.Queue(maxsize=2)
 
@@ -312,7 +322,7 @@ def speak(text, target):
         for part in parts:
             if barge.is_set():
                 break
-            audio.put((part, synthesize(part)))
+            audio.put((part, synthesize(part, exaggeration, cfg_weight)))
         audio.put(None)
 
     threading.Thread(target=produce, daemon=True).start()
@@ -382,6 +392,8 @@ def talk(body):
     say = str(body.get("say") or "").strip()
     wait_s = float(body.get("wait_s") or 120)
     switch(body.get("voice"), body.get("language"))
+    exaggeration = float(body["exaggeration"]) if body.get("exaggeration") is not None else None
+    cfg_weight = float(body["cfg_weight"]) if body.get("cfg_weight") is not None else None
     if body.get("now"):
         preempt.set()  # the talk that is running ends, so this one can speak
     with talk_lock:
@@ -390,7 +402,7 @@ def talk(body):
         if say and not heard.empty():
             return {"heard": drain(), "interrupted": False, "spoken": [], "unspoken": sentences(say), "said_first": True}
         barge.clear()
-        said, unsaid = speak(say, targets[1]) if say else ([], [])
+        said, unsaid = speak(say, targets[1], exaggeration, cfg_weight) if say else ([], [])
         interrupted = bool(unsaid) and barge.is_set()
         cut = {"preempted": True} if unsaid and not interrupted else {}  # stopped for a line that can't wait
         deadline = time.time() + wait_s

@@ -321,6 +321,17 @@ def live_tools():
                         "language than before. Listening needs none: the user may answer in any language, each utterance's "
                         "own is detected, and you see it in the words.",
                     },
+                    "exaggeration": {
+                        "type": "number",
+                        "description": "Expressiveness for this turn only, 0.25–2 (default the session's own, from live_start). "
+                        "Higher for a tense or dramatic line, lower for something calm or gentle; changing it is cheap, so "
+                        "vary it turn by turn rather than picking one mood for the whole conversation.",
+                    },
+                    "cfg_weight": {
+                        "type": "number",
+                        "description": "Pacing for this turn only, 0–1 (default 0.5). Lower is slower and calmer, a good "
+                        "pair with higher exaggeration.",
+                    },
                 },
             },
         },
@@ -399,7 +410,10 @@ def live_call(name, args, progress_token):
             "(a short greeting), and keep calling talk for every exchange."
         )
     if name == "talk":
-        answer = broker.live_talk(str(args.get("say") or ""), float(args.get("wait_s") or 120), args.get("voice"), args.get("language"))
+        answer = broker.live_talk(
+            str(args.get("say") or ""), float(args.get("wait_s") or 120), args.get("voice"), args.get("language"),
+            args.get("exaggeration"), args.get("cfg_weight"),
+        )
         return json.dumps({k: v for k, v in answer.items() if v not in (None, [], False, "")}, ensure_ascii=False)
     if name == "live_stop":
         answer = broker.live_stop()

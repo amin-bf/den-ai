@@ -476,9 +476,11 @@ class Broker:
         log(f"live conversation {session} on (voice {voice or 'default'}, {language}{', after the wake word' if woke else ''})")
         return session
 
-    def live_talk(self, say, wait_s, voice=None, language=None, now=False):
-        """One exchange. With now the talk that is running ends first (preempted) and this one is
-        spoken at once: a line that can't wait for the user's next words (ADR live-conversation)."""
+    def live_talk(self, say, wait_s, voice=None, language=None, exaggeration=None, cfg_weight=None, now=False):
+        """One exchange. exaggeration/cfg_weight color this turn's delivery only, the session's
+        own (from live_start) otherwise. With now the talk that is running ends first (preempted)
+        and this one is spoken at once: a line that can't wait for the user's next words (ADR
+        live-conversation)."""
         voice_file = speech.voice_path(voice) if voice else None
         if language and language not in speech.LANGUAGES:
             raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
@@ -498,7 +500,7 @@ class Broker:
             speech.record_turn(session, {"who": "den", "event": "switch", **switched})
         began = round(time.time(), 1)  # when Claude's line starts, not when the user's answer ends
         try:
-            answer = self.live_engine.talk(say, wait_s, voice_file, language, now)
+            answer = self.live_engine.talk(say, wait_s, voice_file, language, exaggeration, cfg_weight, now)
         finally:
             with self.cond:
                 if self.live:
@@ -1399,7 +1401,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.loads(self._read_body() or b"{}")
                 self._send_json(200, self.broker.live_talk(
                     str(body.get("say") or ""), float(body.get("wait_s") or 120), body.get("voice"), body.get("language"),
-                    bool(body.get("now")),
+                    body.get("exaggeration"), body.get("cfg_weight"), bool(body.get("now")),
                 ))
             elif path == "/live/stop" and self.command == "POST":
                 self._send_json(200, self.broker.live_stop())

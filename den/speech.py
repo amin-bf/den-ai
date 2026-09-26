@@ -419,9 +419,12 @@ class LiveEngine:
         if status != 200:
             raise DenError(f"standby: {answer.get('error')}")
 
-    def talk(self, say, wait_s, voice_file=None, language=None, now=False):
+    def talk(self, say, wait_s, voice_file=None, language=None, exaggeration=None, cfg_weight=None, now=False):
         body = {"say": say, "wait_s": wait_s, **({"voice": str(voice_file)} if voice_file else {}),
-                **({"language": language} if language else {}), **({"now": True} if now else {})}
+                **({"language": language} if language else {}),
+                **({"exaggeration": exaggeration} if exaggeration is not None else {}),
+                **({"cfg_weight": cfg_weight} if cfg_weight is not None else {}),
+                **({"now": True} if now else {})}
         try:
             status, answer = self._call("POST", "/talk", body, timeout=wait_s + 300)
         except OSError as e:

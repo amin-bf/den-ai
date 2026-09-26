@@ -59,10 +59,11 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `den/remote.py` | The den on another machine, used from one that keeps none of den's files: asks its broker for the tools, sends files and input images as bytes, saves the images that come back ([ADR remote-brokers](docs/adr/0007-remote-brokers.md)). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
 | `den/clip.py` | Clip workflows on top of `image.py`'s helpers: duration to frames, keyframes, the contact sheet, clip files and the clip log with its time estimates ([ADR clip-generation](docs/adr/0009-clip-generation.md)).; a clip's `sound` and its voice-over, put into its graph |
-| `den/speech.py` | Speech (ADR voice-overs): the speech server's process on a private UNIX socket (speaking, converting a recording, a transcription model's timed text), SRT scripts and lines den times, the voice library in `~/.local/share/den/voices/`, the voice track assembled at the script's times, and the speech log. |
+| `den/speech.py` | Speech (ADR voice-overs, [ADR speech-workflows](docs/adr/0013-speech-workflows.md)): a workflow's server process on a private UNIX socket (speaking, converting a recording, a transcription model's timed text), SRT scripts and lines den times, the voice library in `~/.local/share/den/voices/`, the voice track assembled at the script's times, and the speech log. |
 | `speech/design.py` | The voice designer: a voice-design model speaks a sample in a voice made from a description, run once per voice in its own venv (`~/.local/share/den/voice-design/`); den keeps the sample as a voice. |
 | `speech/live.py` | The live engine (ADR live-conversation): microphone and speakers through PipeWire's echo canceller, a voice-activity model, a transcription model and the speech model, while the live conversation has the machine; the broker drives it over a private socket, and `den/speech.py` keeps every session's transcript. Started with a wake word it is standby (ADR standby): the voice-activity model and a small transcription model on the CPU, and the conversation later loads into the same process. |
-| `speech/server.py` | The speech server: the speech model behind `GET /health` and `POST /speak`, `/convert` for a recording, and a transcription model behind `POST /transcribe`. It runs in the speech venv `setup.sh` makes, not in den's Python, so it's the one file here that isn't stdlib. |
+| `speech/server.py` | The default speech workflow: the speech model behind `GET /health` and `POST /speak`, `/convert` for a recording, and a transcription model behind `POST /transcribe`. It runs in the speech venv `setup.sh` makes, not in den's own stdlib-only Python. |
+| `speech/emotion_server.py` | A second, opt-in speech workflow ([ADR speech-workflows](docs/adr/0013-speech-workflows.md)): a strong, named-emotion vector behind `GET /health` and `POST /speak`, no `/convert` or `/transcribe`. Its own venv, `--with-emotion` (`setup.sh`); never made by a plain `./setup.sh`. |
 | `den/poses.py` | The pose library: saved poses (skeleton, photo copy, keypoints JSON, description) in `~/.local/share/den/poses/`, names, the table of contents, one pose's details, rename and delete. |
 | `workflows/` | Example ComfyUI graphs in API format, one per image or clip workflow, on public models under their official file names; their mappings live in `config.toml`. Private workflows live in `~/.config/den/workflows/` (`DEN_WORKFLOWS`) with their entries in `config.local.toml`, and a graph there wins over the repo's of the same name. |
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / clip / voice / live / standby / pose / log / serve`. |
@@ -89,8 +90,11 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 
 ## Design rules
 
-- **Python stdlib only.** No pip installs: `tomllib`, `urllib` and `json` are enough.
-  `speech/server.py` is the exception: it runs in the speech venv, never in den's own Python.
+- **Python stdlib only.** No pip installs: `tomllib`, `urllib` and `json` are enough. This is
+  about `den/*.py` — a speech workflow's own server script (`speech/server.py`,
+  `speech/emotion_server.py`) is never part of it: each runs in its own venv, never in den's own
+  Python, the same as the voice designer (`speech/design.py`) and the live engine
+  (`speech/live.py`).
 - **Switch without restarts.** The broker, CLI and MCP server re-read config and state on
   every use. Code changes to the broker need `systemctl --user restart den`
   (`launchctl kickstart -k gui/$UID/ai.den.broker` on macOS).
@@ -123,6 +127,14 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   starts `speech/server.py` and stops it when the request ends, so nothing of speech stays loaded.
   A clip's voice-over is spoken first and mixed into the clip's own graph; the clip is built
   longer if the spoken track outruns the script's times ([ADR voice-overs](docs/adr/0010-voice-overs.md)).
+- **A voice request can name a further speech workflow, each in its own venv**
+  ([ADR speech-workflows](docs/adr/0013-speech-workflows.md)). `den/speech.py`'s `Server` is
+  parameterised by workflow; only `/speak` differs between them, since converting a recording
+  and transcription stay the default workflow's job regardless. A further workflow's venv is
+  never made by a plain `./setup.sh` and is opt-in per flag (`--with-emotion`); its languages
+  come from `config.toml`, not `LANGUAGES`, since it usually speaks far fewer. The speech lock
+  (`broker.speech_lock`) covers every workflow, not just the default one: two speech models
+  loaded together is untested.
 - **Standby listens without taking the machine** ([ADR standby](docs/adr/0012-standby.md)). It isn't
   a side: a small transcription model on the CPU hears only the start of each utterance for the wake word (a
   phrase the client gives), and nothing begun before the wake word reaches any other model, is

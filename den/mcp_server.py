@@ -451,8 +451,8 @@ def design_tool(remote_name=None):
     where = f"The voice lives in {remote_name}'s library; the sample is saved here to listen to. " if remote_name else ""
     return {
         "name": "design_voice",
-        "description": where + "Design a new voice from a description: Qwen3-TTS VoiceDesign speaks a sample in it, "
-        "which Chatterbox then clones for generate_voice and clip voice-overs (also lip-synced). Describe age, "
+        "description": where + "Design a new voice from a description: the voice-design model speaks a sample in it, "
+        "which the speech model then clones for generate_voice and clip voice-overs (also lip-synced). Describe age, "
         "gender, pitch, texture, pace and mood, e.g. \"an old man with a deep, raspy, slow voice\", \"a cheerful "
         "eight-year-old girl with a high, bright voice\". Without a name it's a draft, not in the library yet: "
         "give the user the sample's path to listen to, and try it on a real line with voice draft:ID (generate_voice), "
@@ -464,7 +464,7 @@ def design_tool(remote_name=None):
                 "description": {"type": "string", "description": "What the voice sounds like."},
                 "language": {
                     "type": "string", "enum": list(speech.DESIGN_LANGUAGES),
-                    "description": "The sample's language (default en); the voice then speaks any of Chatterbox's.",
+                    "description": "The sample's language (default en); the voice then speaks any of the speech model's.",
                 },
                 "seed": {"type": "integer", "description": "Another seed gives another voice for the same description."},
                 "name": {"type": "string", "description": "Keep it at once under this name, with no draft: only when the user asked for that."},
@@ -498,7 +498,7 @@ def transcribe_tool(remote_name=None):
     return {
         "name": "transcribe_audio",
         "description": where + "Write down what a recording says, as an SRT with each line at the time it was said "
-        "(Whisper large-v3-turbo, many languages). For subtitles, a script to speak again in another voice "
+        "(a transcription model, many languages). For subtitles, a script to speak again in another voice "
         "(generate_voice) or to put on a clip, or to check what a finished clip says: it takes a clip's mp4 too, "
         "since you can't hear it. The den-voice skill has the recipes.",
         "inputSchema": {

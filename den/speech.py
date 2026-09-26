@@ -1,6 +1,6 @@
 """Speech: voice-overs from a script, in voices cloned from a recording (docs/adr/0010-voice-overs.md).
 
-The speech model (Chatterbox Multilingual) runs in a venv of its own that setup.sh makes, as
+The speech model runs in a venv of its own that setup.sh makes, as
 speech/server.py on a private UNIX socket. It belongs to the image side: the broker starts it for a
 voice job, after asking ComfyUI to free its models, and stops it when the job is done. This file
 is den's side of it: the server's process, SRT scripts, the voice library and the voice track.
@@ -52,7 +52,7 @@ DESIGNER = core.ROOT / "speech/design.py"
 DESIGN_LOG = core._STATE_HOME / "den/voice-design.log"
 DESIGN_TIMEOUT_S = 1800  # the first run downloads the model (about 4.5 GB)
 # The languages the voice designer speaks, and a sample of about ten seconds with varied sounds in
-# each: the sample is what Chatterbox clones, so it only needs to show the voice.
+# each: the sample is what the speech model clones, so it only needs to show the voice.
 DESIGN_LANGUAGES = {
     "en": ("English", "Every morning I walk down to the harbour, buy a coffee from the little stand by the boats, "
            "and watch the fishermen come in. Some days the sea is calm and silver; other days the wind throws spray over the wall."),
@@ -84,8 +84,8 @@ def design_unavailable():
 
 
 def design(description, language="en", seed=None, check=lambda: None):
-    """A voice's sample from a description: WAV bytes, spoken by the voice designer (Qwen3-TTS
-    VoiceDesign) in a process of its own. check() is called while it runs, to cancel it."""
+    """A voice's sample from a description: WAV bytes, spoken by the voice-design model in a
+    process of its own. check() is called while it runs, to cancel it."""
     why = design_unavailable()
     if why:
         raise DenError(why)
@@ -161,7 +161,7 @@ class Server:
         SOCKET.parent.chmod(0o700)
         SOCKET.unlink(missing_ok=True)
         SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
-        emit({"starting": "speech model (Chatterbox)"})
+        emit({"starting": "the speech model"})
         self.log = open(SERVER_LOG, "w")
         self.proc = subprocess.Popen(
             [str(PYTHON), str(SERVER), "--socket", str(SOCKET)],
@@ -210,10 +210,10 @@ class Server:
         return raw
 
     def transcribe(self, recording, language=None):
-        """{segments: [{start, end, text}], text, duration} of a recording's speech (Whisper)."""
+        """{segments: [{start, end, text}], text, duration} of a recording's speech (a transcription model)."""
         body = {"audio": str(recording), **({"language": language} if language else {})}
         try:
-            # The first call downloads Whisper (about 1.6 GB) and loads it.
+            # The first call downloads the transcription model (about 1.6 GB) and loads it.
             status, _, raw = self._call("POST", "/transcribe", body, timeout=START_TIMEOUT_S)
         except OSError as e:
             raise DenError(f"the speech server didn't answer: {e}; see {SERVER_LOG}") from e
@@ -312,13 +312,13 @@ class LiveEngine:
         """The conversation: from standby in the same process, so what was said since the wake word
         is kept; otherwise a new engine."""
         if self.phase() == "standby":
-            emit({"starting": "the conversation's Whisper and voice"})
+            emit({"starting": "the conversation's transcription model and voice"})
             status, answer = self._call("POST", "/live", self._conversation_args(voice_file, language, exaggeration))
             if status != 200:
                 raise DenError(f"live: {answer.get('error')}")
         else:
             self.stop()
-            emit({"starting": "the live engine (microphone, Whisper, voice)"})
+            emit({"starting": "the live engine (microphone, transcription model, voice)"})
             args = ["--language", language, "--exaggeration", str(exaggeration)]
             self._spawn(args + (["--voice", str(voice_file)] if voice_file else []))
         self._until_ready("live")
@@ -586,7 +586,7 @@ def request_spec():
     return {
         "description": (
             "Speak a text, or an SRT script with each line at its time, in a voice cloned from a "
-            "recording (Chatterbox Multilingual, 23 languages), and save it as one WAV track: a "
+            "recording (the speech model, 23 languages), and save it as one WAV track: a "
             "voice-over. For a voice-over on a clip, pass it to generate_clip as voiceover instead. "
             "Give each SRT line time to be said, about 2.5 words a second: a line that runs long "
             "pushes the next one later, and the result lists each one as a note. You can't hear the "

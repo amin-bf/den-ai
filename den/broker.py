@@ -1110,7 +1110,7 @@ def voice_track(broker, config, request, emit, check):
 
 
 def transcribe(broker, config, recording, language, emit, check):
-    """Whisper's timed segments of a recording, as cues."""
+    """A transcription model's timed segments of a recording, as cues."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
     with broker.speech_lock:
@@ -1565,7 +1565,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _transcribe(self, body, emit):
         """POST /transcribe {audio: path or {name, base64}, language?, out?}: the speech of a
-        recording as a timed SRT (Whisper), saved next to where voice tracks go. Streams progress
+        recording as a timed SRT (a transcription model), saved next to where voice tracks go. Streams progress
         and ends with {"result": {srt, text, segments, duration, path}}."""
         why = speech.unavailable()
         if why:
@@ -1622,7 +1622,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _voice_design(self, body, emit):
         """POST /voices/design {description, name?, language?, seed?, replace?, bytes?}: make a voice
-        from a description (Qwen3-TTS VoiceDesign speaks a sample in it). Without a name it's a draft,
+        from a description (the voice-design model speaks a sample in it). Without a name it's a draft,
         outside the library, to listen to and try (voice draft:ID) before POST /voices {draft, name}
         keeps it; with a name it's kept at once. Streams progress and ends with {"result": {draft or
         voice, path, duration, seconds}}, and the sample as bytes with bytes."""

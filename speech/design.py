@@ -1,9 +1,10 @@
-"""den's voice designer: a voice's sample from a description (docs/adr/0010-voice-overs.md).
+"""den's voice designer: a voice's sample from a description (docs/adr/voice-overs.md).
 
-Qwen3-TTS VoiceDesign speaks a sample text in a voice made from a description ("an old man with a
-deep, raspy voice"); den keeps the sample in its voice library, and Chatterbox clones it from then
+The voice-design model speaks a sample text in a voice made from a description ("an old man with a
+deep, raspy voice"); den keeps the sample in its voice library, and the speech model clones it from then
 on. It runs once per voice, as a job the broker starts and waits for, in a venv of its own that
-setup.sh makes: Qwen3-TTS pins a transformers Chatterbox can't share.
+setup.sh makes: the voice-design model's package pins a transformers version the speech model's own
+package can't share.
 
     python design.py --description TEXT --text TEXT --language English --out SAMPLE.wav [--seed N]
 """

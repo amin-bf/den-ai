@@ -1,7 +1,7 @@
-"""den's speech server: Chatterbox Multilingual on a private UNIX socket (docs/adr/0010-voice-overs.md).
+"""den's speech server: the speech model on a private UNIX socket (docs/adr/voice-overs.md).
 
 The broker starts it for a voice job and stops it after. It runs in the speech venv that setup.sh
-makes, not in den's own Python: Chatterbox pins a torch and transformers of its own.
+makes, not in den's own Python: the speech model's package pins a torch and transformers of its own.
 
     GET  /health  {"ready": bool, "error": str|None}; ready once the model is loaded
     POST /speak   {text, language, voice?, exaggeration?, cfg_weight?, temperature?, seed?}
@@ -9,8 +9,8 @@ makes, not in den's own Python: Chatterbox pins a torch and transformers of its 
                   to clone (without one, the model's own voice)
     POST /convert {audio} -> audio/wav, 16-bit mono at the model's rate: a recording in any format
                   as den's own tracks are, so a voice-over can be one
-    POST /transcribe {audio, language?} -> {language, segments: [{start, end, text}]}: Whisper
-                  large-v3-turbo, loaded on the first call, so a voice job never loads it
+    POST /transcribe {audio, language?} -> {language, segments: [{start, end, text}]}: a
+                  transcription model, loaded on the first call, so a voice job never loads it
 """
 
 import argparse
@@ -42,7 +42,7 @@ def load(device):
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         device_name = device
-        print(f"loading Chatterbox Multilingual V3 on {device}", flush=True)
+        print(f"loading the speech model on {device}", flush=True)
         m = ChatterboxMultilingualTTS.from_pretrained(device=device, t3_model="v3")
         voice_state["default"] = m.conds
         model = m

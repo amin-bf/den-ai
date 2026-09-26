@@ -1,12 +1,14 @@
 """den's live engine: ears and a voice for a spoken conversation with Claude (docs/adr/0011-live-conversation.md).
 
 The broker starts it when a live conversation begins and stops it at the end. It runs in the speech
-venv and owns the speakers and the models meanwhile: Silero VAD listens all the time, Whisper writes
-down what the user says, and Chatterbox speaks in a voice from the library. Audio goes through
-PipeWire's echo canceller, so den's own voice is never taken for the user.
+venv and owns the speakers and the models meanwhile: a voice-activity model listens all the time,
+a transcription model writes down what the user says, and the speech model speaks in a voice from
+the library. Audio goes through PipeWire's echo canceller, so den's own voice is never taken for
+the user.
 
-Started with --wake-word it begins in standby (docs/adr/0012-standby.md): only the VAD and a small
-Whisper on the CPU, which hears the start of each utterance for the wake word and forgets it. What
+Started with --wake-word it begins in standby (docs/adr/0012-standby.md): only the voice-activity
+model and a small transcription model on the CPU, which hears the start of each utterance for the
+wake word and forgets it. What
 is said from the wake word on is kept as audio until the conversation starts in this same process
 (POST /live), so the first words aren't lost; nothing said before it reaches another model.
 
@@ -61,13 +63,13 @@ state = {"ready": False, "error": None, "phase": "live", "wakes": 0}  # phase: s
 utterances = queue.Queue()  # (audio, t_start, t_end, counted, began_in) in the order they were said
 heard = queue.Queue()  # finished utterances, as {text, t_start, t_end}
 wake_heard = threading.Condition()  # notified when the wake word is heard
-early = []  # (audio, t_start, t_end, wake) since the wake word, until the conversation's Whisper is loaded
+early = []  # (audio, t_start, t_end, wake) since the wake word, until the conversation's transcription model is loaded
 targets = [None, None]  # the echo canceller's source and sink, once it's loaded
 recorder = {"target": None, "switch": False}  # listen() moves to the echo canceller's source when asked
 preempt = threading.Event()  # a talk with now is waiting for the one before it to end
 barge = threading.Event()  # the user started speaking over the voice
 user_speaking = threading.Event()  # an utterance is under way: never end the user's turn meanwhile
-writing = [0]  # utterances Whisper is still writing down
+writing = [0]  # utterances the transcription model is still writing down
 writing_lock = threading.Lock()
 speaking = threading.Event()  # den's voice is playing
 stopping = threading.Event()
@@ -174,11 +176,11 @@ def listen():
 def handle_utterances():
     """Every utterance, in the order it was said. One begun in standby is heard by the detector
     only, and forgotten unless it starts with the wake word; from the wake word on, or once the
-    conversation is starting, it's kept as audio until Whisper is loaded to write it down."""
+    conversation is starting, it's kept as audio until the transcription model is loaded to write it down."""
     while not stopping.is_set():
         item = utterances.get()
         if item is None:
-            # The conversation's Whisper is loaded: what was kept is written down first, in order.
+            # The conversation's transcription model is loaded: what was kept is written down first, in order.
             for audio, t_start, t_end, wake in early:
                 write_down(audio, t_start, t_end, strip_wake=wake)
             early.clear()
@@ -231,14 +233,14 @@ def words(text):
 
 
 def sounds(letters):
-    """Letters as they sound, roughly: Whisper spells a name as it likes ("Elli", "Ellie", "Ely")."""
+    """Letters as they sound, roughly: the transcription model spells a name as it likes ("Elli", "Ellie", "Ely")."""
     letters = re.sub(r"(ay|ey|ei|ai)", "ei", re.sub(r"(ie|ee|ea|y)", "i", letters))
     return re.sub(r"(.)\1+", r"\1", letters)
 
 
 def wake_span(text):
     """How many of text's first words are the wake word, or 0. The words are compared joined and
-    by sound, since Whisper spells names freely and splits or joins words; one filler before it
+    by sound, since the transcription model spells names freely and splits or joins words; one filler before it
     ("oh, hey Elli") is allowed. A near name ("hey Olli", "hey Emily") doesn't count: a false wake
     takes the machine, a missed one is only said again."""
     said, wake = words(text), sounds("".join(words(models["wake_word"])))
@@ -258,7 +260,7 @@ def is_wake(text):
 
 
 def after_wake(text):
-    """What was said after the wake word, as Whisper wrote it; "" when nothing was."""
+    """What was said after the wake word, as the transcription model wrote it; "" when nothing was."""
     span = wake_span(text)
     rest = text
     for _ in range(span):
@@ -366,7 +368,7 @@ def speak(text, target):
 
 def switch(voice=None, language=None):
     """Another voice or speaking language from this turn on: the voice's recording is read once
-    (about a second). Listening needs no language: Whisper detects each utterance's own, so the
+    (about a second). Listening needs no language: the transcription model detects each utterance's own, so the
     user can answer in English what was said in German, and the other way round."""
     if language:
         models["speak_language"] = language
@@ -422,7 +424,7 @@ def after_pause(text):
 
 def gather(text):
     """The user's turn: this utterance and what follows it closely. The turn never ends while
-    they're speaking or Whisper is still writing down what they said."""
+    they're speaking or the transcription model is still writing down what they said."""
     texts = [text]
     while True:
         deadline = time.time() + after_pause(" ".join(texts))
@@ -462,7 +464,7 @@ def load_standby(args):
 
 def go_live(args):
     """From standby to the conversation in this process, so the microphone never stops: the echo
-    canceller, then Whisper and the voice. Ready once what was said since the wake word (or since
+    canceller, then the transcription model and the voice. Ready once what was said since the wake word (or since
     this call) is written down."""
     import torch
 

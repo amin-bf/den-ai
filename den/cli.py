@@ -1136,7 +1136,7 @@ def main(argv=None):
     p.add_argument("--save", nargs=2, metavar=("DRAFT", "NAME"), help="keep a designed draft voice under NAME")
     p.add_argument(
         "--transcribe", metavar="RECORDING",
-        help="write down what a recording says, as a timed SRT (Whisper; -l for its language)",
+        help="write down what a recording says, as a timed SRT (-l for its language)",
     )
     p.set_defaults(func=cmd_voice)
 

@@ -5,7 +5,7 @@ description: "Speak a text, lines or an SRT script in a voice cloned from a reco
 
 # den-voice: voice-overs with den
 
-den speaks with Chatterbox Multilingual (23 languages) on this machine's GPU, in a voice cloned
+den speaks with the speech model (23 languages) on this machine's GPU, in a voice cloned
 from a short recording, and puts each line of a script at its time on one track. The tool
 description lists the voices and languages; this skill is how to get speech that fits.
 
@@ -16,10 +16,10 @@ description lists the voices and languages; this skill is how to get speech that
 - **`generate_clip`** with `voiceover` (den-clip): the same script and voice, spoken first and
   mixed into a clip.
 - **`design_voice`** / **`save_voice`**: a new voice from a description ("an old man with a deep,
-  raspy, slow voice"). Chatterbox can't be told a voice in words; the designer speaks a sample in
-  it once, and Chatterbox clones that sample from then on. A design is a **draft** (`draft:ID`)
+  raspy, slow voice"). The speech model can't be told a voice in words; the designer speaks a sample in
+  it once, and the speech model clones that sample from then on. A design is a **draft** (`draft:ID`)
   until `save_voice` keeps it under a name, as a pose is drawn before it's kept.
-- **`transcribe_audio`**: what a recording says, as an SRT at the times it was said (Whisper):
+- **`transcribe_audio`**: what a recording says, as an SRT at the times it was said:
   subtitles, or the script of a recording to speak again in another voice.
 - **`list_voices`**: the voice library, each voice with what it sounds like and how it was made
   (designed or recorded); with a name, one voice's details (description, language, seed, length).
@@ -89,7 +89,7 @@ when lines must land at given moments.
 ## A strong emotion (scared, epic, crying, flirty, …)
 
 The settings alone stay flat at moderate values; a real emotion needs both a pushed setting and
-text written for it. Chatterbox reads delivery **only from real punctuation and capitalization
+text written for it. The speech model reads delivery **only from real punctuation and capitalization
 in the text itself**: it has no `[emotion]` tags, no SSML, and stretching a vowel out
 (`caaaan't`) is read as a stutter (`can't, can't, can't`), not a drawn-out sound. Never do that.
 

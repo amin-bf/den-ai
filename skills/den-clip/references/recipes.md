@@ -175,14 +175,14 @@ says them on screen, lip-synced: an old keeper, a child, a woman. Four calls:
 
 The words and pauses are the user's, the voice is the character's, and the lips follow it.
 Tested: `grandpa` designed from the description above, the keeper saying "Tonight, someone else
-will keep the light." lip-synced on `ltx23`; Whisper heard the clip word for word. For the
+will keep the light." lip-synced on `ltx23`; the transcription model heard the clip word for word. For the
 user's own voice on screen instead, skip steps 1 and 3 and pass the recording as `audio` with
 `sync`.
 
 ## A talking character, with no human in the loop
 
 The same result as the recipe above, when nobody records or listens: you write the lines, and
-Whisper is your ears. Five calls:
+the transcription model is your ears. Five calls:
 
 1. **The character's still** (den-image): face visible and large enough to see the mouth.
 2. **Their voice** (`design_voice`) from the same idea of the character, unless `list_voices`
@@ -199,7 +199,7 @@ Whisper is your ears. Five calls:
     "voiceover": {"lines": ["Tonight, someone else will keep the light."], "voice": "grandpa", "sync": true}}
    ```
 4. **Look** at the contact sheet from `get_clip`: the face, the framing, the mouth open mid-word.
-5. **Listen through Whisper**: `transcribe_audio` on the clip's mp4, and compare the words with
+5. **Listen through the transcription model**: `transcribe_audio` on the clip's mp4, and compare the words with
    your lines. They match: done. A word is off: the same clip with another `seed` in the
    voiceover, once; still off, say so and hand the clip over with the transcript.
 
@@ -237,6 +237,6 @@ is chosen with the user once and kept under the character's name.
 
 Tested: a 24-year-old character described by her looks only; drafts at about 200 Hz and 370 Hz,
 the user chose the lower; her frontal close-up portrait as the start frame, two lines lip-synced
-on ltx23 in 219 s (6.33 s, portrait 608x864); the face held, the mouth moved, and Whisper heard
+on ltx23 in 219 s (6.33 s, portrait 608x864); the face held, the mouth moved, and the transcription model heard
 both lines word for word. If other clients are busy, the clip waits its turn: never release the
 machine or cancel them to go first.

@@ -6,7 +6,7 @@ description: Hold a live spoken conversation with the user at this machine throu
 # den-live: a spoken conversation
 
 den is your ears and your voice at the user's PC (ADR live-conversation): it hears them through the microphone
-(Whisper), speaks your words (Chatterbox, in a voice from the library), and cuts your voice off
+(the transcription model), speaks your words (the speech model, in a voice from the library), and cuts your voice off
 when they start talking over you. You stay the one who thinks. While live, den does nothing else:
 images, clips and the local model all wait.
 
@@ -58,7 +58,7 @@ Answer in the language the user just used, unless they asked for another.
   by one: say one, ask what to do with it, wait for the answer, then the next. Don't read out a
   summary of all of them; you're in a conversation, not a screen reader.
 - **Links and code go on screen**: write them in the chat, and only say that they're there.
-- **Misheard words**: Whisper can mishear. If what came back doesn't make sense, say what you
+- **Misheard words**: the transcription model can mishear. If what came back doesn't make sense, say what you
   heard and ask, rather than guess.
 
 ## Rules

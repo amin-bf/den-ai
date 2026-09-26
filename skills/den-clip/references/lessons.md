@@ -34,7 +34,7 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   only in the video, not on the contact sheet: ask the user.
 - **A quoted line at cfg 1 comes out slurred.** The keeper (ltx23-distilled, cfg 1, one keyframe)
   prompted to say "Tonight, someone else will keep the light." spoke for 3 s with his mouth moving,
-  but Whisper heard "The nigher, summer else will hick the light.": the line's rhythm, not its
+  but the transcription model heard "The nigher, summer else will hick the light.": the line's rhythm, not its
   words. The same seed at cfg 3, the voice described ("a deep, clear, slow voice"), gave
   "Tenaya, someone else will heave the light.": most words clear, in 172 s instead of 117 s.
   For a quoted line use cfg 3; for words that must all be understood, a voice-over with `sync`.
@@ -43,4 +43,4 @@ Measured at 1280x704 with den's Wan 2.2 5B clip workflow (3-second clips) unless
   on ltx23 at cfg 3.5: the mouth closed, then open on the words, then a smile; eyes, brows,
   freckles, hair and tan held through all four frames, the face a little fuller while smiling.
   The clip took the portrait's shape (608x864), lengthened itself to 6.33 s for the voice, and
-  took 219 s; Whisper heard both lines word for word.
+  took 219 s; the transcription model heard both lines word for word.

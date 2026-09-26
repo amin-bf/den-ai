@@ -1,6 +1,6 @@
 # Voice lessons, with the tests behind them
 
-Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
+Measured with the speech model through den's broker on a 12 GB card.
 
 - **Speech takes longer than a tight script allows.** "Every morning I walk down to the harbour"
   given 1.6 s took 2.4 s, and "The sea is calm and silver" given 1.4 s took 2.1 s: each line ran
@@ -12,24 +12,24 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
 - **Lines in turn come out a breath apart, and the SRT says where.** "For forty years, I kept
   this light burning." and "Tonight, someone else will keep it." as `lines` landed at
   0.3–2.38 s and 2.78–4.66 s; the SRT beside the track holds exactly those times.
-- **Whisper writes numbers as digits and times a little coarsely.** The narration above came back
-  as "For 40 years, I kept this light burning." at 0.0–2.76 s (said at 0.4 s) and "Tonight
-  someone else will keep it." at 4.32–5.5 s; 36 s including Whisper's first download. Fix the
+- **The transcription model writes numbers as digits and times a little coarsely.** The narration
+  above came back as "For 40 years, I kept this light burning." at 0.0–2.76 s (said at 0.4 s) and
+  "Tonight someone else will keep it." at 4.32–5.5 s; 36 s including its first download. Fix the
   words and the times before speaking a transcript again.
 - **Cloning works from any clean recording.** A 6.5-second track of the model's own voice kept
   as a voice gave a line in that voice, in one request with no other setup.
 - **A designed voice survives cloning.** Three voices designed from descriptions (an old man in
   his eighties, deep and raspy; an old woman, soft and gentle; a cheerful eight-year-old girl),
-  then cloned by Chatterbox on one line: median pitch 130 → 122 Hz, 172 → 172 Hz and 526 →
+  then cloned by the speech model on one line: median pitch 130 → 122 Hz, 172 → 172 Hz and 526 →
   444 Hz, still clearly apart. Designing took 59 s the first time (the download), then 15–18 s;
   each sample came out 12–18 s long.
-- **Whisper reads a finished clip's mp4 directly.** The lip-synced keeper clip, passed as it was,
-  came back "Tonight, someone else will keep the light." word for word: a way to check a clip's
-  speech without anyone listening.
+- **The transcription model reads a finished clip's mp4 directly.** The lip-synced keeper clip,
+  passed as it was, came back "Tonight, someone else will keep the light." word for word: a way
+  to check a clip's speech without anyone listening.
 - **Two contrasting drafts make the choice easy.** For a 24-year-old woman described only by her
   looks: "warm, smooth, slightly low … unhurried" came out around 200 Hz and "bright, clear,
   lively … a smile in her tone" around 370 Hz, both kept by the clone (203 and 370 Hz) and both
-  word for word through Whisper. The user picked the low one at once; the high one read young.
+  word for word through the transcription model. The user picked the low one at once; the high one read young.
 - **Moderate settings on a calm voice stay flat, whatever the mood asked for.** Elli (calm,
   unhurried by design) at exaggeration 0.3–1.0 and cfg_weight 0.3–0.6 gave scared, epic, brave,
   crying, flirty and playful takes the user heard as barely different from each other, and no
@@ -38,7 +38,7 @@ Measured with Chatterbox Multilingual V3 through den's broker on a 12 GB card.
   upset on the same voice and seed.
 - **Letter-stretching a word reads as a stutter, not a drawn-out sound.** "I caaaaaan't...
   without youuuuuuuuu..." came back as "you, you, you, you, you", confirmed against
-  [deAPI's Chatterbox emotion guide](https://deapi.ai/blog/chatterbox-tts-guide-how-to-control-emotion-and-22-languages-with-text-alone):
+  [a primary source on the speech model's own emotion-control guidance](https://deapi.ai/blog/chatterbox-tts-guide-how-to-control-emotion-and-22-languages-with-text-alone):
   the model has no inline tag parser and reads emotion only from real punctuation and
   capitalization — `...` for hesitation, `—` for a dramatic pause, `?!` for its strongest
   inflection, and CAPS on at most 1–3 words (a fully capitalized sentence distorts instead of

@@ -64,8 +64,8 @@ The user speaks the lines themselves (on the phone: Clip pane, Record narration)
 {"audio": "/path/narration.m4a", "language": "en"}
 ```
 
-Whisper writes numbers as digits ("40 years") and times its lines a little more coarsely than a
-script den spoke itself; read the SRT before speaking it again.
+The transcription model writes numbers as digits ("40 years") and times its lines a little more
+coarsely than a script den spoke itself; read the SRT before speaking it again.
 
 ## A strong emotion
 
@@ -90,7 +90,7 @@ That makes a draft (`draft 20260924-…`). Try it: `generate_voice` with `"voice
 on a real line. The user likes it: `save_voice` with `{"draft": "20260924-…", "name": "grandpa"}`.
 
 - Describe **age, gender, pitch, texture, pace and mood**; the more concrete, the more it holds.
-- The sample is spoken in `language` (10 to choose from); Chatterbox then speaks the voice in any
+- The sample is spoken in `language` (10 to choose from); the speech model then speaks the voice in any
   of its 23, with the sample's accent.
 - Not right: the same description with another `seed`, or a sharper description, as a new draft.
   Only a user who asked for it at once gets `name` in `design_voice`, which skips the draft.

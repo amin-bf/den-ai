@@ -80,17 +80,73 @@ never letter-stretching a word for a drawn-out sound, which reads as a stutter i
 
 ## A named emotion, on a further workflow
 
-Only where `generate_voice`'s tool lists `workflow`:
+Only where `generate_voice`'s tool lists `workflow`. `exaggeration` and `cfg_weight` are the
+default workflow's own settings and do nothing here; check the workflow's languages before
+asking for one it doesn't speak (far fewer than the default workflow's 23, and it fails loudly
+rather than falling back). One short line first, same as any other emotion attempt.
 
+Set only the one or two dimensions a line actually calls for — leaving the rest at 0 reads more
+natural than spreading weight across dimensions that don't fit:
+
+**Crying, pleading:**
 ```json
 {"text": "Please — don't leave. I can't do this. I CAN'T... not without you.",
  "voice": "elli", "workflow": "emotion", "emotion": {"sad": 0.8, "afraid": 0.3}, "emo_alpha": 1.0}
 ```
 
-`exaggeration` and `cfg_weight` are the default workflow's own settings and do nothing here.
-Check the workflow's languages before asking for one it doesn't speak — far fewer than the
-default workflow's 23, and it fails loudly rather than falling back. One short line first, same
-as any other emotion attempt.
+**Scared, breathless:**
+```json
+{"text": "They're coming. They're coming, I can hear them— I have to move, I have to move now.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"afraid": 1.0}, "emo_alpha": 1.0}
+```
+
+**Flirty:**
+```json
+{"text": "Mmm, well hello there... I was hoping you'd come find me.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"happy": 0.6, "surprised": 0.3}, "emo_alpha": 1.0}
+```
+
+**Playful:**
+```json
+{"text": "Ooh, catch me if you can, I bet you can't!",
+ "voice": "elli", "workflow": "emotion", "emotion": {"happy": 0.7, "surprised": 0.4}, "emo_alpha": 1.0}
+```
+
+**Epic, rallying:**
+```json
+{"text": "Rise now, for this is the hour we were born for, and nothing will stop us!",
+ "voice": "elli", "workflow": "emotion", "emotion": {"happy": 0.3, "angry": 0.6, "surprised": 0.3}, "emo_alpha": 1.0}
+```
+
+**Brave, resolute:**
+```json
+{"text": "I'm not afraid. Whatever happens, I'm walking through that door.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"angry": 0.3, "afraid": 0.2, "calm": 0.4}, "emo_alpha": 1.0}
+```
+
+**Disgusted:**
+```json
+{"text": "Ugh, get that away from me, I can't even look at it.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"angry": 0.3, "disgusted": 0.9}, "emo_alpha": 1.0}
+```
+
+**Melancholic, wistful:**
+```json
+{"text": "Some days I still expect you to walk through that door.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"sad": 0.5, "melancholic": 0.9}, "emo_alpha": 1.0}
+```
+
+**Surprised, shocked:**
+```json
+{"text": "Wait, seriously? I did not see that coming at all!",
+ "voice": "elli", "workflow": "emotion", "emotion": {"happy": 0.2, "afraid": 0.1, "surprised": 0.9}, "emo_alpha": 1.0}
+```
+
+**Calm, confident:**
+```json
+{"text": "Take your time. We've got this, there's no rush at all.",
+ "voice": "elli", "workflow": "emotion", "emotion": {"calm": 0.9}, "emo_alpha": 1.0}
+```
 
 ## A designed voice
 

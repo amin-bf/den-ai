@@ -431,9 +431,9 @@ den clip --id 12 --wait                         # pick it up later
 ### Voice-overs
 
 Speech in a voice cloned from your own recording, from a line of text or an SRT script
-([ADR 0010](docs/adr/0010-voice-overs.md)). The model is Chatterbox Multilingual (23 languages),
-in a venv of its own that `setup.sh` makes (`--no-speech` skips it); it runs on the image side
-and only while a voice request does.
+([ADR 0010](docs/adr/0010-voice-overs.md)). The speech model supports 23 languages, in a venv
+of its own that `setup.sh` makes (`--no-speech` skips it); it runs on the image side and only
+while a voice request does.
 
 ```sh
 den voice                                       # voices and languages
@@ -441,7 +441,7 @@ den voice --add narrator ~/Recordings/me.m4a    # keep a recording as a voice
 den voice "Welcome to the harbour." -v narrator # one line, as a WAV track
 den voice --srt script.srt -v narrator -l de    # each line at its time, on one track
 den voice --lines lines.txt -v narrator         # lines in turn; den writes the SRT at their times
-den voice --transcribe me.m4a                   # what a recording says, as a timed SRT (Whisper)
+den voice --transcribe me.m4a                   # what a recording says, as a timed SRT
 den voice --design "an old man with a deep, raspy, slow voice"   # a draft voice from a description
 den voice "A line to try." -v draft:ID          # try the draft through the speech model
 den voice --save ID grandpa                     # keep it once you like it (--keep-as skips the draft)
@@ -477,12 +477,13 @@ den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your ow
   phone's Clip pane has a voice-over field (a script, lines, or a text), a voice and language
   picker, a lip-sync switch, the timed script of the last clip (reuse or save it), records a new
   voice with the microphone, and records your narration: its words come back as the script, and
-  the recording itself can be the voice-over. `transcribe_audio` is Claude's and pi's tool for it. Chatterbox marks its audio with an inaudible watermark.
+  the recording itself can be the voice-over. `transcribe_audio` is Claude's and pi's tool for it.
+  The speech model marks its audio with an inaudible watermark.
 
 ### Live conversation
 
 Claude can talk with you by voice at the PC ([ADR 0011](docs/adr/0011-live-conversation.md)):
-den listens through the microphone (Whisper) and speaks Claude's replies in a voice from the
+den listens through the microphone (a transcription model) and speaks Claude's replies in a voice from the
 library, and you can interrupt it mid-sentence. Ask Claude to talk; it starts live mode itself.
 
 - **It takes the whole machine**: every other request (images, clips, pi, delegation) is refused
@@ -507,7 +508,7 @@ waits for you: `POST /live/talk` with `now: true` ends the waiting talk (`preemp
 voice has finished its sentence, and speaks at once.
 
 **Standby** ([ADR 0012](docs/adr/0012-standby.md)) listens between conversations for a wake word,
-such as "hey Elli", without taking the machine: only a small Whisper on the CPU hears the start of
+such as "hey Elli", without taking the machine: only a small transcription model on the CPU hears the start of
 each utterance, and forgets it unless it's the wake word. Images, clips and the LLM keep working,
 and other programs can still record from the microphone. When the wake word is heard, den tells
 the client, which starts the conversation; what you say from the wake word on is kept, so your

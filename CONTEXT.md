@@ -12,8 +12,9 @@ The one local server every GPU user goes through. It decides what holds the GPU.
 _Avoid_: proxy, gateway, daemon
 
 **Side**:
-One kind of GPU work: the LLM, or image (ComfyUI, which makes images and clips). Only one side is loaded at a time.
-_Avoid_: backend, engine
+One kind of GPU work: the LLM, or image (ComfyUI, which makes images and clips; speech belongs
+here too, there is no third side). Only one side is loaded at a time.
+_Avoid_: backend (see Workflow: a side runs one), engine
 
 **Mode**:
 The kill switch, `on` or `off`: whether any caller may use the GPU at all. It never picks a side — a request runs when its own side can.
@@ -109,8 +110,14 @@ An image a clip must show at a given moment. The first one is where the clip sta
 _Avoid_: start frame, init image, guide frame (a guide image is a ControlNet's), step (a setting)
 
 **Workflow**:
-A ComfyUI graph saved as a file, with the inputs where a request's prompt, seed and size go. It is what a caller picks instead of a model; one whose model can edit also has an edit variant, used when a request brings an input image.
-_Avoid_: profile, pipeline, preset
+What a caller picks instead of a model, on any side. On the image side, a ComfyUI graph saved as
+a file, with the inputs where a request's prompt, seed and size go; one whose model can edit also
+has an edit variant, used when a request brings an input image. On the speech side, the process
+that speaks: a caller names the workflow its request wants, den runs whichever model that
+workflow is. den is a broker, not a model provider, so a side having only one workflow today
+doesn't make that workflow the side.
+_Avoid_: backend (a side is the only thing den swaps as a whole; a workflow is what a side runs),
+profile, pipeline, preset, engine
 
 **Setting**:
 An optional per-request value a workflow exposes (steps, cfg, sampler, scheduler), with a default from its graph, a recommended range for callers and an allowed range the broker enforces.

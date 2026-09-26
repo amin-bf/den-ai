@@ -29,6 +29,14 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 - **No content notes about what image models will or won't generate,** in code, config, tool
   descriptions or docs. Describe models by style and prompt format only. Content notes belong
   in the git-ignored `config.local.toml` (a workflow's `note`), never in versioned files.
+- **No model names in versioned files** (AGENTS.md, CONTEXT.md, ADRs, code, comments, skills,
+  README): not which speech, image or transcription model a workflow runs, not which family an
+  LLM comes from. Describe a model by what it does ("the speech model," "a transcription model,"
+  "a workflow's model") and let `config.toml` / `config.local.toml` name it, the same way an
+  image workflow's model files are already kept out of tracked text. `docs/research/` is the
+  exception: an investigation that compares named models by their real capabilities and licenses
+  needs their names to mean anything, and research notes are read for their findings, not
+  published as den's own description of itself.
 - **A workflow that shouldn't be published, or one on files only this machine has, stays out of the
   repo entirely:** its graph in `~/.config/den/workflows/` and its entry in `config.local.toml`.
   Model files it downloads get neutral local names, since the graph names them.
@@ -51,17 +59,17 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
 | `den/remote.py` | The den on another machine, used from one that keeps none of den's files: asks its broker for the tools, sends files and input images as bytes, saves the images that come back ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
 | `den/image.py` | Workflows (load, fill in, availability from model files), ComfyUI client, output files and the image log. |
 | `den/clip.py` | Clip workflows on top of `image.py`'s helpers: duration to frames, keyframes, the contact sheet, clip files and the clip log with its time estimates ([ADR 0009](docs/adr/0009-clip-generation.md)).; a clip's `sound` and its voice-over, put into its graph |
-| `den/speech.py` | Speech (ADR 0010): the speech server's process on a private UNIX socket (speaking, converting a recording, Whisper transcription), SRT scripts and lines den times, the voice library in `~/.local/share/den/voices/`, the voice track assembled at the script's times, and the speech log. |
-| `speech/design.py` | The voice designer: Qwen3-TTS VoiceDesign speaks a sample in a voice made from a description, run once per voice in its own venv (`~/.local/share/den/voice-design/`); den keeps the sample as a voice. |
-| `speech/live.py` | The live engine (ADR 0011): microphone and speakers through PipeWire's echo canceller, Silero VAD, Whisper and Chatterbox, while the live conversation has the machine; the broker drives it over a private socket, and `den/speech.py` keeps every session's transcript. Started with a wake word it is standby (ADR 0012): the VAD and a small Whisper on the CPU, and the conversation later loads into the same process. |
-| `speech/server.py` | The speech server: Chatterbox Multilingual behind `GET /health` and `POST /speak`, `/convert` for a recording, and Whisper behind `POST /transcribe`. It runs in the speech venv `setup.sh` makes, not in den's Python, so it's the one file here that isn't stdlib. |
+| `den/speech.py` | Speech (ADR 0010): the speech server's process on a private UNIX socket (speaking, converting a recording, a transcription model's timed text), SRT scripts and lines den times, the voice library in `~/.local/share/den/voices/`, the voice track assembled at the script's times, and the speech log. |
+| `speech/design.py` | The voice designer: a voice-design model speaks a sample in a voice made from a description, run once per voice in its own venv (`~/.local/share/den/voice-design/`); den keeps the sample as a voice. |
+| `speech/live.py` | The live engine (ADR 0011): microphone and speakers through PipeWire's echo canceller, a voice-activity model, a transcription model and the speech model, while the live conversation has the machine; the broker drives it over a private socket, and `den/speech.py` keeps every session's transcript. Started with a wake word it is standby (ADR 0012): the voice-activity model and a small transcription model on the CPU, and the conversation later loads into the same process. |
+| `speech/server.py` | The speech server: the speech model behind `GET /health` and `POST /speak`, `/convert` for a recording, and a transcription model behind `POST /transcribe`. It runs in the speech venv `setup.sh` makes, not in den's Python, so it's the one file here that isn't stdlib. |
 | `den/poses.py` | The pose library: saved poses (skeleton, photo copy, keypoints JSON, description) in `~/.local/share/den/poses/`, names, the table of contents, one pose's details, rename and delete. |
 | `workflows/` | Example ComfyUI graphs in API format, one per image or clip workflow, on public models under their official file names; their mappings live in `config.toml`. Private workflows live in `~/.config/den/workflows/` (`DEN_WORKFLOWS`) with their entries in `config.local.toml`, and a graph there wins over the repo's of the same name. |
 | `den/cli.py` | `den status / mode / unload / model / task / ask / image / clip / voice / live / standby / pose / log / serve`. |
 | `den/platform.py` | What differs between the systems den runs on: starting and stopping a service (systemd units, launchd agents), the runtime folder the LLM's socket goes in, free RAM, and the hints in messages. The only file that asks which system this is ([ADR 0006](docs/adr/0006-running-on-macos.md)). |
 | `systemd/den.service` | The broker's user unit (linked with `systemctl --user link`). |
 | `launchd/` | The same two services as launchd agents for macOS, as templates `setup.sh` fills in: launchd expands no home directory of its own, and absolute paths don't belong in the repo. |
-| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit), the speech venv (Chatterbox pinned by commit) and the voice designer's (qwen-tts pinned). Never overwrites config, no sudo. |
+| `setup.sh` | Idempotent setup: den (PATH link, service, MCP), den's skills (links), pi and ComfyUI (clone, venv, the ComfyUI-GGUF node pinned by commit, unit), the speech venv (the speech model pinned by commit) and the voice designer's (its model pinned). Never overwrites config, no sudo. |
 | `CONTEXT.md` | Glossary: the domain's terms and the words to avoid. Use them in code, docs and tool text. |
 | `den/mcp_server.py` | MCP stdio server: `local_llm`, `local_llm_feedback`, `generate_image` (with a small copy of the image), `generate_clip` and `get_clip` (with the contact sheet), `generate_voice`, `list_voices`, `design_voice`, `save_voice`, `transcribe_audio`, `list_poses`, `save_pose` and `release_resources` (always listed); sends `tools/list_changed` when config, state or the runnable workflows change. |
 | `den/skills.py` | den's own skills as the broker serves them: `GET /skills` lists them, `GET /skill` gives one's text or a reference, so a client elsewhere can load one into a conversation when its user asks ([ADR 0007](docs/adr/0007-remote-brokers.md)). |
@@ -101,7 +109,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   conversation. A designed voice is a draft (`draft:ID`) until `save_voice` keeps it, once the
   user has heard it. `den voice --mv`, `--describe` and `--rm` rename, describe and delete, and
   the phone's Voices tab deletes after asking; no tool deletes a voice, as none deletes a pose.
-- **Speech runs in a venv of its own, on the image side.** Chatterbox pins a torch and
+- **Speech runs in a venv of its own, on the image side.** The speech model pins a torch and
   transformers that ComfyUI's venv has moved past, so installing it there would break image and
   clip generation; `setup.sh` gives it `~/.local/share/den/speech/` (`SPEECH_DIR`) instead. There
   is no third side: a voice request is an image-side request that asks ComfyUI to free its models,
@@ -109,7 +117,7 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   A clip's voice-over is spoken first and mixed into the clip's own graph; the clip is built
   longer if the spoken track outruns the script's times ([ADR 0010](docs/adr/0010-voice-overs.md)).
 - **Standby listens without taking the machine** ([ADR 0012](docs/adr/0012-standby.md)). It isn't
-  a side: a small Whisper on the CPU hears only the start of each utterance for the wake word (a
+  a side: a small transcription model on the CPU hears only the start of each utterance for the wake word (a
   phrase the client gives), and nothing begun before the wake word reaches any other model, is
   logged or is kept. A release leaves it on, `den mode off` ends it, a live conversation pauses it,
   and it lives in the broker's memory only, so it's off after a restart until a client asks again.
@@ -128,8 +136,8 @@ Everything committed is published at https://github.com/amin-bf/den-ai. Be discr
   is missing, never with silence. `llm`, `image` and `both` are gone; an old `state.json`
   reads them as `on` ([ADR 0002](docs/adr/0002-gpu-broker.md)).
 - **den is a broker, not a model provider.** It doesn't ship or favor any particular model —
-  llama.cpp's GGUF files, ComfyUI's checkpoints and Chatterbox are all swappable underneath the
-  same broker, CLI and MCP surface, the way workflows are swappable underneath the image side
+  llama.cpp's GGUF files, ComfyUI's checkpoints and the speech model are all swappable underneath
+  the same broker, CLI and MCP surface, the way workflows are swappable underneath the image side
   ("Workflows, not model names" below). Whether a *specific* model (this LLM, this speech model)
   is still the right one is a separate, ongoing question from whether den's shape can route to
   its replacement — usually yes, since a side only cares that something loads and answers on its

@@ -702,6 +702,12 @@ def request_spec(config=None):
         properties["emo_alpha"] = {
             "type": "number", "description": "How strongly emotion colors the delivery, 0–1. Default 1.",
         }
+        properties["max_seconds"] = {
+            "type": "number",
+            "description": "Cap a single text's spoken length: if it runs longer, den retries once faster "
+            "before giving up (only on a workflow that supports pacing this way, not the default one). "
+            "Only for text, not an SRT script or several lines, which already have their own times.",
+        }
     return {
         "description": (
             "Speak a text, or an SRT script with each line at its time, in a voice cloned from a "

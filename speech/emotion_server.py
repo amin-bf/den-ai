@@ -7,10 +7,11 @@ the default workflow's server (speech/server.py). Only speaking is offered here:
 conversion and transcription stay the default workflow's job regardless of which workflow speaks.
 
     GET  /health  {"ready": bool, "error": str|None}; ready once the model is loaded
-    POST /speak   {text, language, voice?, emo_vector?, emo_alpha?, seed?}
+    POST /speak   {text, language, voice?, emo_vector?, emo_alpha?, duration_factor?, seed?}
                   -> audio/wav, 16-bit mono; voice is the path of a recording to clone (without
                   one, the model's own voice); emo_vector is 8 numbers 0-1, in this order:
-                  happy, angry, sad, afraid, disgusted, melancholic, surprised, calm
+                  happy, angry, sad, afraid, disgusted, melancholic, surprised, calm;
+                  duration_factor is speaking rate, 0.5-2.0 (default 1.0), lower is slower/longer
 """
 
 import argparse
@@ -64,6 +65,9 @@ def speak(body):
     vector = body.get("emo_vector")
     if vector is not None and (not isinstance(vector, list) or len(vector) != 8):
         raise ValueError("emo_vector is 8 numbers 0-1")
+    duration_factor = float(body.get("duration_factor", 1.0))
+    if not (0.5 <= duration_factor <= 2.0):
+        raise ValueError("duration_factor is 0.5-2.0")
     out = f"/tmp/den-emotion-speech-{os.getpid()}-{threading.get_ident()}.wav"
     with lock:
         if body.get("seed") is not None:
@@ -77,6 +81,7 @@ def speak(body):
             output_path=out,
             emo_vector=vector,
             emo_alpha=float(body.get("emo_alpha", 1.0)),
+            duration_factor=duration_factor,
             verbose=False,
         )
     try:

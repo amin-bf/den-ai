@@ -1043,9 +1043,10 @@ def clip_view(record, with_bytes=False):
 def voice_request(spec, folder, config=None):
     """A voice job's script, language, voice and settings from a request: {srt? | lines? | text?,
     voice?, language?, workflow?, exaggeration?, cfg_weight?, temperature?, seed?, emotion?,
-    emo_alpha?, sync?}. With `audio` (a recording's path, or bytes) the recording is the track
-    and a script only names its lines. A voice or a recording sent as bytes is written into
-    folder."""
+    emo_alpha?, max_seconds?, sync?}. With `audio` (a recording's path, or bytes) the recording is
+    the track and a script only names its lines. A voice or a recording sent as bytes is written
+    into folder. max_seconds only applies to a single `text` (a script already has its own times
+    per line, and a global cap on each of several lines is ambiguous, so it's refused there)."""
     config = config or {}
     workflow = str(spec.get("workflow") or speech.default_workflow(config))
     why = speech.unavailable(workflow)
@@ -1062,6 +1063,10 @@ def voice_request(spec, folder, config=None):
         cues = [{"start": 0.0, "end": None, "text": "(recording)"}]
     else:
         cues = speech.script(spec.get("srt"), spec.get("text"), spec.get("lines"))
+    if spec.get("max_seconds") is not None:
+        if not spec.get("text") or len(cues) != 1:
+            raise DenError("max_seconds only applies to a single text, not an SRT script or several lines")
+        cues[0]["end"] = float(spec["max_seconds"])
     language = str(spec.get("language") or "en").lower()
     languages = speech.workflow_languages(config, workflow)
     if language not in languages:
@@ -1147,14 +1152,43 @@ def transcribe(broker, config, recording, language, emit, check):
             broker.speech.stop()
 
 
+def _seconds(data):
+    samples, rate = speech._pcm(data)
+    return len(samples) / rate
+
+
+def _speak_to_fit(server, cue, language, voice_file, options, max_seconds):
+    """Speak the cue; if it runs longer than max_seconds, retry once faster (duration_factor,
+    scaled to the actual overrun) — only on a workflow that takes it. Returns (wav, still over
+    max_seconds or not): den never cuts audio to force a fit (AGENTS.md, "fail loudly"), so a
+    line that's still long after the retry is reported, not silently trimmed.
+
+    duration_factor stretches speech longer as it rises, not shorter — measured 4.2s/6.8s/8.6s
+    for the same line at 1.0/1.5/2.0 (den-voice's lessons) — so fitting a target divides by the
+    overrun ratio, it doesn't multiply."""
+    data = server.speak(cue["text"], language, voice_file, options)
+    seconds = _seconds(data)
+    if seconds <= max_seconds + 0.25:
+        return data, False
+    factor = min(2.0, max(0.5, (options.get("duration_factor") or 1.0) / (seconds / max_seconds)))
+    retried = server.speak(cue["text"], language, voice_file, {**options, "duration_factor": round(factor, 2)})
+    return retried, _seconds(retried) > max_seconds
+
+
 def speak_lines(broker, config, request, emit, check):
     """Speak each line of a voice request on its workflow's speech server, which starts once
     ComfyUI has freed its models (they don't fit on the GPU together) and stops after. Returns
     the WAVs. One job runs on the speech side at a time (broker.speech_lock), whichever workflow
-    it's on: a second /voice call queues here rather than racing the first's start/speak/stop."""
+    it's on: a second /voice call queues here rather than racing the first's start/speak/stop.
+
+    A cue with both a start and an end (an SRT cue) that runs long gets one faster retry, scaled
+    to the actual overrun — only on a workflow that takes duration_factor (not the default one,
+    which only ever gets the existing after-the-fact note in assemble())."""
     settings = image.settings(config)
     comfy = ComfyUI(settings["base_url"]) if settings else None
-    server = _speech_server(broker, request.get("workflow", speech.DEFAULT_WORKFLOW))
+    workflow = request.get("workflow", speech.DEFAULT_WORKFLOW)
+    server = _speech_server(broker, workflow)
+    supports_duration = workflow != speech.DEFAULT_WORKFLOW
     with broker.speech_lock:
         _free_comfy_for_speech(comfy)
         cues, lines = request["cues"], []
@@ -1163,7 +1197,14 @@ def speak_lines(broker, config, request, emit, check):
             for i, cue in enumerate(cues, 1):
                 check()
                 emit({"speaking": {"line": i, "of": len(cues), "text": cue["text"][:60]}})
-                lines.append(server.speak(cue["text"], request["language"], request["voice_file"], request["options"]))
+                target = cue["end"] - cue["start"] if cue.get("start") is not None and cue.get("end") is not None else None
+                if supports_duration and target is not None and target > 0:
+                    data, still_over = _speak_to_fit(server, cue, request["language"], request["voice_file"], request["options"], target)
+                    if still_over:
+                        emit({"note": f"line {i} still runs {_seconds(data) - target:.1f}s past {target:g}s after a faster retry"})
+                else:
+                    data = server.speak(cue["text"], request["language"], request["voice_file"], request["options"])
+                lines.append(data)
         finally:
             server.stop()
         return lines

@@ -215,9 +215,12 @@ def handle_utterances():
 
 
 def write_down(audio, t_start, t_end, strip_wake=False):
+    # chunk_length_s=30: without it, an utterance longer than Whisper's own context window is
+    # silently lost rather than chunked — nothing is heard, not even the start (the speech
+    # server's own transcribe already sets this; this call was missing it).
     with models["whisper_lock"]:
         result = models["whisper"](
-            {"raw": audio, "sampling_rate": MIC_RATE},
+            {"raw": audio, "sampling_rate": MIC_RATE}, chunk_length_s=30,
             generate_kwargs={"task": "transcribe", **({"language": models["language"]} if models["language"] else {})},
         )
     text = str(result.get("text") or "").strip()

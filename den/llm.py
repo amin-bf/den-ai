@@ -1,4 +1,4 @@
-"""The LLM side: one llama-server process that the broker starts, stops and swaps (ADR 0005).
+"""The LLM side: one llama-server process that the broker starts, stops and swaps (ADR llama-server).
 
 Ollama stays as the model store — `den model` / `ollama pull` download into it and its API says
 which GGUF file a model is — but it no longer runs models. The broker starts `llama-server` on

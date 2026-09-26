@@ -1,4 +1,4 @@
-"""Clips: short videos from video workflows, made on the image side (ADR 0009).
+"""Clips: short videos from video workflows, made on the image side (ADR clip-generation).
 
 A clip workflow is a ComfyUI graph, `workflows/<name>.json`, plus its `[clip.workflows.<name>]`
 entry in config.toml, like an image workflow: a description, the node inputs that receive the

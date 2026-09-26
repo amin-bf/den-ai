@@ -1,7 +1,7 @@
 # den for Android
 
 A small Android client for a den on another machine. It uses that den's broker the way `den --on
-<name>` does ([ADR 0007](../../docs/adr/0007-remote-brokers.md)): everything den knows (tasks,
+<name>` does ([ADR remote-brokers](../../docs/adr/0007-remote-brokers.md)): everything den knows (tasks,
 model, workflows, pose library, logs) stays with the broker, and the app keeps none of it. No path
 of either machine crosses, only bytes: a file you attach goes as its name and contents, an input
 image as its name and bytes, and generated images come back as bytes and are saved to the phone's
@@ -19,7 +19,7 @@ tool of a model deletes either; only a person does, here or with `den pose rm` /
 
 ## Clips and voice-overs
 
-The Clip tab makes a short video on the den ([ADR 0009](../../docs/adr/0009-clip-generation.md)):
+The Clip tab makes a short video on the den ([ADR clip-generation](../../docs/adr/0009-clip-generation.md)):
 a prompt, a workflow, seconds, a size, keyframes (pictures from the phone at their moments) and
 the workflow's LoRAs. A clip is a detached request: it goes on if you leave the app, and is
 picked up again when you come back. The clip is saved to `Movies/den/` with its contact sheet
@@ -27,7 +27,7 @@ shown, and its summary lists any notes.
 
 - **Sound:** a workflow that makes sound shows a Sound switch (on by default); describe the sounds
   in the prompt. The others say they make silent clips.
-- **Voice-over** ([ADR 0010](../../docs/adr/0010-voice-overs.md)), where the den has speech: the
+- **Voice-over** ([ADR voice-overs](../../docs/adr/0010-voice-overs.md)), where the den has speech: the
   field takes an SRT script (typed, or **Load SRT**), several lines without times (the den
   speaks them in turn and times them), or one line. Pick a voice and a language; on a workflow
   that can, **Lip-sync** makes a person on screen speak it instead of a narrator over the picture.
@@ -90,7 +90,7 @@ once per picture.
 **Links.** Web addresses and file paths in a message or a tool result are tappable. A link
 offers Copy, and Open where this phone can: a URL in the browser, one of den's own pictures in
 the gallery. A path on the broker's machine can only be copied, and says so — it means nothing
-here (ADR 0007). A picture in the chat opens full screen, with Copy and Share; a long press
+here (ADR remote-brokers). A picture in the chat opens full screen, with Copy and Share; a long press
 copies a message's text.
 
 **Stopping a turn.** While the model answers, the spinner by the input box holds a Stop square.

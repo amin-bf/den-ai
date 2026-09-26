@@ -243,7 +243,7 @@ def _error(raw):
         return raw[:200].decode(errors="replace")
 
 
-# --- live conversation (ADR 0011) ---
+# --- live conversation (ADR live-conversation) ---
 
 LIVE_ENGINE = core.ROOT / "speech/live.py"
 LIVE_SOCKET = SOCKET.parent / "live.sock"
@@ -254,7 +254,7 @@ CONVERSATIONS_DIR = Path(os.environ.get("DEN_CONVERSATIONS") or _DATA_HOME / "de
 
 class LiveEngine:
     """The live engine process (speech/live.py): microphone, voice and models, while live; the
-    microphone and the wake word detector only, in standby (ADR 0012)."""
+    microphone and the wake word detector only, in standby (ADR standby)."""
 
     def __init__(self):
         self.proc = None
@@ -324,7 +324,7 @@ class LiveEngine:
         self._until_ready("live")
 
     def start_standby(self, wake_word, emit):
-        """Standby: the microphone, the VAD and the wake word detector, on the CPU (ADR 0012)."""
+        """Standby: the microphone, the VAD and the wake word detector, on the CPU (ADR standby)."""
         emit({"starting": "standby (the wake word detector, on the CPU)"})
         self._spawn(["--wake-word", wake_word])
         self._until_ready("standby")

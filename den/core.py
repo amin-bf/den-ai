@@ -135,7 +135,7 @@ def listen_url(config):
 
 
 # A client can use another machine's broker instead of this one's: a remote, reached through
-# an SSH tunnel so the broker itself stays on 127.0.0.1 there (ADR 0007). Remotes are named in
+# an SSH tunnel so the broker itself stays on 127.0.0.1 there (ADR remote-brokers). Remotes are named in
 # [remotes.<name>] base_url — in config.local.toml, since they belong to this machine — and
 # DEN_BROKER picks one; `den --on NAME` sets it.
 REMOTE_ENV = "DEN_BROKER"
@@ -159,7 +159,7 @@ def broker_url(config):
 
 # A local model doesn't only hold the GPU: an MoE split across GPU and RAM keeps several GB of
 # RAM and generates on the CPU too. So den refuses to *load* a side while the machine is
-# already busy with other work; a side that is loaded keeps serving ([limits], ADR 0004).
+# already busy with other work; a side that is loaded keeps serving ([limits], ADR releasing-the-machine).
 DEFAULT_MAX_LOAD_PER_CPU = 0.8
 DEFAULT_MIN_FREE_RAM_GB = 4.0
 DEFAULT_BUSY_WAIT = "60s"
@@ -261,7 +261,7 @@ def _error_message(detail):
 
 class Ollama:
     """Ollama's native API, for the model store: what's downloaded and where its files are. It no
-    longer runs models (llama-server does, ADR 0005). The broker uses it upstream; clients use
+    longer runs models (llama-server does, ADR llama-server). The broker uses it upstream; clients use
     BrokerClient, which reaches the same catalogue through the broker."""
 
     def __init__(self, base_url, caller=None):
@@ -372,7 +372,7 @@ class BrokerClient(Ollama):
 
     def _clips(self):
         """Raise unless this broker makes clips: an older one would take /clip for an LLM
-        request and load a model (ADR 0009). Asked once per client."""
+        request and load a model (ADR clip-generation). Asked once per client."""
         if not getattr(self, "_clips_checked", False):
             if "clips" not in self.status():
                 raise DenError(f"the broker at {self.base_url} predates clips; update den there and restart its broker")
@@ -397,7 +397,7 @@ class BrokerClient(Ollama):
         return self._request("POST", "/clip/cancel", {"id": int(clip_id)})
 
     def speak(self, **request):
-        """Progress lines of a voice job (ADR 0010); the last one carries "result"."""
+        """Progress lines of a voice job (ADR voice-overs); the last one carries "result"."""
         return self._stream("/voice", request)
 
     def transcribe(self, **request):
@@ -409,14 +409,14 @@ class BrokerClient(Ollama):
         return self._stream("/live/start", request)
 
     def live_talk(self, say, wait_s=120, voice=None, language=None, now=False):
-        """Speak say, then wait for the user's next utterance (ADR 0011); voice and language switch
+        """Speak say, then wait for the user's next utterance (ADR live-conversation); voice and language switch
         from this turn on. With now, a talk that is running ends first and say is spoken at once."""
         body = {"say": say, "wait_s": wait_s, **({"voice": voice} if voice else {}), **({"language": language} if language else {}),
                 **({"now": True} if now else {})}
         return self._request("POST", "/live/talk", body, timeout=wait_s + 600)
 
     def standby_start(self, wake_word):
-        """Progress lines of starting standby (ADR 0012); the last carries its state."""
+        """Progress lines of starting standby (ADR standby); the last carries its state."""
         return self._stream("/standby/start", {"wake_word": wake_word})
 
     def standby_stop(self):
@@ -489,7 +489,7 @@ class BrokerClient(Ollama):
         """
         return self._stream("/pose", request)
 
-    # --- what a client on another machine uses (ADR 0007) ---
+    # --- what a client on another machine uses (ADR remote-brokers) ---
 
     def client_info(self):
         """The mode, the model, the enabled tasks and the image spec of the broker's machine."""
@@ -528,7 +528,7 @@ def read_files(files):
     """[{"path", "content"}] of the files a delegation takes, read where the caller runs.
 
     A remote client reads them itself and sends the contents, since the paths are its own
-    (ADR 0007); the broker's machine never sees the files, only what they say.
+    (ADR remote-brokers); the broker's machine never sees the files, only what they say.
     """
     read = []
     for f in files:

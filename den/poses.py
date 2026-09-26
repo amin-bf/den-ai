@@ -5,7 +5,7 @@ it was drawn from, byte for byte), <name>.keypoints.json (the skeleton's joints 
 format, as the detector found them) and <name>.json (description, size, when, where the photo
 came from); the .json is written last, so it marks a complete one. A request uses a saved pose as
 pose:NAME, as a reference or a pose guide image, and a model finds the names with list_poses
-(ADR 0003). Only the broker draws and saves one (POST /pose), since drawing takes the GPU;
+(ADR image-generation). Only the broker draws and saves one (POST /pose), since drawing takes the GPU;
 listing, renaming and deleting happen here.
 """
 

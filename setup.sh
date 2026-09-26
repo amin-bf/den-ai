@@ -105,7 +105,7 @@ if [ "$MACOS" = 1 ]; then
   # projector and a draft context all come out of that one pool, that default is the ceiling
   # a model hits, and it fails as an opaque Metal allocation error. The sysctl doesn't
   # survive a reboot either, so a model that loaded yesterday fails today. Leave the machine
-  # ~4 GB and set it at boot; den never uses sudo, so the commands are printed (ADR 0006).
+  # ~4 GB and set it at boot; den never uses sudo, so the commands are printed (ADR running-on-macos).
   mkdir -p "$STATE_DIR"
   wired_want=$(( $(sysctl -n hw.memsize) / 1048576 - 4096 ))
   wired_have=$(sysctl -n iogpu.wired_limit_mb 2>/dev/null || echo 0)

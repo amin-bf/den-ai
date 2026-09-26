@@ -10,7 +10,7 @@ program meets the system it runs on: `systemctl --user` started and stopped Comf
 every hint named `systemctl`, `journalctl` or `pacman`. None of that exists on macOS.
 
 Nothing else was in the way. The broker, the swaps, the delegation, the pose library and the
-whole image side are plain Python over HTTP, and [ADR 0005](0005-llama-server.md) had already
+whole image side are plain Python over HTTP, and [ADR llama-server](0005-llama-server.md) had already
 moved the LLM onto llama-server, whose Metal build is as well supported on Apple Silicon as
 its CUDA build is on Linux. Measured on a 32 GB Apple Silicon machine: the server was ready in
 1.6 s, answered over its UNIX socket, and saved and restored its conversation cache across a
@@ -89,7 +89,7 @@ restart — with no change to `llm.py` beyond where the socket goes.
 - **Metal is not a choice between backends.** On this hardware the GPU is reached through
   Metal or not at all; CUDA needs another card, and MLX — the one real alternative for the
   LLM — has no equivalent of llama-server's slot save and restore, which is the whole point
-  of [ADR 0005](0005-llama-server.md). The wired-memory cap applies to any of them, and is
+  of [ADR llama-server](0005-llama-server.md). The wired-memory cap applies to any of them, and is
   raised with `sudo sysctl iogpu.wired_limit_mb=…`, which den never does itself.
 - **One pool, so what llama-server adds on top of the weights is what decides the model.**
   A 25 GB model that fits a 32 GB machine on paper failed to load: Metal answered

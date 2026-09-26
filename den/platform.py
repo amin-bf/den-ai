@@ -5,7 +5,7 @@ image side are plain Python over HTTP. Three things are not portable: how a back
 service is started and stopped (systemd user units, or launchd agents), where a private
 socket may live, and how to ask what RAM is still free. They are gathered here so the rest
 of den keeps one code path, and so a third system means adding a branch in one file
-([ADR 0006](../docs/adr/0006-running-on-macos.md)).
+([ADR running-on-macos](../docs/adr/0006-running-on-macos.md)).
 
 The hints in error messages come from here too: telling someone to run `systemctl` on a
 machine that has no systemd is worse than saying nothing.

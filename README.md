@@ -10,8 +10,8 @@ Everything that uses the GPU (the `den` CLI, Claude's MCP server, pi) goes throu
 from Ollama, which is only the model store), runs image requests on ComfyUI, swaps the GPU
 between the two and owns mode switches, so two models never fight over the 12 GB card. A swap
 saves the conversation's cache and restores it afterwards, so the next turn doesn't re-read the
-whole conversation ([ADR 0002](docs/adr/0002-gpu-broker.md),
-[ADR 0003](docs/adr/0003-image-generation.md), [ADR 0005](docs/adr/0005-llama-server.md)).
+whole conversation ([ADR gpu-broker](docs/adr/0002-gpu-broker.md),
+[ADR image-generation](docs/adr/0003-image-generation.md), [ADR llama-server](docs/adr/0005-llama-server.md)).
 
 See `AGENTS.md` for the layout and design rules, `CONTEXT.md` for the vocabulary (broker,
 side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
@@ -20,21 +20,21 @@ side, mode, swap, batch cap, workflow, …) and `docs/adr/` for decisions.
 
 | Part | State |
 |---|---|
-| Delegation to the local LLM (`local_llm` MCP tool, tasks, verdict log) | Done, in a trial period ([ADR 0001](docs/adr/0001-delegation-policy.md)) |
-| GPU broker, LLM side (pass-through, mode switches that wait, `keep_alive` for every caller) | Done ([ADR 0002](docs/adr/0002-gpu-broker.md)) |
+| Delegation to the local LLM (`local_llm` MCP tool, tasks, verdict log) | Done, in a trial period ([ADR delegation-policy](docs/adr/0001-delegation-policy.md)) |
+| GPU broker, LLM side (pass-through, mode switches that wait, `keep_alive` for every caller) | Done ([ADR gpu-broker](docs/adr/0002-gpu-broker.md)) |
 | pi through the broker | Done |
 | ComfyUI install (`setup.sh`) and model tests | Done ([Image generation](#image-generation)) |
-| Image side of the broker: swaps, batching, idle timeout, `den image` | Done ([ADR 0003](docs/adr/0003-image-generation.md)) |
+| Image side of the broker: swaps, batching, idle timeout, `den image` | Done ([ADR image-generation](docs/adr/0003-image-generation.md)) |
 | Claude's `generate_image` MCP tool | Done ([Image generation](#image-generation)) |
 | pi image extension (`generate_image` tool, `/imagine`, inline images, footer status) | Done ([pi](#images-in-pi)) |
-| LLM on llama-server, the conversation's cache kept across swaps | Done ([ADR 0005](docs/adr/0005-llama-server.md)) |
+| LLM on llama-server, the conversation's cache kept across swaps | Done ([ADR llama-server](docs/adr/0005-llama-server.md)) |
 
 ## Setup
 
 ### Requirements
 
 - Linux with systemd, or macOS with launchd (den runs as a user service either way), and
-  Python 3.11+ (stdlib only, no pip). See [ADR 0006](docs/adr/0006-running-on-macos.md) for
+  Python 3.11+ (stdlib only, no pip). See [ADR running-on-macos](docs/adr/0006-running-on-macos.md) for
   what differs; `den/platform.py` is the only file that knows.
 - A GPU. It was built on a 12 GB NVIDIA card with a recent driver; the default model needs
   ~23 GB split across GPU and RAM, so plan for 32 GB of RAM or pick a smaller model. On
@@ -82,7 +82,7 @@ Two manual steps:
 - **Context length:** nothing to set in Ollama any more: the broker starts llama-server with
   `num_ctx` from `config.toml`, and every caller shares that one server.
 - **Claude's delegation rule:** add the "when to delegate" rule from
-  [ADR 0001](docs/adr/0001-delegation-policy.md) to `~/.claude/CLAUDE.md`. Without it Claude
+  [ADR delegation-policy](docs/adr/0001-delegation-policy.md) to `~/.claude/CLAUDE.md`. Without it Claude
   sees the tool but has no policy for when to use it.
 
 ### After changing code
@@ -138,7 +138,7 @@ way to free memory.
 A machine can use the den on another machine — a **remote** — as if den existed only there: its
 model, tasks, workflows, pose library and logs. The broker there stays on `127.0.0.1`, and an SSH
 tunnel carries the requests; nothing but SSH is reachable on the network
-([ADR 0007](docs/adr/0007-remote-brokers.md)). No path crosses, only bytes: files you delegate and
+([ADR remote-brokers](docs/adr/0007-remote-brokers.md)). No path crosses, only bytes: files you delegate and
 input images are read here and sent, and each generated image comes back and is saved here under
 `~/Pictures/den`, as a local den would. So you work with your own files; saved poses are
 `pose:NAME` from that machine's library.
@@ -387,7 +387,7 @@ never clamped. The recommended ranges are starting points, not tested limits.
 ### Clips
 
 Short silent video clips come from clip workflows, on the same image side (ComfyUI) as images
-([ADR 0009](docs/adr/0009-clip-generation.md)).
+([ADR clip-generation](docs/adr/0009-clip-generation.md)).
 
 ```sh
 den clip                                        # list clip workflows and their options
@@ -431,7 +431,7 @@ den clip --id 12 --wait                         # pick it up later
 ### Voice-overs
 
 Speech in a voice cloned from your own recording, from a line of text or an SRT script
-([ADR 0010](docs/adr/0010-voice-overs.md)). The speech model supports 23 languages, in a venv
+([ADR voice-overs](docs/adr/0010-voice-overs.md)). The speech model supports 23 languages, in a venv
 of its own that `setup.sh` makes (`--no-speech` skips it); it runs on the image side and only
 while a voice request does.
 
@@ -482,7 +482,7 @@ den clip "…he says to the camera…" --voiceover me.m4a --lip-sync   # your ow
 
 ### Live conversation
 
-Claude can talk with you by voice at the PC ([ADR 0011](docs/adr/0011-live-conversation.md)):
+Claude can talk with you by voice at the PC ([ADR live-conversation](docs/adr/0011-live-conversation.md)):
 den listens through the microphone (a transcription model) and speaks Claude's replies in a voice from the
 library, and you can interrupt it mid-sentence. Ask Claude to talk; it starts live mode itself.
 
@@ -507,7 +507,7 @@ A client that drives the conversation itself can also speak unasked while `talk`
 waits for you: `POST /live/talk` with `now: true` ends the waiting talk (`preempted`) once the
 voice has finished its sentence, and speaks at once.
 
-**Standby** ([ADR 0012](docs/adr/0012-standby.md)) listens between conversations for a wake word,
+**Standby** ([ADR standby](docs/adr/0012-standby.md)) listens between conversations for a wake word,
 such as "hey Elli", without taking the machine: only a small transcription model on the CPU hears the start of
 each utterance, and forgets it unless it's the wake word. Images, clips and the LLM keep working,
 and other programs can still record from the microphone. When the wake word is heard, den tells
@@ -536,7 +536,7 @@ guide image of a `pose` ControlNet (`--control pose:NAME --control-type pose`).
   needs `--replace`. One person per pose, and a photo where no one is found is refused.
 - **Finding them:** `den pose list`, or the `list_poses` tool, which gives a model the table of
   contents (name, description, aspect) to keep for the conversation. The image tool only says the
-  library exists, so saving a pose never changes that tool's text (see ADR 0003).
+  library exists, so saving a pose never changes that tool's text (see ADR image-generation).
 - **Looking at one:** `den pose show NAME`, or `list_poses` with a name, which shows the skeleton
   and the photo (as images to Claude, inline in pi) with their paths.
 - **Curating** is yours: `den pose mv OLD NEW` and `den pose rm NAME`. `den pose refresh [NAME…]`
@@ -732,7 +732,7 @@ trust per task in `~/.claude/CLAUDE.md` and the ADR.
 ## Ollama cheatsheet
 
 den keeps its models in Ollama and downloads with it, but doesn't run them there any more:
-llama-server does ([ADR 0005](docs/adr/0005-llama-server.md)). The commands below still manage
+llama-server does ([ADR llama-server](docs/adr/0005-llama-server.md)). The commands below still manage
 the store, and `ollama run` still works for trying a model outside den, as long as den isn't
 using the GPU at the same time.
 

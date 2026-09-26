@@ -6,7 +6,7 @@ status: accepted (broker, CLI, Claude's tool and the pi extension built)
 
 A local model doesn't only hold the GPU. The main LLM is an MoE split between the GPU and RAM:
 it keeps several GB of RAM and generates on the CPU as well as the card, and ComfyUI keeps GB of
-RAM of its own (ADR 0003). So den competes with whatever else the machine is doing — a test
+RAM of its own (ADR image-generation). So den competes with whatever else the machine is doing — a test
 suite, a build, a benchmark — and those are exactly the jobs an agent starts while den is
 loaded.
 

@@ -68,14 +68,14 @@ type Spec = {
   /** Saved pose names, for /imagine's completions. */
   poses?: string[];
   pose_tools?: Record<string, { description: string; parameters: Record<string, any> }>;
-  /** The voice tool's spec (ADR 0010), where speech is installed. */
+  /** The voice tool's spec (ADR voice-overs), where speech is installed. */
   voice?: {
     /** The languages voices can be designed in; empty where the designer isn't installed. */
     design_languages?: string[];
     description: string;
     parameters: { type: "object"; properties: Record<string, any>; required?: string[] };
   };
-  /** The clip tool's spec (ADR 0009); an older den has none. */
+  /** The clip tool's spec (ADR clip-generation); an older den has none. */
   clip?: {
     clip_on: boolean;
     workflows: string[];
@@ -291,7 +291,7 @@ function statusText(s: BrokerStatus): string | null {
     : `den: ${w.caller} ${w.side} waits for a swap${more}`;
 }
 
-// --- clips (ADR 0009) ---
+// --- clips (ADR clip-generation) ---
 
 type ClipResult = {
   summary: string[];

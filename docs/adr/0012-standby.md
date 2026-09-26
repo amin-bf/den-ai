@@ -6,7 +6,7 @@ status: proposed
 
 A client that keeps an assistant a word away needs den to listen between live
 conversations for a wake word ("hey" and a name the user picks), and to start a conversation when
-it's said. A live conversation takes the machine (ADR 0011); standby must not, since images, clips
+it's said. A live conversation takes the machine (ADR live-conversation); standby must not, since images, clips
 and the LLM should keep working in between. And nothing said in standby may reach any model but
 the wake word detector, or leave the machine.
 

@@ -48,10 +48,10 @@ import org.json.JSONObject
  * The first is `POST /pose` with `"draw_only"`: the broker draws the skeleton, hands it back and
  * keeps nothing, so the skeleton can be looked at beside the photo before it is named — a
  * skeleton with a limb missing, or drawn from a photo with nobody in it, is worth throwing away
- * rather than curating later (ADR 0003). Saving sends the photo again with a name and a
+ * rather than curating later (ADR image-generation). Saving sends the photo again with a name and a
  * description; that draws a second time on the broker's machine and keeps the pose in its
  * library. No path of either machine crosses: the photo goes as its name and bytes, scaled down
- * here, and the skeleton comes back as bytes (ADR 0007).
+ * here, and the skeleton comes back as bytes (ADR remote-brokers).
  */
 class PoseMaker(app: Application) : AndroidViewModel(app) {
     /** The photo, scaled and JPEG-encoded the way an attached picture is. */

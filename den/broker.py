@@ -4,7 +4,7 @@ Two sides share the GPU, one loaded at a time: the LLM (llama-server, a child pr
 starts on the requested model) and image generation (ComfyUI, a systemd user service the broker
 starts and stops). LLM requests (OpenAI-style /v1/…) are passed through to llama-server over its
 private UNIX socket, streamed as they arrive; stopping it saves the conversation's cache, and
-starting it restores it (den/llm.py, ADR 0005). Ollama is only the model store: its catalogue
+starting it restores it (den/llm.py, ADR llama-server). Ollama is only the model store: its catalogue
 and download endpoints are passed through, but it runs no models. Image
 requests (POST /image) fill in a workflow, run it on ComfyUI and save the result; POST /pose
 draws a photo's pose on ComfyUI and keeps it in the pose library, or, with "draw_only", only
@@ -17,7 +17,7 @@ together without starving either side. ComfyUI stays up after an image until the
 request, a `switch_back`, or `[image] keep_alive` of idle time.
 
 A request runs when its side can: an LLM model is selected, a workflow can run, and — for a side
-that isn't loaded yet — the machine isn't already busy with other work ([limits], ADR 0004).
+that isn't loaded yet — the machine isn't already busy with other work ([limits], ADR releasing-the-machine).
 Otherwise the broker says why. The mode is only the kill switch `den mode off`, which refuses
 new requests, waits for the running ones (or cancels them with `now`) and unloads both sides.
 POST /unload releases the sides alone, leaving the mode on: it refuses new requests while it
@@ -27,20 +27,20 @@ only the listen address needs a restart.
 
 Own endpoints: GET /status, POST /mode {"mode", "now"}, POST /unload {"sides", "now"},
 POST /image and POST /pose (these four stream NDJSON progress lines). For a client on another
-machine, which has none of den's files and names no path (ADR 0007): GET /client (mode, model,
+machine, which has none of den's files and names no path (ADR remote-brokers): GET /client (mode, model,
 enabled tasks, image spec), POST /delegate and POST /feedback (tasks run and logged here),
 GET /poses, and GET /skills and GET /skill (den's own skills, for a client whose user loads one
 into a conversation). /image and /pose take input images as bytes too, and with "bytes" answer
 with the images instead of paths; a /pose with "draw_only" always answers that way with the map
 it drew, since it saves no file to name.
 
-Clips take minutes, so they are detached requests (ADR 0009): POST /clip checks the request and
+Clips take minutes, so they are detached requests (ADR clip-generation): POST /clip checks the request and
 answers with an id at once, the broker makes the clip on a thread of its own — waiting, swapping
 and counting like any image request — and GET /clip?id=N asks for it, POST /clip/cancel {id}
 drops it. The broker keeps them in memory only, a finished one for a day.
 
-A live conversation (ADR 0011) takes the machine: POST /live/start (streams), POST /live/talk
-{say, wait_s, now}, POST /live/stop. Standby (ADR 0012) listens for a wake word without it: POST
+A live conversation (ADR live-conversation) takes the machine: POST /live/start (streams), POST /live/talk
+{say, wait_s, now}, POST /live/stop. Standby (ADR standby) listens for a wake word without it: POST
 /standby/start {wake_word} (streams), POST /standby/wait {after, timeout_s}, POST /standby/stop,
 GET /standby; its state lives in memory only.
 """
@@ -89,8 +89,8 @@ UNLOAD_TIMEOUT_S = 60
 COMFYUI_START_TIMEOUT_S = 180
 COMFYUI_STOP_TIMEOUT_S = 30
 IDLE_CHECK_S = 10
-LIVE_IDLE_S = 600  # a live session nobody talks in for this long ends by itself (ADR 0011)
-WAKE_KEEP_S = 60  # what was said after the wake word is kept this long for a conversation to start (ADR 0012)
+LIVE_IDLE_S = 600  # a live session nobody talks in for this long ends by itself (ADR live-conversation)
+WAKE_KEEP_S = 60  # what was said after the wake word is kept this long for a conversation to start (ADR standby)
 STANDBY_WAIT_MAX_S = 600
 SIDES = ("llm", "image")
 DEFAULT_BATCH_SECONDS = 120
@@ -141,12 +141,12 @@ class Broker:
         self.ids = itertools.count(1)
         self.started = time.time()
         self.detached = {}  # id -> record of a detached request (a clip), running or finished
-        self.speech = speech.Server()  # started for a voice job, stopped after it (ADR 0010)
+        self.speech = speech.Server()  # started for a voice job, stopped after it (ADR voice-overs)
         self.speech_lock = threading.Lock()  # one voice job on it at a time: two starts would race the same process
-        self.live = None  # the live conversation, while there is one: den does nothing else (ADR 0011)
+        self.live = None  # the live conversation, while there is one: den does nothing else (ADR live-conversation)
         self.live_engine = speech.LiveEngine()
         self.engine_lock = threading.Lock()  # one start, stop or change of the live engine at a time
-        # Standby (ADR 0012): off, starting, listening, woke, or live (paused for a conversation,
+        # Standby (ADR standby): off, starting, listening, woke, or live (paused for a conversation,
         # back after it). Every change counts up seq, which a client waits on.
         self.standby = {"state": "off", "seq": 0}
         self.standby_gen = 0  # which standby engine a watcher belongs to
@@ -227,7 +227,7 @@ class Broker:
             return {"reason": f"the {_other(side)} side is waiting and the {side} side reached its batch cap"}
         clips = [r for r in running if r["request"] == "POST /clip"]
         if clips:
-            # A clip is let finish however long it takes (ADR 0009), so say how long that is.
+            # A clip is let finish however long it takes (ADR clip-generation), so say how long that is.
             left = _time_left(clips[0].get("left_s"))
             return {"reason": f"the image side is making a clip ({left}); the swap follows", "running": running}
         if running:
@@ -252,7 +252,7 @@ class Broker:
                 with self.cond:
                     self._check_available(side, config, state)
                     now = time.time()
-                    # Loading onto a machine busy with work that isn't den's own (ADR 0004). A
+                    # Loading onto a machine busy with work that isn't den's own (ADR releasing-the-machine). A
                     # loaded side is den's own and a swap frees it, so only look while den holds
                     # nothing. Busy is usually a build or a test run and ends, so wait it out the
                     # way everything else here waits — but bounded, because the caller may be the
@@ -428,7 +428,7 @@ class Broker:
                 self.swapping = None
                 self.cond.notify_all()
 
-    # --- live conversation (ADR 0011) ---
+    # --- live conversation (ADR live-conversation) ---
 
     def live_start(self, voice, language, exaggeration, emit, caller_gone):
         """Take the machine for a live conversation: finish what runs, free both sides, load the
@@ -478,7 +478,7 @@ class Broker:
 
     def live_talk(self, say, wait_s, voice=None, language=None, now=False):
         """One exchange. With now the talk that is running ends first (preempted) and this one is
-        spoken at once: a line that can't wait for the user's next words (ADR 0011)."""
+        spoken at once: a line that can't wait for the user's next words (ADR live-conversation)."""
         voice_file = speech.voice_path(voice) if voice else None
         if language and language not in speech.LANGUAGES:
             raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
@@ -538,7 +538,7 @@ class Broker:
         if idle:
             self.live_stop(reason=f"nobody talked for {LIVE_IDLE_S // 60} minutes")
 
-    # --- standby (ADR 0012) ---
+    # --- standby (ADR standby) ---
 
     def _standby_set(self, state, **extra):
         """Change standby's state and count it, so a client waiting on it learns. Takes self.cond
@@ -813,7 +813,7 @@ class Broker:
                 for i in sorted(requests, key=lambda i: i["id"])
             ]
 
-    # --- detached requests: clips (ADR 0009) ---
+    # --- detached requests: clips (ADR clip-generation) ---
 
     def detach(self, record):
         with self.cond:
@@ -864,7 +864,7 @@ class Broker:
             "inflight": self.snapshot(),
             "waiting": self.snapshot(self.waiting),
             # Always there, even empty: a client checks for it before its first clip, since an
-            # older broker would take POST /clip for an LLM request (ADR 0009).
+            # older broker would take POST /clip for an LLM request (ADR clip-generation).
             "clips": self.detached_views(),
             "llm": {
                 "server": "llama-server",
@@ -1004,7 +1004,7 @@ def _left(info, now):
 
 def clip_view(record, with_bytes=False):
     """What a caller sees of a detached clip: its state, where it is, and the result once done.
-    With with_bytes the clip and its contact sheet come as bytes instead of paths (ADR 0007)."""
+    With with_bytes the clip and its contact sheet come as bytes instead of paths (ADR remote-brokers)."""
     now = time.time()
     info = record["info"]
     view = {
@@ -1218,7 +1218,7 @@ def run_clip(broker, record, graph, uploads, sheet, body, folder):
             body.get("out"),
         )
         seconds = round(time.time() - began, 1)
-        # A small copy of the contact sheet for a caller whose model can look at it (ADR 0004).
+        # A small copy of the contact sheet for a caller whose model can look at it (ADR releasing-the-machine).
         shown = image.preview(comfy, drawn) if body.get("preview") and drawn else None
         params = record["params"]
         waited = round(info["started"] - info.get("queued", info["started"]), 1)
@@ -1471,7 +1471,7 @@ class Handler(BaseHTTPRequestHandler):
 
     do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = do_OPTIONS = _dispatch
 
-    # --- for a client on another machine (ADR 0007) ---
+    # --- for a client on another machine (ADR remote-brokers) ---
 
     def _client_info(self):
         """What a client that has none of den's files needs to offer this den as its own."""
@@ -1485,7 +1485,7 @@ class Handler(BaseHTTPRequestHandler):
             "tasks": {name: {"description": task["description"]} for name, task in tasks.items()},
             "image": {**image.client_spec(config, state), "listing": image.listing(config, folders=False)},
             "clip": {**clip.client_spec(config, state), "listing": clip.listing(config, folders=False)},
-            # Present only where speech runs: a client offers voice-overs when it's there (ADR 0010).
+            # Present only where speech runs: a client offers voice-overs when it's there (ADR voice-overs).
             **({"voice": {**speech.request_spec(), **self._voices()}} if speech.unavailable() is None else {}),
         }
 
@@ -1547,7 +1547,7 @@ class Handler(BaseHTTPRequestHandler):
         """
         self._stream_request(self._with_inputs(self._generate), body)
 
-    # --- voice-overs (ADR 0010) ---
+    # --- voice-overs (ADR voice-overs) ---
 
     def _with_voice(self, run):
         """run(body, emit) with a voice recording sent as bytes written to a private folder."""
@@ -1608,7 +1608,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _live_start(self, body, emit):
         """POST /live/start {voice?, language?, exaggeration?}: take the machine for a live
-        conversation (ADR 0011). Streams progress; ends with {"result": {session}}."""
+        conversation (ADR live-conversation). Streams progress; ends with {"result": {session}}."""
         language = str(body.get("language") or "en").lower()
         if language not in speech.LANGUAGES:
             raise DenError(f"unknown language {language!r}; one of: {', '.join(speech.LANGUAGES)}")
@@ -1616,7 +1616,7 @@ class Handler(BaseHTTPRequestHandler):
         emit({"result": {"session": session}})
 
     def _standby_start(self, body, emit):
-        """POST /standby/start {wake_word}: listen for the wake word (ADR 0012). Streams progress;
+        """POST /standby/start {wake_word}: listen for the wake word (ADR standby). Streams progress;
         ends with {"result": standby}. Again while on, it replaces the wake word."""
         emit({"result": self.broker.standby_start(body.get("wake_word"), emit)})
 
@@ -1682,7 +1682,7 @@ class Handler(BaseHTTPRequestHandler):
             "toc": speech.toc(),
             "languages": speech.LANGUAGES,
             "unavailable": speech.unavailable(),
-            # Voices from a description, where the designer is installed (ADR 0010).
+            # Voices from a description, where the designer is installed (ADR voice-overs).
             "design_languages": list(speech.DESIGN_LANGUAGES) if speech.design_unavailable() is None else [],
         }
 
@@ -1859,7 +1859,7 @@ class Handler(BaseHTTPRequestHandler):
             maps = [image.save_map(paths[0], label, comfy.view(img)) for label, img in drawn]
             seconds = round(time.time() - began, 1)
             # A small copy for a caller whose model can look at the image; the saved file is
-            # always the full-size PNG (ADR 0003, ADR 0004).
+            # always the full-size PNG (ADR image-generation, ADR releasing-the-machine).
             shown = image.preview(comfy, outputs[0]) if body.get("preview") else None
         except (DenError, ConnectionResetError, BrokenPipeError) as e:
             log(f"#{req_id} {info['caller']} POST /image {name} -> failed: {e}")
@@ -1894,7 +1894,7 @@ class Handler(BaseHTTPRequestHandler):
         )
         log(f"#{req_id} {info['caller']} POST /image {name} seed {params['seed']} -> {paths[0]} in {seconds}s")
         if body.get("bytes"):
-            # The images themselves instead of where they are here (ADR 0007).
+            # The images themselves instead of where they are here (ADR remote-brokers).
             result["images"] = [image.as_bytes(p) for p in paths]
             result["maps"] = [{"label": label, "base64": image.as_bytes(m)} for (label, _), m in zip(drawn, maps)]
             for key in ("paths", "copies"):
@@ -2027,7 +2027,7 @@ class Handler(BaseHTTPRequestHandler):
         client can show what was found before it is kept; the same request without it, a second
         drawing later, is what saves. The result is then {name?, width, height, aspect, images:
         [the map as bytes], seconds, waited_s, preview?}: there is no file to name, so the map
-        always comes back the way a "bytes" request gets its images (ADR 0007). A name is
+        always comes back the way a "bytes" request gets its images (ADR remote-brokers). A name is
         optional there, and one that is given is checked as a save would check it.
         """
         self._stream_request(self._with_inputs(self._save_pose), body)

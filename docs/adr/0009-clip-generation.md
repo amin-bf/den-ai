@@ -5,7 +5,7 @@ status: accepted (built and run on the GPU: Wan 2.2 5B, and LTX-Video 13B for ke
 # Clip generation: video workflows on the image side, as detached requests
 
 den makes images; it should make short **clips** too. ComfyUI already runs behind the broker
-as the image side (ADR 0003) and ships the video nodes (Wan, LTX), so a clip is a workflow
+as the image side (ADR image-generation) and ships the video nodes (Wan, LTX), so a clip is a workflow
 like any other: a graph file, a mapping in `config.toml`, availability from its model files.
 What differs is how long one takes and what it hands back. An image takes 2–50 s and streams
 its progress to a caller that stays connected; a clip takes minutes, longer than an MCP tool
@@ -29,7 +29,7 @@ call, a remote client's SSH channel or a phone's screen should be trusted to sta
   loses a running clip; its id then answers "not known here — the broker may have restarted".
   A finished clip is already a file and a log entry, so no queue file is kept. A result is
   held for a day after it finishes, long enough for a client elsewhere to fetch it as bytes
-  (ADR 0007), and then dropped; the file stays.
+  (ADR remote-brokers), and then dropped; the file stays.
 - **A running clip is let finish.** The batch cap only limits starting requests, so an LLM
   request that arrives during a clip waits for it, minutes if need be; cutting a clip off
   wastes more than the wait. The same holds for a release without `now`. Both say in their
@@ -68,7 +68,7 @@ call, a remote client's SSH channel or a phone's screen should be trusted to sta
 - **Claude sees a contact sheet, not the clip.** Its model can't watch a video, so every clip
   also gets four frames, first to last, picked and tiled 2x2 in the graph (`ImageFromBatch`,
   `ImageStitch`, `ImageScale`, built-in nodes), saved beside it as `<clip>-sheet.png`; a request
-  with `preview` gets it back as one small JPEG, the way an image's small copy is (ADR 0004).
+  with `preview` gets it back as one small JPEG, the way an image's small copy is (ADR releasing-the-machine).
   den itself never decodes video: it stays stdlib-only.
 - **Separate tools, shared code.** `generate_clip` and `get_clip` (asks for a clip by id, waits
   up to a minute by default, and cancels) in the MCP server, `den clip` in the CLI (watches by

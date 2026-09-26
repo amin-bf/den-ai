@@ -368,7 +368,7 @@ fun ImageScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
     model.resultSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
-/** A short video clip (ADR 0009): it takes minutes and goes on while the app is away. */
+/** A short video clip (ADR clip-generation): it takes minutes and goes on while the app is away. */
 @Composable
 private fun ClipPane(model: AppModel) {
     val clip = model.info?.optJSONObject("clip") ?: return
@@ -412,7 +412,7 @@ private fun ClipPane(model: AppModel) {
     } else {
         Text("Sound: none, this workflow makes silent clips", style = MaterialTheme.typography.bodySmall)
     }
-    // A voice-over: spoken first, then mixed over the clip's sound (ADR 0010). Only where speech runs.
+    // A voice-over: spoken first, then mixed over the clip's sound (ADR voice-overs). Only where speech runs.
     if (model.voiceInfo() != null) {
         val pickScript = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             if (uri != null) model.readPicked(uri)?.let(model::loadScript)
@@ -489,7 +489,7 @@ private fun ClipPane(model: AppModel) {
                 Text("File")
             }
         }
-        // Or describe one: the den designs a sample in that voice and keeps it (ADR 0010).
+        // Or describe one: the den designs a sample in that voice and keeps it (ADR voice-overs).
         if (model.canDesignVoices()) {
             var described by remember { mutableStateOf("") }
             OutlinedTextField(
@@ -638,7 +638,7 @@ private fun ConfirmedDelete(kind: String, name: String, delete: () -> Unit) {
 
 // --- 6. voices ---
 
-/** The den's voice library: each voice with what it is, to listen to or delete (ADR 0010). */
+/** The den's voice library: each voice with what it is, to listen to or delete (ADR voice-overs). */
 @Composable
 fun VoicesScreen(model: AppModel, modifier: Modifier) = Page(modifier) {
     Title("Voices")

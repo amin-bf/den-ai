@@ -7,7 +7,7 @@ the server sends notifications/tools/list_changed so clients refresh without a r
 With DEN_BROKER set it serves a den on another machine instead (registered by hand as den-<name>),
 as if den were only there: the tools, tasks, model, workflows and pose library come from that
 broker and the delegations are logged there. Only delegated files are read here, and each
-generated image is fetched here as well (ADR 0007).
+generated image is fetched here as well (ADR remote-brokers).
 """
 
 import json
@@ -243,7 +243,7 @@ def list_tools():
                 tools.append({"name": name, "description": spec["description"], "inputSchema": spec["parameters"]})
     if clip.unavailable(config, state) is None:
         tools += clip_tools(clip.request_spec(config, clip.available(config), clip.settings(config).get("default_workflow")))
-    # Speech runs on the image side (ADR 0010): listed when that side can run and speech is installed.
+    # Speech runs on the image side (ADR voice-overs): listed when that side can run and speech is installed.
     if image.unavailable(config, state) is None and speech.unavailable() is None:
         tools.append(voice_tool(speech.request_spec()))
         tools.append(list_voices_tool())
@@ -274,7 +274,7 @@ def remote_tools(name):
     clips = offered.get("clip")  # an older broker offers none
     if clips and clips["clip_on"] and clips["workflows"]:
         tools += clip_tools(clips, name)
-    voice = offered.get("voice")  # only where speech runs there (ADR 0010)
+    voice = offered.get("voice")  # only where speech runs there (ADR voice-overs)
     if voice and spec["image_on"]:
         tools.append(voice_tool(voice, name))
         tools.append(list_voices_tool(name))
@@ -285,7 +285,7 @@ def remote_tools(name):
 
 
 def live_tools():
-    """Claude's ears and voice through den (ADR 0011): a spoken conversation at this machine."""
+    """Claude's ears and voice through den (ADR live-conversation): a spoken conversation at this machine."""
     return [
         {
             "name": "live_start",

@@ -3,10 +3,10 @@
 A skill is `skills/<name>/SKILL.md` (Agent Skills format: a frontmatter name and description,
 then the text) with optional `references/*.md` behind it. On the machine itself they are
 linked into where agents look for skills; a client elsewhere asks the broker for them instead,
-and loads one when its user wants it (ADR 0007).
+and loads one when its user wants it (ADR remote-brokers).
 
 A skill teaches strategy; the options live in the tool description, which is built from
-config.toml and what's installed (ADR 0003). So a client that shows both is showing this
+config.toml and what's installed (ADR image-generation). So a client that shows both is showing this
 machine's own answer to "how do I use this well".
 """
 

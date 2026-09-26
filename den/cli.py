@@ -13,7 +13,7 @@ from den.core import DenError
 
 
 # With a remote, den's files are there: these act on this machine's broker or files, so they
-# are run on that machine instead (ADR 0007).
+# are run on that machine instead (ADR remote-brokers).
 THERE_ONLY = {
     "serve": "den serve runs the broker of the machine it's on",
     "model": "the model is picked on the machine that runs it",
@@ -272,7 +272,7 @@ def _print_image_step(msg):
 
 
 def cmd_live(args):
-    """den live on|off|status: the live conversation's switch (ADR 0011); Claude starts one itself."""
+    """den live on|off|status: the live conversation's switch (ADR live-conversation); Claude starts one itself."""
     config, _ = _load()
     client = core.broker(config, "cli")
     if args.action == "on":
@@ -306,7 +306,7 @@ def cmd_live(args):
 
 
 def cmd_standby(args):
-    """den standby on PHRASE | off | wait | status: listen for a wake word (ADR 0012)."""
+    """den standby on PHRASE | off | wait | status: listen for a wake word (ADR standby)."""
     config, _ = _load()
     client = core.broker(config, "cli")
     if args.action == "on":
@@ -339,13 +339,13 @@ def _standby_line(standby):
 
 
 def broker_client(where, client):
-    """The broker a voice command talks to: this machine's, or the remote's (ADR 0007)."""
+    """The broker a voice command talks to: this machine's, or the remote's (ADR remote-brokers)."""
     return remote.client("cli") if where else client
 
 
 def cmd_voice(args):
     config, _ = _load()
-    # On another machine's den (ADR 0007): the files here go as bytes and the track comes back here.
+    # On another machine's den (ADR remote-brokers): the files here go as bytes and the track comes back here.
     where = core.remote_name()
     client = None if where else core.broker(config, "cli")
     if args.add:
@@ -655,11 +655,11 @@ def cmd_image(args):
             "default": default,
         }
         # The pose tools and the saved names (for completions) sit apart from the image tool's
-        # description and schema, so a new saved pose doesn't change that tool (ADR 0003).
+        # description and schema, so a new saved pose doesn't change that tool (ADR image-generation).
         extra = {"poses": poses.names(), "pose_tools": image.pose_tool_specs(config)}
-        # The clip tool's spec rides along, so pi learns both from one call (ADR 0009).
+        # The clip tool's spec rides along, so pi learns both from one call (ADR clip-generation).
         extra["clip"] = clip.client_spec(config, state)
-        # And the voice tool's, where speech is installed (ADR 0010).
+        # And the voice tool's, where speech is installed (ADR voice-overs).
         if speech.unavailable() is None and unavailable is None:
             extra["voice"] = {
                 **speech.request_spec(),
@@ -741,7 +741,7 @@ def _image_remote(args):
         if clips:
             clips.pop("listing", None)
             offered["clip"] = clips
-        if info.get("voice") and offered.get("image_on"):  # only where speech runs there (ADR 0010)
+        if info.get("voice") and offered.get("image_on"):  # only where speech runs there (ADR voice-overs)
             offered["voice"] = info["voice"]
         print(json.dumps({"broker": remote.client("cli").base_url, **offered}))
         return

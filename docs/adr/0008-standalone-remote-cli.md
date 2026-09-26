@@ -4,7 +4,7 @@ status: proposed (not built; written down for later)
 
 # A den CLI that installs on its own, so pi on a phone can draw images through a remote
 
-pi runs on Android in Termux, and its LLM already works against a remote den (ADR 0007): the
+pi runs on Android in Termux, and its LLM already works against a remote den (ADR remote-brokers): the
 phone keeps a restricted tunnel key, opens `ssh -N -L 127.0.0.1:11435:127.0.0.1:11435 <host>`
 before pi starts, and pi's `models.json` points at that local end as it does on the broker's
 machine. Images don't work there. pi's extension (`integrations/pi/den.ts`) builds its
@@ -62,4 +62,4 @@ that lets it do the work.
 - `den image` gains a JSON-lines output that other callers can use too.
 - The extension has two paths to keep working: direct to a local broker, and through the CLI
   to a remote.
-- ADR 0007's "pi's image extension still local only" is closed by this once built.
+- ADR remote-brokers's "pi's image extension still local only" is closed by this once built.

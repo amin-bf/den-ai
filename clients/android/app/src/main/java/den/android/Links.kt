@@ -3,7 +3,7 @@ package den.android
 /**
  * What a message's text refers to: a web address, a file on this phone, or a file on the
  * broker's machine. Only the last one can't be opened here, because it is somewhere else
- * (ADR 0007: no path of either machine means anything on the other).
+ * (ADR remote-brokers: no path of either machine means anything on the other).
  */
 enum class LinkKind { URL, PHONE_FILE, OTHER_MACHINE_PATH }
 

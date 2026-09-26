@@ -4,7 +4,7 @@ status: accepted (broker, delegation and CLI built; pi unchanged)
 
 # The LLM runs on llama-server, and a swap keeps the conversation's cache
 
-Every image swap unloads the LLM (ADR 0002), and Ollama throws the model's cache away when it
+Every image swap unloads the LLM (ADR gpu-broker), and Ollama throws the model's cache away when it
 unloads. So after every image, the next chat turn loaded the model again and re-read the whole
 conversation before it could answer: on the 27B dense model pi moved to, 14 s of loading and
 26 s of re-reading 12.5k tokens, growing with the conversation up to a minute at 32k. With pi

@@ -13,13 +13,13 @@ default_mode = "on"
 base_url = "http://127.0.0.1:11435"
 # Batching when both sides want the GPU: while one side waits, the loaded side starts
 # new requests only until either cap is reached, counted from when the other side started
-# waiting. Running requests always finish before the swap (ADR 0002, ADR 0003).
+# waiting. Running requests always finish before the swap (ADR gpu-broker, ADR image-generation).
 batch_seconds = 120
 batch_requests = 4
 
 # The den on another machine, used as if it were the only one: `den --on NAME` or
-# DEN_BROKER=NAME (ADR 0007 has the MCP server too). Reach one through an SSH tunnel so its
-# broker stays on 127.0.0.1 there (ADR 0007). They belong to one machine, so name them in the
+# DEN_BROKER=NAME (ADR remote-brokers has the MCP server too). Reach one through an SSH tunnel so its
+# broker stays on 127.0.0.1 there (ADR remote-brokers). They belong to one machine, so name them in the
 # git-ignored config.local.toml, e.g.:
 #   [remotes.mac]
 #   base_url = "http://127.0.0.1:11436"   # the tunnel's local end
@@ -28,7 +28,7 @@ batch_requests = 4
 # an MoE split across GPU and RAM keeps several GB of RAM and generates on the CPU too, so
 # loading one while a test run or a build is going eats the resources that work needs. A side
 # that is already loaded keeps serving; only loading one that isn't is refused, with the reason
-# (ADR 0004). Set either to 0 to turn that limit off.
+# (ADR releasing-the-machine). Set either to 0 to turn that limit off.
 [limits]
 # Refuse to load while the 1-minute load average per CPU is above this.
 max_load_per_cpu = 0.8
@@ -48,14 +48,14 @@ backend = "llama-server"
 base_url = "http://127.0.0.1:11434"
 # The llama-server binary the broker starts on the selected model (a child process, listening
 # on a private UNIX socket), and extra arguments for it. An 8-bit conversation cache halves its
-# memory: 64k with it measured within 3% of 32k's speed (ADR 0005).
+# memory: 64k with it measured within 3% of 32k's speed (ADR llama-server).
 server = "llama-server"
 server_args = ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0"]
 # Load a model's vision projector when Ollama has one for it, so callers can send images
 # (pi's read tool, for one). About 1 GB more memory; false saves it.
 vision = true
 # How long llama-server stays loaded after the last request before the broker stops it. The
-# conversation's cache is saved when it stops and restored when it starts (ADR 0005).
+# conversation's cache is saved when it stops and restored when it starts (ADR llama-server).
 keep_alive = "30m"
 # Settings for whichever model is active. The model itself is not named here: pick one of
 # the models Ollama has downloaded with `den model`.
@@ -65,7 +65,7 @@ keep_alive = "30m"
 # cost almost nothing.
 num_ctx = 65536
 # Thinking was ~3.5x slower, used ~6K of the context and added small errors, without better
-# summaries (ADR 0001). It applies to den's own delegation; pi sets its own.
+# summaries (ADR delegation-policy). It applies to den's own delegation; pi sets its own.
 think = false
 
 [image]
@@ -339,7 +339,7 @@ family = "klein9b"
 description = "AniEdit: anime and illustration look; on the realism workflow it pulls the image toward anime."
 strength = { default = 1.0, recommended = [0.5, 1.0], allowed = [0, 1.5] }
 
-# Clips (ADR 0009): short videos from video workflows, made on the image side (ComfyUI) as
+# Clips (ADR clip-generation): short videos from video workflows, made on the image side (ComfyUI) as
 # detached requests. A clip workflow is workflows/<name>.json plus [clip.workflows.<name>], with
 # the image workflow keys description, note, prompt, negative, seed, size and settings, and:
 #   fps        "node.input" holding the frame rate (read, not set)
@@ -352,7 +352,7 @@ strength = { default = 1.0, recommended = [0.5, 1.0], allowed = [0, 1.5] }
 #              clips have a sound track, and sound = false takes the input and its decoder out
 #   lip_sync   { input = "node.input" that takes the audio latent, vae = the audio VAE node }, for
 #              a model that makes sound and picture together: a voice-over with sync is encoded
-#              there and kept fixed, and the picture is made to it (ADR 0010)
+#              there and kept fixed, and the picture is made to it (ADR voice-overs)
 #   family, model  as for image workflows: [image.loras] entries of that family are offered to
 #              the clip workflow too, chained after the node whose MODEL output they patch
 #   keyframes  [{ input = "node.input" or a list, at = 0 | "end" | "NN%" | "any", frame =

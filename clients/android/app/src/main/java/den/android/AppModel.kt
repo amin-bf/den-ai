@@ -33,7 +33,7 @@ class ClipKeyframe(val picked: Picked, at: String) {
     var at by mutableStateOf(at)
 }
 
-/** A keyframe's moment as /clip takes it (ADR 0009), from what the user typed. */
+/** A keyframe's moment as /clip takes it (ADR clip-generation), from what the user typed. */
 object ClipMoment {
     /** "start" or empty → 0, "end" → "end", "50%" → "50%", "2.5" or "2.5s" → 2.5 seconds. */
     fun parse(text: String): Any {
@@ -103,7 +103,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     var resultSummary by mutableStateOf<String?>(null)
     var imageError by mutableStateOf<String?>(null)
 
-    // --- clip (ADR 0009) ---
+    // --- clip (ADR clip-generation) ---
     var clipMode by mutableStateOf(false)
     var clipPrompt by mutableStateOf("")
     var clipNegative by mutableStateOf("")
@@ -722,7 +722,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         voiceNote = "script saved to Download/den/$name"
     }
 
-    /** The broker's voices and languages, or null where speech isn't installed (ADR 0010). */
+    /** The broker's voices and languages, or null where speech isn't installed (ADR voice-overs). */
     fun voiceInfo(): JSONObject? = info?.optJSONObject("voice")
 
     fun voiceNames(): List<String> =

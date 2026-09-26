@@ -97,7 +97,7 @@ class Reconnecting(
 
 /**
  * An SSH session to the broker's machine that reaches the broker's 127.0.0.1:[remotePort]
- * there (ADR 0007). Each request opens its own direct-tcpip channel, like `ssh -W`, and closes
+ * there (ADR remote-brokers). Each request opens its own direct-tcpip channel, like `ssh -W`, and closes
  * it after the response, so nothing listens on this device: no other app can use the session.
  * The key may do nothing else (restrict, permitopen, command=/usr/bin/false).
  */

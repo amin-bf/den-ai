@@ -5,7 +5,7 @@ description: Hold a live spoken conversation with the user at this machine throu
 
 # den-live: a spoken conversation
 
-den is your ears and your voice at the user's PC (ADR 0011): it hears them through the microphone
+den is your ears and your voice at the user's PC (ADR live-conversation): it hears them through the microphone
 (Whisper), speaks your words (Chatterbox, in a voice from the library), and cuts your voice off
 when they start talking over you. You stay the one who thinks. While live, den does nothing else:
 images, clips and the local model all wait.

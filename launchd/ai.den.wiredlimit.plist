@@ -11,7 +11,7 @@
   yesterday fails today for no visible reason; this daemon sets it again each boot.
 
   This is a system daemon and needs root, so den never installs it: setup.sh fills this in
-  and prints the two commands for you to run (ADR 0006).
+  and prints the two commands for you to run (ADR running-on-macos).
 -->
 <plist version="1.0">
 <dict>

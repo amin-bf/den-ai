@@ -4,7 +4,7 @@ status: accepted (CLI built and used; an Android client built and tested in the 
 
 # Using the den on another machine, through an SSH tunnel
 
-den runs on more than one machine now (ADR 0006), and a machine should be able to use the den on
+den runs on more than one machine now (ADR running-on-macos), and a machine should be able to use the den on
 another one — its LLM and its images — as if that were the only den: a **remote**. The broker
 listens only on `127.0.0.1` and has no authentication: anything that can reach its port can
 load models, cancel jobs and turn den off. It must not be opened to the network as it is.

@@ -48,7 +48,7 @@ class Stop {
 }
 
 /**
- * The broker's HTTP API as a client on another machine uses it (ADR 0007): only the routes
+ * The broker's HTTP API as a client on another machine uses it (ADR remote-brokers): only the routes
  * below, because the broker hands any path it doesn't know to the LLM, which loads a model.
  * No path of either machine crosses, only bytes: files go as their name and contents, input
  * images as their name and base64, and images come back as base64 ("bytes": true).
@@ -111,7 +111,7 @@ class DenClient(private val transport: Transport) {
 
     private var clipsChecked = false
 
-    /** An older broker would take /clip for an LLM request and load a model for it (ADR 0009). */
+    /** An older broker would take /clip for an LLM request and load a model for it (ADR clip-generation). */
     private fun requireClips() {
         if (!clipsChecked) {
             if (!status().has("clips")) {
@@ -133,7 +133,7 @@ class DenClient(private val transport: Transport) {
         return request("GET", "/clip?id=$id" + if (bytes) "&bytes=1" else "", null, 300_000)
     }
 
-    /** POST /voices {name, recording: {name, base64}, replace}: keep a recording as a voice (ADR 0010). */
+    /** POST /voices {name, recording: {name, base64}, replace}: keep a recording as a voice (ADR voice-overs). */
     fun addVoice(body: JSONObject): JSONObject = request("POST", "/voices", body, 120_000)
 
     fun cancelClip(id: Int): JSONObject {
@@ -198,7 +198,7 @@ class DenClient(private val transport: Transport) {
     fun pose(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/pose", request, null, onProgress)
 
-    /** POST /voice with bytes: speech in a voice, the track back as base64 "audio" (ADR 0010). */
+    /** POST /voice with bytes: speech in a voice, the track back as base64 "audio" (ADR voice-overs). */
     fun speak(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/voice", request, null, onProgress)
 
@@ -210,11 +210,11 @@ class DenClient(private val transport: Transport) {
     fun voice(name: String): JSONObject =
         request("GET", "/voices?name=" + java.net.URLEncoder.encode(name, "UTF-8") + "&bytes=1", null, 60_000)
 
-    /** POST /voices/design {name, description, language?}: a voice made from a description (ADR 0010). */
+    /** POST /voices/design {name, description, language?}: a voice made from a description (ADR voice-overs). */
     fun designVoice(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/voices/design", request, null, onProgress)
 
-    /** POST /transcribe {audio: {name, base64}}: what a recording says, as a timed SRT (ADR 0010). */
+    /** POST /transcribe {audio: {name, base64}}: what a recording says, as a timed SRT (ADR voice-overs). */
     fun transcribe(request: JSONObject, onProgress: (JSONObject) -> Unit): JSONObject =
         streamed("/transcribe", request, null, onProgress)
 

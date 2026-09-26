@@ -1,5 +1,5 @@
 ---
-status: accepted (LLM side built; the image side follows in ADR 0003; the LLM runs on llama-server since ADR 0005, with Ollama as the model store)
+status: accepted (LLM side built; the image side follows in ADR image-generation; the LLM runs on llama-server since ADR llama-server, with Ollama as the model store)
 ---
 
 # Put every GPU user behind one broker

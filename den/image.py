@@ -489,7 +489,7 @@ def pose_graph(config):
 
 # For Claude's MCP tools and pi's: the pose library's two tools, and the fixed pointer to them
 # in the image tool. The library's contents never go into a tool's text, which would change on
-# every save and make pi reread its conversation (ADR 0003).
+# every save and make pi reread its conversation (ADR image-generation).
 POSE_LIBRARY_NOTE = (
     "den keeps a pose library: call list_poses once for its table of contents (name, description, "
     "aspect) and keep it, then pass a saved pose as pose:NAME — as a reference, or as a control "
@@ -895,7 +895,7 @@ def client_spec(config, state):
         "edits": [n for n, wf in flows.items() if "edit" in wf],
         **spec,
         # The pose tools and the saved names (for completions) sit apart from the image tool's
-        # description and schema, so a new saved pose doesn't change that tool (ADR 0003).
+        # description and schema, so a new saved pose doesn't change that tool (ADR image-generation).
         "poses": poses.names(),
         "pose_tools": pose_tool_specs(config),
     }
@@ -1375,7 +1375,7 @@ def save_map(result, label, data):
 # A request can bring an input image as bytes instead of a path — a file object {"name",
 # "base64"} where a path would go (image, a reference, control.image, a pose photo) — and ask
 # with "bytes" for its results as bytes too. That is how a client on another machine works,
-# naming no path of either machine (ADR 0007). The broker writes such inputs into a private
+# naming no path of either machine (ADR remote-brokers). The broker writes such inputs into a private
 # folder for the request's length only, so the rest reads files as it always has.
 
 
@@ -1423,7 +1423,7 @@ def inputs_from_bytes(body, folder):
 
 
 def encoded(data):
-    """An image's bytes as a request that asked for "bytes" carries them (ADR 0007)."""
+    """An image's bytes as a request that asked for "bytes" carries them (ADR remote-brokers)."""
     return base64.b64encode(data).decode()
 
 

@@ -4,7 +4,7 @@ status: accepted (broker, CLI, Claude's tool and the pi extension built)
 
 # Image generation: ComfyUI behind the broker, workflows as files
 
-Image generation is the second **side** of the GPU broker (ADR 0002). Every image model
+Image generation is the second **side** of the GPU broker (ADR gpu-broker). Every image model
 tested fills the 12 GB card, and ComfyUI keeps 9–20 GB of RAM besides, so it can't share the
 machine with the LLM. The broker runs ComfyUI as a systemd user service, starts it on a swap to
 images and stops it on a swap back. Clients ask the broker (`POST /image`); none of them talks
@@ -39,7 +39,7 @@ to ComfyUI.
   `~/.local/state/den/images.jsonl`. Results carry paths, never image data, so Claude's and pi's
   models never receive the image. Paths in a request must be absolute. (One exception since:
   a caller may ask for a small re-encoded copy with `preview`, which Claude's MCP tool does so
-  its model can judge what it made — [ADR 0004](0004-releasing-the-machine.md). pi's model
+  its model can judge what it made — [ADR releasing-the-machine](0004-releasing-the-machine.md). pi's model
   still gets text only.)
 - **Lazy switch-back.** After an image ComfyUI stays up, since images tend to come in series.
   It stops when an LLM request needs the GPU, when a request sets `switch_back` and no other
@@ -48,7 +48,7 @@ to ComfyUI.
 - **The idle timeout checks ComfyUI's own queue** before stopping it, so a session in its web UI
   keeps it up.
 
-## Batching (refines ADR 0002)
+## Batching (refines ADR gpu-broker)
 
 The caps (`[broker] batch_seconds = 120`, `batch_requests = 4`) apply to both sides the same way:
 while the other side waits, the loaded side starts new requests only until one cap is reached.

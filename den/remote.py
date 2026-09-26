@@ -1,4 +1,4 @@
-"""A den on another machine, used from one that keeps none of den's files (ADR 0007).
+"""A den on another machine, used from one that keeps none of den's files (ADR remote-brokers).
 
 Everything den keeps stays with the broker: config, state, the tasks, the model, the workflows,
 the pose library and the logs. A client here reads only where that broker is (`[remotes.<name>]`)
@@ -85,7 +85,7 @@ _clips = {}
 
 
 def spoken_here(spec):
-    """A voice request with its files read here (ADR 0010): an .srt path becomes the script, and a
+    """A voice request with its files read here (ADR voice-overs): an .srt path becomes the script, and a
     recording's path goes as bytes. A voice name is from the library there."""
     spec = dict(spec)
     srt = spec.get("srt")
@@ -112,7 +112,7 @@ def transcribe(caller, recording, language=None):
 
 
 def speak(caller, request):
-    """Progress lines of a voice job there (ADR 0010), like BrokerClient.speak: the script and a
+    """Progress lines of a voice job there (ADR voice-overs), like BrokerClient.speak: the script and a
     recording are read here and sent as content; the track comes back as bytes and is saved here."""
     request = spoken_here(request)
     out = request.pop("out", None)
@@ -153,7 +153,7 @@ def remove_voice(caller, name):
 
 
 def generate_clip(caller, request):
-    """Start a clip there (a detached request, ADR 0009): keyframes are files here, sent as
+    """Start a clip there (a detached request, ADR clip-generation): keyframes are files here, sent as
     bytes. {id, estimate_s, summary}; get_clip fetches it once done."""
     request = dict(request)
     out = request.pop("out", None)

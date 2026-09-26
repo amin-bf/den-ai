@@ -4,7 +4,7 @@ import android.content.Context
 import android.media.MediaRecorder
 import java.io.File
 
-/** Records the microphone to an M4A file in the app's cache: a voice sample for the den (ADR 0010). */
+/** Records the microphone to an M4A file in the app's cache: a voice sample for the den (ADR voice-overs). */
 class Recorder(private val context: Context) {
     private var recorder: MediaRecorder? = null
     private var file: File? = null
